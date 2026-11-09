@@ -33,6 +33,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard browser.model.sessions.contains(where: { $0.recorder != nil }) else { return .terminateNow }
+        Task {
+            _ = await browser.finishRecordings()
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         unlink(Agweb.socketPath)
     }

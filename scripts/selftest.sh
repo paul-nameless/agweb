@@ -54,10 +54,14 @@ check "Page" -s alpha eval "() => { q.focus(); q.setSelectionRange(99, 99); inpu
 check "Page" -s alpha type ' world'
 check "Page" -s alpha type '!' --instant
 check '\["hello world!",7\]' -s alpha eval '[q.value, inputs]'
+check "must end in .mp4" -s alpha video-start "$dir"
+check "max-idle takes seconds" -s alpha video-start "$dir/v.mp4" --max-idle=soon
 check "recording alpha" -s alpha video-start "$dir/v.mp4"
 check "Page" -s alpha hover '#al'
+check "Page" -s alpha eval "async () => { for (const c of ['#fee', '#efe', '#eef']) { document.body.style.background = c; await new Promise(r => setTimeout(r, 150)) } }"
 check "already recording" -s alpha video-start "$dir/w.mp4"
-check "frames, " -s alpha video-stop
+check "[0-9] frames, " -s alpha video-stop
+LC_ALL=C grep -qa moov "$dir/v.mp4" || { echo "FAIL  the video has no index (moov)"; failures=$((failures + 1)); }
 check "not recording" -s alpha video-stop
 check "popup opened as tab 1" -s alpha click '#pop'
 check "1: (current)" -s alpha tab-list

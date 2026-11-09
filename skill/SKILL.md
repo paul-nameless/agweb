@@ -19,7 +19,7 @@ agweb -s=me type "text"                   # at the focused element, a character 
 agweb -s=me press Enter                   # Tab, Escape, ArrowDown, Shift+Tab, Meta+a
 agweb -s=me eval "() => document.title"   # runs in the page, prints JSON
 agweb -s=me screenshot out.png
-agweb -s=me video-start out.mp4         # then work as usual; video-stop prints the file
+agweb -s=me video-start out.mp4           # then work as usual; video-stop prints the file
 agweb -s=me tab-list | tab-new [url] | tab-select 1 | tab-close
 agweb -s=me upload e7 ./file.pdf          # file inputs; no dialog appears
 agweb -s=me console                       # page console since last call

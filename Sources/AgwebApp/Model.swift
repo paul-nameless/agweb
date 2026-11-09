@@ -45,6 +45,13 @@ final class Session: Identifiable {
     nonisolated var id: String { name }
     var current: Tab? { tabs.first { $0.id == currentID } }
 
+    /// Finishes the recording, if any, and describes the file.
+    func stopRecording() async throws -> String? {
+        guard let recorder else { return nil }
+        self.recorder = nil
+        return try await recorder.stop()
+    }
+
     init(name: String, profile: String, dataStore: WKWebsiteDataStore, console: WKScriptMessageHandler) {
         self.name = name
         self.profile = profile
@@ -321,8 +328,9 @@ func withTimeout<T>(_ seconds: Double, _ what: String, _ body: @escaping @MainAc
             } catch {
                 if !once.done { once.done = true; continuation.resume(throwing: error) }
             }
+            once.timer?.cancel()
         }
-        Task { @MainActor in
+        once.timer = Task { @MainActor in
             try? await Task.sleep(for: .seconds(seconds))
             if !once.done {
                 once.done = true
@@ -333,7 +341,10 @@ func withTimeout<T>(_ seconds: Double, _ what: String, _ body: @escaping @MainAc
     }
 }
 
-private final class Once { var done = false }
+private final class Once {
+    var done = false
+    var timer: Task<Void, Never>?
+}
 
 final class ConsoleSink: NSObject, WKScriptMessageHandler {
     weak var browser: Browser?

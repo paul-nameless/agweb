@@ -110,11 +110,24 @@ final class Browser {
         }
     }
 
-    func closeSession(_ session: Session) {
-        if let recorder = session.recorder {
-            session.recorder = nil
-            Task { _ = try? await recorder.stop() }
+    /// An MP4 without its index is unplayable, so quitting finishes every recording first.
+    func finishRecordings() async -> [String] {
+        var videos: [String] = []
+        for session in model.sessions { videos += await describeStop(session) }
+        return videos
+    }
+
+    private func describeStop(_ session: Session) async -> [String] {
+        do {
+            return try await session.stopRecording().map { [$0] } ?? []
+        } catch {
+            return ["### Video\nrecording failed: \(error)"]
         }
+    }
+
+    func closeSession(_ session: Session) {
+        // From the sidebar, outside the session's queue; an agent's close has already stopped it.
+        if session.recorder != nil { Task { _ = await describeStop(session) } }
         for tab in session.tabs { closeTab(tab) }
         session.contentController.removeScriptMessageHandler(forName: "agwebConsole")
         model.sessions.removeAll { $0 === session }
@@ -165,8 +178,9 @@ final class Browser {
             if model.sessions.isEmpty { return "no sessions" }
             return model.sessions.map { "- \($0.name) (profile \($0.profile), \($0.tabs.count) tabs)" }.joined(separator: "\n")
         case "quit":
+            let videos = await finishRecordings()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) }
-            return "bye"
+            return (["bye"] + videos).joined(separator: "\n")
         case "open":
             let session = try session(named: request.session, profile: request.options["profile"])
             session.busy = true
@@ -185,8 +199,9 @@ final class Browser {
 
         switch request.command {
         case "close":
+            let video = await describeStop(session)
             closeSession(session)
-            return "session \(session.name) closed"
+            return (["session \(session.name) closed"] + video).joined(separator: "\n")
         case "dialog":
             switch try arg(0, "accept|dismiss") {
             case "accept": session.acceptDialogs = true
@@ -220,9 +235,8 @@ final class Browser {
             recorder.start()
             return "recording \(session.name) to \(recorder.url.path)"
         case "video-stop":
-            guard let recorder = session.recorder else { throw Failure("not recording; run video-start") }
-            session.recorder = nil
-            return try await recorder.stop()
+            guard let video = try await session.stopRecording() else { throw Failure("not recording; run video-start") }
+            return video
         case "show":
             // Shows the agent's tab inside the window; never raises or activates the app.
             guard let tab = session.current else { throw Failure("session has no tabs") }
@@ -361,7 +375,8 @@ final class Browser {
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.04))) }
         try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: landed.viewport.height)
         tab.lastClick = (point, ProcessInfo.processInfo.systemUptime)
-        if !instant { await tab.session.recorder?.capture() }
+        // A short timeout: the press waits on this frame.
+        if !instant { await tab.session.recorder?.capture(timeout: 0.3) }
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.095, 0.015))) }
         try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: landed.viewport.height)
     }
