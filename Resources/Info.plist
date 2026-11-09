@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>dev.playground.wkbrowser</string>
+    <string>dev.playground.agweb</string>
     <key>CFBundleName</key>
-    <string>WKBrowser</string>
+    <string>agweb</string>
     <key>CFBundleExecutable</key>
-    <string>WKBrowser</string>
+    <string>agweb</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

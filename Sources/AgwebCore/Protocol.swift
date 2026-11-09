@@ -25,19 +25,19 @@ public struct Response: Codable, Sendable {
     }
 }
 
-public enum WKB {
-    public static let bundleIdentifier = "dev.playground.wkbrowser"
+public enum Agweb {
+    public static let bundleIdentifier = "dev.playground.agweb"
 
-    /// True when WKB_SOCKET points somewhere other than the default, i.e. a separate instance is wanted.
+    /// True when AGWEB_SOCKET points somewhere other than the default, i.e. a separate instance is wanted.
     public static var customSocket: Bool {
-        !(ProcessInfo.processInfo.environment["WKB_SOCKET"] ?? "").isEmpty
+        !(ProcessInfo.processInfo.environment["AGWEB_SOCKET"] ?? "").isEmpty
     }
 
     public static var socketPath: String {
-        if let path = ProcessInfo.processInfo.environment["WKB_SOCKET"], !path.isEmpty { return path }
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/wkbrowser")
+        if let path = ProcessInfo.processInfo.environment["AGWEB_SOCKET"], !path.isEmpty { return path }
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/agweb")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("wkb.sock").path
+        return dir.appendingPathComponent("agweb.sock").path
     }
 }
 

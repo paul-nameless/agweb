@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "wkbrowser",
+    name: "agweb",
     platforms: [.macOS(.v14)],
     targets: [
-        .target(name: "WKBCore"),
-        .executableTarget(name: "WKBrowser", dependencies: ["WKBCore"]),
-        .executableTarget(name: "wkb", dependencies: ["WKBCore"]),
+        .target(name: "AgwebCore"),
+        .executableTarget(name: "AgwebApp", dependencies: ["AgwebCore"]),
+        .executableTarget(name: "agweb", dependencies: ["AgwebCore"]),
     ]
 )

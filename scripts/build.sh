@@ -1,22 +1,24 @@
 #!/bin/sh
-# Builds build/WKBrowser.app with the wkb CLI inside it, and links bin/wkb to that CLI.
+# Builds build/agweb.app with the agweb CLI inside it, and links bin/agweb to that CLI.
 set -eu
 cd "$(dirname "$0")/.."
 export CC=/usr/bin/clang
-app=build/WKBrowser.app
+app=build/agweb.app
 
 # Overwriting a running signed binary gets the process killed (Code Signature Invalid) with all its sessions.
-if pgrep -f "$PWD/$app/Contents/MacOS/WKBrowser" >/dev/null; then
-    echo "WKBrowser is running from $app; stop it first: bin/wkb quit" >&2
+if pgrep -f "$PWD/$app/Contents/MacOS/agweb" >/dev/null; then
+    echo "agweb is running from $app; stop it first: bin/agweb quit" >&2
     exit 1
 fi
 
 swift build -c release
 bin=$(swift build -c release --show-bin-path)
-mkdir -p "$app/Contents/MacOS" bin
+# The app and the CLI share a name, so the CLI lives in Helpers.
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" bin
 cp -f Resources/Info.plist "$app/Contents/Info.plist"
-cp -f "$bin/WKBrowser" "$bin/wkb" "$app/Contents/MacOS/"
-codesign --force --sign - "$app/Contents/MacOS/wkb"
+cp -f "$bin/AgwebApp" "$app/Contents/MacOS/agweb"
+cp -f "$bin/agweb" "$app/Contents/Helpers/agweb"
+codesign --force --sign - "$app/Contents/Helpers/agweb"
 codesign --force --sign - "$app"
-ln -sf "$PWD/$app/Contents/MacOS/wkb" bin/wkb
-echo "built $app; CLI: $PWD/bin/wkb"
+ln -sf "$PWD/$app/Contents/Helpers/agweb" bin/agweb
+echo "built $app; CLI: $PWD/bin/agweb"

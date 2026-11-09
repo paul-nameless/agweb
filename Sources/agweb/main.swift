@@ -1,10 +1,10 @@
 import AppKit
-import WKBCore
+import AgwebCore
 
 let usage = """
-wkb: drive WKBrowser like playwright-cli. The browser never activates or raises its window.
+agweb: drive agweb like playwright-cli. The browser never activates or raises its window.
 
-usage: wkb [-s <session>] <command> [args] [--options]
+usage: agweb [-s <session>] <command> [args] [--options]
 
   open [url] [--profile=NAME]   start a session (default profile = session name; same profile = shared logins;
                                 --profile=ephemeral keeps nothing and shares nothing)
@@ -20,19 +20,19 @@ usage: wkb [-s <session>] <command> [args] [--options]
   press <key>                   native key press: Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a
   upload <ref|css> <file...>    click a file input and answer its chooser with the files
   eval <js>                     expression or () => ... in the page; prints JSON
-  screenshot [path]             PNG of the viewport (default .wkb/page-<time>.png)
+  screenshot [path]             PNG of the viewport (default .agweb/page-<time>.png)
   console                       page console messages since last call
   dialog accept|dismiss         how confirm() and prompt() are answered (default dismiss)
   tab-list | tab-new [url] | tab-select <i> | tab-close [i]
   show                          display this session's tab in the window (no activation)
   close                         close the session
   list                          sessions
-  quit                          stop WKBrowser
+  quit                          stop agweb
 
 --instant                       click, upload, hover, mousemove and type act at once instead of at human speed
-session: -s NAME, -s=NAME, --session=NAME or $WKB_SESSION; default "default"
-`--` ends options, so text that starts with dashes can be passed: wkb type -- --verbose
-env: WKB_SOCKET runs a separate instance on that socket; WKB_APP points at WKBrowser.app
+session: -s NAME, -s=NAME, --session=NAME or $AGWEB_SESSION; default "default"
+`--` ends options, so text that starts with dashes can be passed: agweb type -- --verbose
+env: AGWEB_SOCKET runs a separate instance on that socket; AGWEB_APP points at agweb.app
 """
 
 func fail(_ message: String) -> Never {
@@ -40,7 +40,7 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
-var session = ProcessInfo.processInfo.environment["WKB_SESSION"] ?? "default"
+var session = ProcessInfo.processInfo.environment["AGWEB_SESSION"] ?? "default"
 var options: [String: String] = [:]
 var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
@@ -59,7 +59,7 @@ while let arg = input.popFirst() {
         options["help"] = ""
     } else if arg.hasPrefix("--"), case let parts = arg.dropFirst(2).split(separator: "=", maxSplits: 1).map(String.init),
               let name = parts.first, flags.contains(name) || valued.contains(name) {
-        // Only known options are taken, so `wkb fill e3 --x` still types "--x".
+        // Only known options are taken, so `agweb fill e3 --x` still types "--x".
         if valued.contains(name) && parts.count == 1 {
             guard let value = input.popFirst() else { fail("--\(name) needs a value") }
             options[name] = value
@@ -86,7 +86,7 @@ func absolute(_ path: String) -> String {
 switch command {
 case "screenshot":
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-    args = [absolute(args.first ?? ".wkb/page-\(stamp).png")]
+    args = [absolute(args.first ?? ".agweb/page-\(stamp).png")]
 case "upload" where args.count > 1:
     args = [args[0]] + args.dropFirst().map(absolute)
 case "open", "goto", "tab-new":
@@ -96,11 +96,11 @@ default:
     break
 }
 
-let socket = WKB.socketPath
+let socket = Agweb.socketPath
 
 /// The app bundle this CLI ships in, found through any symlink on PATH.
 func appBundle() -> String? {
-    if let app = ProcessInfo.processInfo.environment["WKB_APP"] { return app }
+    if let app = ProcessInfo.processInfo.environment["AGWEB_APP"] { return app }
     guard let exe = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return nil }
     let app = exe.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     return app.pathExtension == "app" ? app.path : nil
@@ -117,23 +117,23 @@ func waitForSocket(_ seconds: Double) -> Bool {
 
 if !isServing(socket) {
     if ["list", "quit", "close"].contains(command) {
-        print("WKBrowser is not running")
+        print("agweb is not running")
         exit(0)
     }
-    let running = !NSRunningApplication.runningApplications(withBundleIdentifier: WKB.bundleIdentifier).isEmpty
-    if running && !WKB.customSocket {
+    let running = !NSRunningApplication.runningApplications(withBundleIdentifier: Agweb.bundleIdentifier).isEmpty
+    if running && !Agweb.customSocket {
         // Starting up, or serving a different socket. Never `open` it again: that reopens a running app.
-        if !waitForSocket(15) { fail("WKBrowser is running but not serving \(socket); is WKB_SOCKET set differently?") }
+        if !waitForSocket(15) { fail("agweb is running but not serving \(socket); is AGWEB_SOCKET set differently?") }
     } else {
-        guard let app = appBundle() else { fail("WKBrowser is not running and its app bundle was not found; set WKB_APP") }
+        guard let app = appBundle() else { fail("agweb is not running and its app bundle was not found; set AGWEB_APP") }
         // -g: LaunchServices must not activate the app, or the launch itself steals focus.
-        // -n with WKB_SOCKET: a separate instance on its own socket, next to the default one.
+        // -n with AGWEB_SOCKET: a separate instance on its own socket, next to the default one.
         let launch = Process()
         launch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        launch.arguments = WKB.customSocket ? ["-g", "-n", "--env", "WKB_SOCKET=\(socket)", "-a", app] : ["-g", "-a", app]
+        launch.arguments = Agweb.customSocket ? ["-g", "-n", "--env", "AGWEB_SOCKET=\(socket)", "-a", app] : ["-g", "-a", app]
         try launch.run()
         launch.waitUntilExit()
-        if !waitForSocket(15) { fail("WKBrowser did not start listening on \(socket)") }
+        if !waitForSocket(15) { fail("agweb did not start listening on \(socket)") }
     }
 }
 
@@ -141,7 +141,7 @@ if !isServing(socket) {
 // Typing at a person's pace averages about 0.25 s a key, so long text gets longer.
 let timeout = 120 + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
 guard let response = sendRequest(Request(session: session, command: command, args: args, options: options), path: socket, timeout: timeout) else {
-    fail("no response from WKBrowser on \(socket)")
+    fail("no response from agweb on \(socket)")
 }
 if response.ok {
     print(response.output)

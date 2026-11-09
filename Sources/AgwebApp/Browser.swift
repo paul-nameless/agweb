@@ -1,6 +1,6 @@
 import AppKit
 import WebKit
-import WKBCore
+import AgwebCore
 
 @MainActor
 final class Browser {
@@ -112,7 +112,7 @@ final class Browser {
 
     func closeSession(_ session: Session) {
         for tab in session.tabs { closeTab(tab) }
-        session.contentController.removeScriptMessageHandler(forName: "wkbConsole")
+        session.contentController.removeScriptMessageHandler(forName: "agwebConsole")
         model.sessions.removeAll { $0 === session }
     }
 
@@ -175,7 +175,7 @@ final class Browser {
         }
 
         guard let session = model.sessions.first(where: { $0.name == request.session }) else {
-            throw Failure("no session '\(request.session)'; start it with: wkb -s=\(request.session) open [url]")
+            throw Failure("no session '\(request.session)'; start it with: agweb -s=\(request.session) open [url]")
         }
         session.busy = true
 
@@ -187,7 +187,7 @@ final class Browser {
             switch try arg(0, "accept|dismiss") {
             case "accept": session.acceptDialogs = true
             case "dismiss": session.acceptDialogs = false
-            default: throw Failure("use: wkb dialog accept|dismiss")
+            default: throw Failure("use: agweb dialog accept|dismiss")
             }
             return "confirm() and prompt() will be \(session.acceptDialogs ? "accepted" : "dismissed")"
         case "tab-list":
@@ -244,7 +244,7 @@ final class Browser {
             let size = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] ?? [:]
             let viewport = CGSize(width: size["viewportWidth"] ?? 0, height: size["viewportHeight"] ?? 0)
             guard let x = Double(try arg(0, "x")), let y = Double(try arg(1, "y")), (0...viewport.width).contains(x), (0...viewport.height).contains(y) else {
-                throw Failure("use: wkb mousemove <x> <y> with a point inside the \(Int(viewport.width))x\(Int(viewport.height)) viewport")
+                throw Failure("use: agweb mousemove <x> <y> with a point inside the \(Int(viewport.width))x\(Int(viewport.height)) viewport")
             }
             try await movePointer(tab, to: CGPoint(x: x, y: y), targetSize: 44, viewport: viewport, instant: instant)
         case "upload":
@@ -290,7 +290,7 @@ final class Browser {
             let result = try await tab.call(PageScripts.evaluate(try arg(0, "code")), world: .page)
             return "### Result\n\(result)\n" + describe(tab)
         case "screenshot":
-            if windowHidden { throw Failure("the window is closed or minimized, so pages are not rendering; run: wkb show") }
+            if windowHidden { throw Failure("the window is closed or minimized, so pages are not rendering; run: agweb show") }
             let path = try arg(0, "path")
             let image = try await tab.screenshot()
             guard let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
@@ -304,7 +304,7 @@ final class Browser {
             tab.console.removeAll()
             return lines.isEmpty ? "no console messages" : lines.joined(separator: "\n")
         default:
-            throw Failure("unknown command '\(request.command)'; run wkb help")
+            throw Failure("unknown command '\(request.command)'; run agweb help")
         }
         return describe(tab)
     }
@@ -327,7 +327,7 @@ final class Browser {
         }
         let spot = try await locate(tab, target)
         if Self.pickerKinds.contains(spot.kind) {
-            throw Failure("\(spot.kind) opens a native picker; use: wkb fill \(target) <value>")
+            throw Failure("\(spot.kind) opens a native picker; use: agweb fill \(target) <value>")
         }
         // Hidden file inputs styled away to nothing have no point to click; a script click still counts as
         // a user gesture in WKWebView.
@@ -403,14 +403,14 @@ final class Browser {
 
     private func describe(_ tab: Tab) -> String {
         var out = "### Page\n- URL: \(tab.webView.url?.absoluteString ?? "about:blank")\n- Title: \(tab.webView.title ?? "")"
-        if windowHidden { out += "\n- Note: the window is closed or minimized; pages may pause (wkb show)" }
+        if windowHidden { out += "\n- Note: the window is closed or minimized; pages may pause (agweb show)" }
         if tab.session.tabs.count > 1 { out += "\n" + tabList(tab.session) }
         if !tab.events.isEmpty {
             out += "\n### Events\n" + tab.events.map { "- \($0)" }.joined(separator: "\n")
             tab.events.removeAll()
         }
         let errors = tab.console.filter { $0.hasPrefix("error") || $0.hasPrefix("pageerror") }.count
-        if errors > 0 { out += "\n- \(errors) console errors (wkb console)" }
+        if errors > 0 { out += "\n- \(errors) console errors (agweb console)" }
         return out
     }
 

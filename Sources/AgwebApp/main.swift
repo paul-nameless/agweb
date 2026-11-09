@@ -1,5 +1,5 @@
 import AppKit
-import WKBCore
+import AgwebCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -7,9 +7,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var server: SocketServer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let path = WKB.socketPath
+        let path = Agweb.socketPath
         if isServing(path) {
-            FileHandle.standardError.write(Data("WKBrowser is already serving \(path)\n".utf8))
+            FileHandle.standardError.write(Data("agweb is already serving \(path)\n".utf8))
             exit(0)
         }
         let browser = browser
@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
-        unlink(WKB.socketPath)
+        unlink(Agweb.socketPath)
     }
 }
 
@@ -56,11 +56,11 @@ private func makeMainMenu(target: MainWindow) -> NSMenu {
         return item
     }
 
-    submenu("WKBrowser", [
-        item("Hide WKBrowser", #selector(NSApplication.hide(_:)), "h"),
+    submenu("agweb", [
+        item("Hide agweb", #selector(NSApplication.hide(_:)), "h"),
         item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
         .separator(),
-        item("Quit WKBrowser", #selector(NSApplication.terminate(_:)), "q"),
+        item("Quit agweb", #selector(NSApplication.terminate(_:)), "q"),
     ])
     submenu("File", [
         item("New Tab", #selector(MainWindow.newTab(_:)), "t", to: target),

@@ -1,8 +1,8 @@
-// Function bodies for callAsyncJavaScript. They run in the isolated "wkb" content world, which shares the DOM
-// with the page but not its globals, so the page cannot see or clobber window.__wkb.
+// Function bodies for callAsyncJavaScript. They run in the isolated "agweb" content world, which shares the DOM
+// with the page but not its globals, so the page cannot see or clobber window.__agweb.
 public enum PageScripts {
     public static let find = """
-    const W = window.__wkb || (window.__wkb = { refs: new Map() });
+    const W = window.__agweb || (window.__agweb = { refs: new Map() });
     const find = (target) => {
       if (/^e\\d+$/.test(target)) {
         const el = W.refs.get(target);
@@ -185,7 +185,7 @@ public enum PageScripts {
         try { return JSON.stringify(a) ?? String(a); } catch { return String(a); }
       };
       const post = (level, args) => {
-        try { window.webkit.messageHandlers.wkbConsole.postMessage(`${level}: ${args.map(describe).join(' ')}`); } catch {}
+        try { window.webkit.messageHandlers.agwebConsole.postMessage(`${level}: ${args.map(describe).join(' ')}`); } catch {}
       };
       for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
         const original = console[level];

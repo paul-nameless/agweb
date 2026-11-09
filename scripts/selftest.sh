@@ -1,36 +1,36 @@
 #!/bin/sh
-# Every verb, two sessions in parallel, against a local page, in a separate WKBrowser instance on its own
-# socket, so the browser you use is untouched. Keep another app frontmost while it runs: WKBrowser should
+# Every verb, two sessions in parallel, against a local page, in a separate agweb instance on its own
+# socket, so the browser you use is untouched. Keep another app frontmost while it runs: agweb should
 # never come forward. Exits non-zero if any check fails.
 set -u
 cd "$(dirname "$0")"
-dir=$(mktemp -d /tmp/wkb-test.XXXXXX)
-export WKB_SOCKET="$dir/s.sock"
-wkb="$PWD/../bin/wkb"
+dir=$(mktemp -d /tmp/agweb-test.XXXXXX)
+export AGWEB_SOCKET="$dir/s.sock"
+agweb="$PWD/../bin/agweb"
 cp testpage.html "$dir/index.html"
 
 port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 (cd "$dir" && exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1 >"$dir/server.log" 2>&1) &
 server=$!
-trap '"$wkb" quit >/dev/null 2>&1; kill $server 2>/dev/null; rm -r "$dir"' EXIT
+trap '"$agweb" quit >/dev/null 2>&1; kill $server 2>/dev/null; rm -r "$dir"' EXIT
 for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 0.3; done
 u="http://127.0.0.1:$port/index.html"
 
 failures=0
-# check <pattern> <wkb args...>: runs the command and requires its output (stdout+stderr) to match.
+# check <pattern> <agweb args...>: runs the command and requires its output (stdout+stderr) to match.
 check() {
     pattern=$1; shift
-    out=$("$wkb" "$@" 2>&1)
+    out=$("$agweb" "$@" 2>&1)
     if printf '%s' "$out" | grep -q -- "$pattern"; then
-        printf 'ok    wkb %s\n' "$*"
+        printf 'ok    agweb %s\n' "$*"
     else
-        printf 'FAIL  wkb %s\n      expected: %s\n%s\n' "$*" "$pattern" "$(printf '%s' "$out" | sed 's/^/      | /')"
+        printf 'FAIL  agweb %s\n      expected: %s\n%s\n' "$*" "$pattern" "$(printf '%s' "$out" | sed 's/^/      | /')"
         failures=$((failures + 1))
     fi
 }
 
-check "Title: wkb test" -s alpha open "$u" --profile=selftest-alpha
-check "Title: wkb test" -s beta open "$u?beta" --profile=selftest-shared
+check "Title: agweb test" -s alpha open "$u" --profile=selftest-alpha
+check "Title: agweb test" -s beta open "$u?beta" --profile=selftest-shared
 check 'button "Press me" \[ref=e2\]' -s alpha snapshot
 check 'option "Two"' -s alpha snapshot
 check "Page" -s alpha click e2
@@ -67,8 +67,8 @@ check '42' -s alpha eval '40 + 2 // trailing comment'
 check "already uses profile" -s alpha open --profile=other
 
 echo "== both sessions at once"
-"$wkb" -s alpha tab-new "$u?parallel-a" >/dev/null & a=$!
-"$wkb" -s beta goto "$u?parallel-b" >/dev/null & b=$!
+"$agweb" -s alpha tab-new "$u?parallel-a" >/dev/null & a=$!
+"$agweb" -s beta goto "$u?parallel-b" >/dev/null & b=$!
 wait $a $b
 check "parallel-a" -s alpha tab-list
 check "parallel-b" -s beta tab-list

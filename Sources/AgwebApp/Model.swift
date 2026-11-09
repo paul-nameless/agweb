@@ -2,7 +2,7 @@ import AppKit
 import CryptoKit
 import Observation
 import WebKit
-import WKBCore
+import AgwebCore
 
 struct Failure: Error, CustomStringConvertible {
     let description: String
@@ -51,7 +51,7 @@ final class Session: Identifiable {
         // One controller per session: popups get a copy of the opener's configuration, and registering
         // a message handler twice on a shared controller throws.
         contentController.addUserScript(WKUserScript(source: PageScripts.consoleHook, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        contentController.add(console, name: "wkbConsole")
+        contentController.add(console, name: "agwebConsole")
     }
 
     func makeConfiguration() -> WKWebViewConfiguration {
@@ -75,7 +75,7 @@ final class Session: Identifiable {
     /// "ephemeral" gets a fresh in-memory store every time.
     static func dataStore(for profile: String) -> WKWebsiteDataStore {
         if profile == "ephemeral" { return .nonPersistent() }
-        let digest = Array(SHA256.hash(data: Data("wkbrowser.profile.\(profile)".utf8)).prefix(16))
+        let digest = Array(SHA256.hash(data: Data("agweb.profile.\(profile)".utf8)).prefix(16))
         let uuid = digest.withUnsafeBufferPointer { NSUUID(uuidBytes: $0.baseAddress!) as UUID }
         return WKWebsiteDataStore(forIdentifier: uuid)
     }
@@ -83,7 +83,7 @@ final class Session: Identifiable {
 
 @Observable @MainActor
 final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
-    static let agentWorld = WKContentWorld.world(name: "wkb")
+    static let agentWorld = WKContentWorld.world(name: "agweb")
 
     nonisolated let id: Int
     var title = ""
@@ -261,7 +261,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         }
         // Only a person using the window gets a real panel; an agent's stray chooser is cancelled.
         guard !session.busy, NSApp.isActive, let window = webView.window else {
-            events.append("file chooser cancelled (use: wkb upload <ref> <file>)")
+            events.append("file chooser cancelled (use: agweb upload <ref> <file>)")
             completionHandler(nil)
             return
         }

@@ -11,7 +11,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     let model: BrowserModel
     let urlField = NSTextField()
     private let container = NSView()
-    private let placeholder = NSTextField(labelWithString: "No tabs yet.\nAgents: wkb -s=<agent> open <url>    You: ⌘T")
+    private let placeholder = NSTextField(labelWithString: "No tabs yet.\nAgents: agweb -s=<agent> open <url>    You: ⌘T")
 
     init(model: BrowserModel) {
         self.model = model
@@ -37,12 +37,12 @@ final class MainWindow: NSObject, NSWindowDelegate {
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         window.contentViewController = split
-        window.title = "WKBrowser"
+        window.title = "agweb"
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 1280, height: 820))
         window.center()
-        window.setFrameAutosaveName("WKBrowserMain")
+        window.setFrameAutosaveName("agwebMain")
         super.init()
         window.delegate = self
         installToolbar()
