@@ -117,7 +117,11 @@ public enum PageScripts {
     const hit = el.getRootNode().elementFromPoint?.(x, y) ?? document.elementFromPoint(x, y);
     const covered = hit && hit !== el && !el.contains(hit) && !hit.contains(el) ? hit.tagName.toLowerCase() : null;
     const kind = el.tagName === 'SELECT' ? 'select' : el.tagName === 'INPUT' ? (el.getAttribute('type') || 'text').toLowerCase() : el.tagName.toLowerCase();
-    return JSON.stringify({ x, y, covered, kind, width: r.width, height: r.height, viewportHeight: innerHeight });
+    return JSON.stringify({ x, y, covered, kind, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
+    """
+
+    public static let viewport = """
+    return JSON.stringify({ viewportWidth: innerWidth, viewportHeight: innerHeight });
     """
 
     public static let jsClick = find + """

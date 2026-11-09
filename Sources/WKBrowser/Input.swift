@@ -6,22 +6,30 @@ import WebKit
 /// stacked on top nor activate the app.
 @MainActor
 enum NativeInput {
-    static func click(_ webView: WKWebView, cssPoint: CGPoint, viewportHeight: CGFloat) throws {
+    /// WKWebView has no mouseMoved: of its own (real moves come through its tracking area), so this uses the
+    /// testing SPI that feeds a move into the same path. Pages only see it because AgentWindow reports key.
+    static func move(_ webView: WKWebView, to cssPoint: CGPoint, viewportHeight: CGFloat) throws {
+        let simulate = NSSelectorFromString("_simulateMouseMove:")
+        guard webView.responds(to: simulate) else { throw Failure("this WebKit has no way to move the pointer; use --instant or click") }
+        typealias Send = @convention(c) (AnyObject, Selector, NSEvent) -> Void
+        unsafeBitCast(webView.method(for: simulate), to: Send.self)(webView, simulate, try mouse(.mouseMoved, webView, cssPoint, viewportHeight))
+    }
+
+    static func button(_ webView: WKWebView, down: Bool, at cssPoint: CGPoint, viewportHeight: CGFloat) throws {
+        let event = try mouse(down ? .leftMouseDown : .leftMouseUp, webView, cssPoint, viewportHeight)
+        if down { webView.mouseDown(with: event) } else { webView.mouseUp(with: event) }
+    }
+
+    private static func mouse(_ type: NSEvent.EventType, _ webView: WKWebView, _ cssPoint: CGPoint, _ viewportHeight: CGFloat) throws -> NSEvent {
         guard let window = webView.window else { throw Failure("tab has no window to receive input") }
         let scale = webView.pageZoom * webView.magnification
         // Under a full-size content view WebKit insets the page below the toolbar; the viewport starts there.
         let topInset = max(0, webView.bounds.height - viewportHeight * scale)
         var point = CGPoint(x: cssPoint.x * scale, y: cssPoint.y * scale + topInset)
         if !webView.isFlipped { point.y = webView.bounds.height - point.y }
-        let location = webView.convert(point, to: nil)
-        let now = ProcessInfo.processInfo.systemUptime
-        func mouse(_ type: NSEvent.EventType, pressure: Float) -> NSEvent {
-            NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: now, windowNumber: window.windowNumber,
-                               context: nil, eventNumber: 0, clickCount: type == .mouseMoved ? 0 : 1, pressure: pressure)!
-        }
-        webView.mouseMoved(with: mouse(.mouseMoved, pressure: 0))
-        webView.mouseDown(with: mouse(.leftMouseDown, pressure: 1))
-        webView.mouseUp(with: mouse(.leftMouseUp, pressure: 0))
+        return NSEvent.mouseEvent(with: type, location: webView.convert(point, to: nil), modifierFlags: [],
+                                  timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                                  eventNumber: 0, clickCount: type == .mouseMoved ? 0 : 1, pressure: type == .leftMouseDown ? 1 : 0)!
     }
 
     /// Key events go to the first responder's text input path, so the tab must be first responder while

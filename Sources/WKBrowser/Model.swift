@@ -96,6 +96,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     @ObservationIgnored var events: [String] = []
     @ObservationIgnored var pendingUpload: [URL]?
     @ObservationIgnored var chooserOpened = false
+    /// Where the agent's pointer last went, in CSS pixels of the viewport; nil until the first move.
+    @ObservationIgnored var pointer: CGPoint?
+    @ObservationIgnored var motion = Motion()
     @ObservationIgnored private var loadWaiter: CheckedContinuation<Void, Error>?
     @ObservationIgnored private var loadToken: UUID?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []

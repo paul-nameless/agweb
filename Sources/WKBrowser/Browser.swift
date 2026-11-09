@@ -217,6 +217,7 @@ final class Browser {
 
         guard let tab = session.current else { throw Failure("session has no tabs; run tab-new") }
         let webView = tab.webView
+        let instant = request.options["instant"] != nil
 
         switch request.command {
         case "goto":
@@ -234,8 +235,16 @@ final class Browser {
             let tree = try await tab.call(PageScripts.snapshot)
             return describe(tab) + "\n### Snapshot\n" + tree
         case "click":
-            try await click(tab, target: try arg(0, "ref"), js: request.options["js"] != nil, forUpload: false)
+            try await click(tab, target: try arg(0, "ref"), js: request.options["js"] != nil, forUpload: false, instant: instant)
             await tab.settle()
+        case "hover":
+            try await hover(tab, target: try arg(0, "ref"), instant: instant)
+        case "mousemove":
+            guard let x = Double(try arg(0, "x")), let y = Double(try arg(1, "y")) else { throw Failure("use: wkb mousemove <x> <y>") }
+            let json = try await tab.call(PageScripts.viewport)
+            let size = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] ?? [:]
+            let viewport = CGSize(width: size["viewportWidth"] ?? 0, height: size["viewportHeight"] ?? 0)
+            try await movePointer(tab, to: CGPoint(x: x, y: y), targetSize: 44, viewport: viewport, instant: instant)
         case "upload":
             let target = try arg(0, "ref")
             guard args.count > 1 else { throw Failure("missing <file>") }
@@ -243,7 +252,7 @@ final class Browser {
             tab.chooserOpened = false
             // Whatever happens, the files must not linger for the next chooser on this tab.
             defer { tab.pendingUpload = nil }
-            try await click(tab, target: target, js: request.options["js"] != nil, forUpload: true)
+            try await click(tab, target: target, js: request.options["js"] != nil, forUpload: true, instant: instant)
             for _ in 0..<30 where !tab.chooserOpened { try await Task.sleep(for: .milliseconds(100)) }
             guard tab.chooserOpened else {
                 throw Failure("no file chooser opened; target the <input type=file> or the button that opens it")
@@ -252,7 +261,15 @@ final class Browser {
         case "fill":
             _ = try await tab.call(PageScripts.fill, ["target": try arg(0, "ref"), "text": try arg(1, "text")])
         case "type":
-            _ = try await tab.call(PageScripts.insertText, ["text": try arg(0, "text")])
+            let text = try arg(0, "text")
+            if instant || text.isEmpty {
+                _ = try await tab.call(PageScripts.insertText, ["text": text])
+            } else {
+                for (i, char) in text.enumerated() {
+                    _ = try await tab.call(PageScripts.insertText, ["text": String(char)])
+                    if i < text.count - 1 { try await Task.sleep(for: .seconds(tab.motion.keyDelay(after: char))) }
+                }
+            }
         case "press":
             let window = mainWindow.window
             var previous = window.firstResponder
@@ -295,29 +312,66 @@ final class Browser {
     // screen if clicked natively, so they go through fill instead.
     private static let pickerKinds: Set = ["select", "date", "time", "datetime-local", "month", "week", "color"]
 
-    private func click(_ tab: Tab, target: String, js: Bool, forUpload: Bool) async throws {
+    private func click(_ tab: Tab, target: String, js: Bool, forUpload: Bool, instant: Bool) async throws {
         if js {
             _ = try await tab.call(PageScripts.jsClick, ["target": target])
             return
         }
-        let json = try await tab.call(PageScripts.locate, ["target": target])
-        let spot = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] ?? [:]
-        let kind = spot["kind"] as? String ?? ""
-        if Self.pickerKinds.contains(kind) {
-            throw Failure("\(kind) opens a native picker; use: wkb fill \(target) <value>")
+        let spot = try await locate(tab, target)
+        if Self.pickerKinds.contains(spot.kind) {
+            throw Failure("\(spot.kind) opens a native picker; use: wkb fill \(target) <value>")
         }
         // Hidden file inputs styled away to nothing have no point to click; a script click still counts as
         // a user gesture in WKWebView.
-        if (spot["width"] as? Double ?? 0) == 0 || (spot["height"] as? Double ?? 0) == 0 {
-            if forUpload || kind == "file" {
+        if spot.size.width == 0 || spot.size.height == 0 {
+            if forUpload || spot.kind == "file" {
                 _ = try await tab.call(PageScripts.jsClick, ["target": target])
                 return
             }
             throw Failure("\(target) has no size on screen; snapshot again or use --js")
         }
-        if let covered = spot["covered"] as? String { tab.events.append("click target was covered by <\(covered)>") }
-        try NativeInput.click(tab.webView, cssPoint: CGPoint(x: spot["x"] as? Double ?? 0, y: spot["y"] as? Double ?? 0),
-                              viewportHeight: spot["viewportHeight"] as? Double ?? tab.webView.bounds.height)
+        if let covered = spot.covered { tab.events.append("click target was covered by <\(covered)>") }
+        let point = instant ? spot.center : tab.motion.aim(center: spot.center, size: spot.size)
+        try await movePointer(tab, to: point, targetSize: min(spot.size.width, spot.size.height), viewport: spot.viewport, instant: instant)
+        if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.04))) }
+        try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: spot.viewport.height)
+        if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.095, 0.015))) }
+        try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: spot.viewport.height)
+    }
+
+    private func hover(_ tab: Tab, target: String, instant: Bool) async throws {
+        let spot = try await locate(tab, target)
+        if spot.size.width == 0 || spot.size.height == 0 { throw Failure("\(target) has no size on screen; snapshot again") }
+        let point = instant ? spot.center : tab.motion.aim(center: spot.center, size: spot.size)
+        try await movePointer(tab, to: point, targetSize: min(spot.size.width, spot.size.height), viewport: spot.viewport, instant: instant)
+    }
+
+    /// Glides the pointer to `point` through native mouse moves, so hover states follow it; `instant` jumps.
+    private func movePointer(_ tab: Tab, to point: CGPoint, targetSize: Double, viewport: CGSize, instant: Bool) async throws {
+        let start = tab.pointer ?? CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+        let path = instant ? [(point, 0)] : tab.motion.path(from: start, to: point, targetSize: targetSize)
+        for (step, pause) in path {
+            try NativeInput.move(tab.webView, to: step, viewportHeight: viewport.height)
+            tab.pointer = step
+            if pause > 0 { try await Task.sleep(for: .seconds(pause)) }
+        }
+    }
+
+    private struct Spot {
+        var center: CGPoint
+        var size: CGSize
+        var viewport: CGSize
+        var kind = ""
+        var covered: String?
+    }
+
+    private func locate(_ tab: Tab, _ target: String) async throws -> Spot {
+        let json = try await tab.call(PageScripts.locate, ["target": target])
+        let spot = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] ?? [:]
+        func number(_ key: String) -> Double { spot[key] as? Double ?? 0 }
+        return Spot(center: CGPoint(x: number("x"), y: number("y")), size: CGSize(width: number("width"), height: number("height")),
+                    viewport: CGSize(width: number("viewportWidth"), height: number("viewportHeight")),
+                    kind: spot["kind"] as? String ?? "", covered: spot["covered"] as? String)
     }
 
     // MARK: Output

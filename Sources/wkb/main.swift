@@ -10,9 +10,12 @@ usage: wkb [-s <session>] <command> [args] [--options]
                                 --profile=ephemeral keeps nothing and shares nothing)
   goto <url> | reload | go-back | go-forward
   snapshot                      page as a tree with [ref=eN] handles
-  click <ref|css> [--js]        native trusted click (--js: element.click())
+  click <ref|css> [--js]        native trusted click: the pointer glides there like a person's
+                                (--js: element.click())
+  hover <ref|css>               glide the pointer onto an element, so :hover and mouseover fire
+  mousemove <x> <y>             glide the pointer to a viewport point (CSS pixels)
   fill <ref|css> <text>         text fields, <select> options, date/colour/number inputs
-  type <text>                   insert text at the focused element
+  type <text>                   type at the focused element, one key at a time at a person's pace
   press <key>                   native key press: Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a
   upload <ref|css> <file...>    click a file input and answer its chooser with the files
   eval <js>                     expression or () => ... in the page; prints JSON
@@ -25,6 +28,7 @@ usage: wkb [-s <session>] <command> [args] [--options]
   list                          sessions
   quit                          stop WKBrowser
 
+--instant                       click, hover, mousemove and type act at once instead of at human speed
 session: -s NAME, -s=NAME, --session=NAME or $WKB_SESSION; default "default"
 `--` ends options, so text that starts with dashes can be passed: wkb type -- --verbose
 env: WKB_SOCKET runs a separate instance on that socket; WKB_APP points at WKBrowser.app
@@ -39,7 +43,7 @@ var session = ProcessInfo.processInfo.environment["WKB_SESSION"] ?? "default"
 var options: [String: String] = [:]
 var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
-let flags: Set = ["js", "help"]
+let flags: Set = ["js", "help", "instant"]
 let valued: Set = ["profile", "session"]
 while let arg = input.popFirst() {
     if arg == "--" {
@@ -133,7 +137,9 @@ if !isServing(socket) {
 }
 
 // Commands time out inside the app (pages 30 s, scripts 30 s); this only catches a wedged app.
-guard let response = sendRequest(Request(session: session, command: command, args: args, options: options), path: socket, timeout: 120) else {
+// Typing at a person's pace averages about 0.25 s a key, so long text gets longer.
+let timeout = 120 + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
+guard let response = sendRequest(Request(session: session, command: command, args: args, options: options), path: socket, timeout: timeout) else {
     fail("no response from WKBrowser on \(socket)")
 }
 if response.ok {

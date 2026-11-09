@@ -33,7 +33,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         split.addSplitViewItem(sidebar)
         split.addSplitViewItem(NSSplitViewItem(viewController: content))
 
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
+        window = AgentWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         window.contentViewController = split
@@ -163,4 +163,11 @@ private struct TabRow: View {
         }
         .onHover { hovering = $0 }
     }
+}
+
+/// WebKit ignores mouse moves in a window that is not key, so agents' hovers would never happen. While the app
+/// is in the background the window reports key, which WebKit reads when key status changes; making it key for
+/// real would take the keyboard from the person's app. Scoping this to each move does not work for that reason.
+final class AgentWindow: NSWindow {
+    override var isKeyWindow: Bool { super.isKeyWindow || !NSApp.isActive }
 }

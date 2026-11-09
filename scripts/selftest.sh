@@ -12,7 +12,7 @@ cp testpage.html "$dir/index.html"
 port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 (cd "$dir" && exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1 >"$dir/server.log" 2>&1) &
 server=$!
-trap '"$wkb" quit >/dev/null 2>&1; kill $server 2>/dev/null' EXIT
+trap '"$wkb" quit >/dev/null 2>&1; kill $server 2>/dev/null; rm -r "$dir"' EXIT
 for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 0.3; done
 u="http://127.0.0.1:$port/index.html"
 
@@ -43,6 +43,18 @@ check "no file chooser opened" -s alpha upload e2 /etc/hosts
 check "alert: hi" -s alpha click '#al'
 check '"click trusted=true","keydown Enter trusted=true","submit:hello","file:hosts"' -s alpha eval 'window.log'
 check '"2"' -s alpha eval "() => document.querySelector('#s').value"
+
+echo "== the pointer glides: trusted mousemoves arrive, :hover follows, typing is per key"
+check "Page" -s alpha hover '#al'
+check 'true' -s alpha eval "() => document.querySelector('#al').matches(':hover') && moves > 5"
+check "Page" -s alpha mousemove 5 5 --instant
+check 'false' -s alpha eval "() => document.querySelector('#al').matches(':hover')"
+check "Page" -s alpha eval "() => { q.focus(); q.setSelectionRange(99, 99) }"
+start=$(date +%s)
+check "Page" -s alpha type ' world'
+[ $(($(date +%s) - start)) -ge 1 ] || { echo "FAIL  natural type finished in under a second"; failures=$((failures + 1)); }
+check "Page" -s alpha type '!' --instant
+check '"hello world!"' -s alpha eval 'q.value'
 check "popup opened as tab 1" -s alpha click '#pop'
 check "1: (current)" -s alpha tab-list
 check "no tab 9" -s alpha tab-close 9
@@ -74,6 +86,8 @@ check '""' -s eph2 eval 'document.cookie'
 
 echo "== beta is not the displayed tab: snapshot and screenshot still work"
 check 'button "Press me"' -s beta snapshot
+check "Page" -s beta hover '#b'
+check 'true' -s beta eval "() => document.querySelector('#b').matches(':hover') && moves > 5"
 check "Screenshot" -s beta screenshot "$dir/beta.png"
 check "loaded ?parallel-b" -s beta console
 check "selftest-shared" list
