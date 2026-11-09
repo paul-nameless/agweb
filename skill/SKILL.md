@@ -12,6 +12,7 @@ Use one workspace per task, `-w <name>` named after it, and close it when done. 
 agweb -w me open https://example.com      # -p NAME to reuse a named profile's logins
 agweb -w me snapshot                      # tree with [ref=eN]; refs reset on every snapshot
 agweb -w me click e3                      # ref or CSS selector; the pointer glides there first
+agweb -w me dblclick e3 | drag e4 e9 | mousewheel 0 600   # positive dy scrolls down
 agweb -w me hover e4                      # opens hover menus
 agweb -w me mousemove 200 300             # viewport point in CSS pixels
 agweb -w me fill e5 "text"                # text, <select> option, date, colour, number

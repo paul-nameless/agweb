@@ -30,7 +30,7 @@ final class Browser {
         model.workspaces.lazy.flatMap(\.tabs).first { $0.webView === webView }
     }
 
-    private func workspace(named name: String, profile: String?) throws -> Workspace {
+    private func existingOrNewWorkspace(named name: String, profile: String?) throws -> Workspace {
         if let workspace = model.workspaces.first(where: { $0.name == name }) {
             if let profile, profile != workspace.profile {
                 throw Failure("workspace \(name) already uses \(Self.describe(profile: workspace.profile)); close it first to switch")
@@ -103,10 +103,14 @@ final class Browser {
         }
     }
 
-    /// An MP4 without its index is unplayable, so quitting finishes every recording first.
-    func finishRecordings() async -> [String] {
+    private(set) var preparedToQuit = false
+
+    /// Finishes every recording, since an MP4 without its index is unplayable, and saves session cookies.
+    func prepareToQuit() async -> [String] {
         var videos: [String] = []
         for workspace in model.workspaces { videos += await describeStop(workspace) }
+        await Profiles.saveSessionCookies()
+        preparedToQuit = true
         return videos
     }
 
@@ -127,7 +131,7 @@ final class Browser {
     }
 
     private func newTabFromUser(in workspace: Workspace?) {
-        guard let workspace = workspace ?? model.displayedTab?.workspace ?? (try? self.workspace(named: Self.userWorkspace, profile: nil)) else { return }
+        guard let workspace = workspace ?? model.displayedTab?.workspace ?? (try? existingOrNewWorkspace(named: Self.userWorkspace, profile: nil)) else { return }
         let tab = makeTab(in: workspace, configuration: nil, opener: nil)
         model.display(tab.id)
         mainWindow.focusAddress()
@@ -190,14 +194,18 @@ final class Browser {
             try await Profiles.delete(name)
             return "profile \(name) deleted"
         case "quit":
-            let videos = await finishRecordings()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) }
+            let videos = await prepareToQuit()
+            // Not from a main-queue block: terminate would spin the run loop inside it, starving the main queue.
+            NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0.2)
             return (["bye"] + videos).joined(separator: "\n")
         case "open":
-            let workspace = try workspace(named: request.workspace, profile: request.options["profile"])
+            let workspace = try existingOrNewWorkspace(named: request.workspace, profile: request.options["profile"])
             workspace.busy = true
             mainWindow.showQuietly()
             let tab = workspace.current ?? addTab(to: workspace)
+            // Once per profile per run, before its first page loads. After the tab exists: WebKit never answers a
+            // cookie store in a process that has no web view yet.
+            if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
             if let url = args.first { try await tab.goto(try Address.url(url)) }
             return describe(tab)
         default:
@@ -273,15 +281,22 @@ final class Browser {
         case "snapshot":
             let tree = try await tab.call(PageScripts.snapshot)
             return describe(tab) + "\n### Snapshot\n" + tree
-        case "click":
-            try await click(tab, target: try arg(0, "ref"), js: request.options["js"] != nil, forUpload: false, instant: instant)
+        case "click", "dblclick":
+            try await click(tab, target: try arg(0, "ref"), js: request.options["js"] != nil, forUpload: false, instant: instant,
+                            clicks: request.command == "dblclick" ? 2 : 1)
             await tab.settle()
+        case "drag":
+            try await drag(tab, from: try arg(0, "from"), to: try arg(1, "to"), instant: instant)
+            await tab.settle()
+        case "mousewheel":
+            guard let dx = Double(try arg(0, "dx")), let dy = Double(try arg(1, "dy")), dx.isFinite, dy.isFinite else {
+                throw Failure("use: agweb mousewheel <dx> <dy> in CSS pixels; positive dy scrolls down")
+            }
+            try await wheel(tab, dx: dx, dy: dy, instant: instant)
         case "hover":
             try await hover(tab, target: try arg(0, "ref"), instant: instant)
         case "mousemove":
-            let json = try await tab.call(PageScripts.viewport)
-            let size = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] ?? [:]
-            let viewport = CGSize(width: size["viewportWidth"] ?? 0, height: size["viewportHeight"] ?? 0)
+            let viewport = try await viewportSize(tab)
             guard let x = Double(try arg(0, "x")), let y = Double(try arg(1, "y")), (0...viewport.width).contains(x), (0...viewport.height).contains(y) else {
                 throw Failure("use: agweb mousemove <x> <y> with a point inside the \(Int(viewport.width))x\(Int(viewport.height)) viewport")
             }
@@ -368,7 +383,7 @@ final class Browser {
     private static let pickerKinds: Set = ["select", "date", "time", "datetime-local", "month", "week", "color"]
     private static let pickerKeys: Set = ["space", " ", "enter", "arrowup", "arrowdown", "arrowleft", "arrowright"]
 
-    private func click(_ tab: Tab, target: String, js: Bool, forUpload: Bool, instant: Bool) async throws {
+    private func click(_ tab: Tab, target: String, js: Bool, forUpload: Bool, instant: Bool, clicks: Int = 1) async throws {
         if js {
             _ = try await tab.call(PageScripts.jsClick, ["target": target])
             return
@@ -390,12 +405,68 @@ final class Browser {
         let (point, landed) = try await glide(tab, onto: target, from: spot, instant: instant)
         if let covered = landed.covered { tab.events.append("click target was covered by <\(covered)>") }
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.04))) }
-        try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: landed.viewport.height)
-        tab.lastClick = (point, ProcessInfo.processInfo.systemUptime)
-        // A short timeout: the press waits on this frame.
-        if !instant { await tab.workspace.recorder?.capture(timeout: 0.3) }
-        if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.095, 0.015))) }
-        try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: landed.viewport.height)
+        for count in 1...clicks {
+            if count > 1, !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.09, 0.02))) }
+            try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: landed.viewport.height, clickCount: count)
+            tab.lastClick = (point, ProcessInfo.processInfo.systemUptime)
+            // A short timeout: the press waits on this frame.
+            if !instant { await tab.workspace.recorder?.capture(timeout: 0.3) }
+            if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.095, 0.015))) }
+            try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: landed.viewport.height, clickCount: count)
+        }
+    }
+
+    /// Press on `source`, move to `target` with the button held, release. An HTML5-draggable source would make
+    /// WebKit start an AppKit drag session, which tracks the person's real mouse, so those get DOM drag events.
+    private func drag(_ tab: Tab, from source: String, to target: String, instant: Bool) async throws {
+        if try await tab.call(PageScripts.isDraggable, ["target": source]) == "true" {
+            _ = try await tab.call(PageScripts.html5Drag, ["from": source, "to": target])
+            tab.events.append("\(source) is HTML5-draggable: dropped with DOM drag events, not the pointer")
+            return
+        }
+        let start = try await locate(tab, source)
+        if start.size.width == 0 || start.size.height == 0 { throw Failure("\(source) has no size on screen; snapshot again") }
+        let (from, landed) = try await glide(tab, onto: source, from: start, instant: instant)
+        let end = try await locate(tab, target, scroll: false)
+        guard (0...end.viewport.width).contains(end.center.x), (0...end.viewport.height).contains(end.center.y) else {
+            throw Failure("\(target) is off screen while \(source) is on it; drag in steps")
+        }
+        try NativeInput.button(tab.webView, down: true, at: from, viewportHeight: landed.viewport.height)
+        tab.lastClick = (from, ProcessInfo.processInfo.systemUptime)
+        if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.03))) }
+        let to = instant ? end.center : tab.motion.aim(center: end.center, size: end.size)
+        // Drag code usually needs several moves to start, so even --instant takes a few straight steps.
+        let path = instant ? (1...6).map { i in (CGPoint(x: from.x + (to.x - from.x) * Double(i) / 6, y: from.y + (to.y - from.y) * Double(i) / 6), 0.0) }
+                           : tab.motion.path(from: from, to: to, targetSize: min(end.size.width, end.size.height))
+        for (step, pause) in path {
+            try NativeInput.drag(tab.webView, to: step, viewportHeight: end.viewport.height)
+            tab.pointer = step
+            if pause > 0 { try await Task.sleep(for: .seconds(pause)) }
+        }
+        if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.1, 0.03))) }
+        try NativeInput.button(tab.webView, down: false, at: to, viewportHeight: end.viewport.height)
+    }
+
+    /// Scroll events at the pointer, in a person's wheel ticks of about 60 px unless `instant`.
+    private func wheel(_ tab: Tab, dx: Double, dy: Double, instant: Bool) async throws {
+        let viewport = try await viewportSize(tab)
+        let at = tab.pointer ?? CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+        let ticks = instant ? 1 : max(1, Int((max(abs(dx), abs(dy)) / 60).rounded(.up)))
+        var sentX = 0.0, sentY = 0.0
+        for i in 1...ticks {
+            let x = (dx * Double(i) / Double(ticks)).rounded(), y = (dy * Double(i) / Double(ticks)).rounded()
+            try NativeInput.wheel(tab.webView, at: at, viewportHeight: viewport.height, dx: Int32(x - sentX), dy: Int32(y - sentY))
+            sentX = x
+            sentY = y
+            if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.035, 0.01))) }
+        }
+        try await Task.sleep(for: .milliseconds(150))
+    }
+
+    private func viewportSize(_ tab: Tab) async throws -> CGSize {
+        let json = try await tab.call(PageScripts.viewport)
+        let size = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] ?? [:]
+        return CGSize(width: size["viewportWidth"] ?? 0, height: size["viewportHeight"] ?? 0)
     }
 
     private func hover(_ tab: Tab, target: String, instant: Bool) async throws {
@@ -443,8 +514,8 @@ final class Browser {
         var covered: String?
     }
 
-    private func locate(_ tab: Tab, _ target: String) async throws -> Spot {
-        let json = try await tab.call(PageScripts.locate, ["target": target])
+    private func locate(_ tab: Tab, _ target: String, scroll: Bool = true) async throws -> Spot {
+        let json = try await tab.call(PageScripts.locate, ["target": target, "scroll": scroll])
         let spot = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] ?? [:]
         func number(_ key: String) -> Double { spot[key] as? Double ?? 0 }
         return Spot(center: CGPoint(x: number("x"), y: number("y")), size: CGSize(width: number("width"), height: number("height")),

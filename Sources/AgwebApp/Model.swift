@@ -105,7 +105,39 @@ enum Profiles {
         let store = stores.removeValue(forKey: name) ?? WKWebsiteDataStore(forIdentifier: identifier(name))
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         try? await WKWebsiteDataStore.remove(forIdentifier: identifier(name))
+        try? FileManager.default.removeItem(at: sessionCookies(name))
         save(names.filter { $0 != name })
+    }
+
+    // Cookies without an expiry die with the app in every browser that doesn't restore sessions, and SSO logins
+    // live in them. They're saved per named profile on quit and put back the first time the profile opens again.
+
+    private static var restored: Set<String> = []
+
+    static func saveSessionCookies() async {
+        for (name, store) in stores {
+            let cookies = await store.httpCookieStore.allCookies().filter(\.isSessionOnly)
+            let list = cookies.compactMap { $0.properties.map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key.rawValue, $0.value) }) } }
+            guard let data = try? PropertyListSerialization.data(fromPropertyList: list, format: .binary, options: 0) else { continue }
+            let file = sessionCookies(name)
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
+        }
+    }
+
+    static func restoreSessionCookies(_ name: String) async {
+        guard let store = stores[name], restored.insert(name).inserted,
+              let data = try? Data(contentsOf: sessionCookies(name)),
+              let list = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [[String: Any]] else { return }
+        for properties in list {
+            let keyed = Dictionary(uniqueKeysWithValues: properties.map { (HTTPCookiePropertyKey($0.key), $0.value) })
+            guard let cookie = HTTPCookie(properties: keyed) else { continue }
+            _ = try? await withTimeout(2, "restoring a cookie") { await store.httpCookieStore.setCookie(cookie) }
+        }
+    }
+
+    private static func sessionCookies(_ name: String) -> URL {
+        file.deletingLastPathComponent().appendingPathComponent("session-cookies/\(identifier(name)).plist")
     }
 
     /// Stable forever: changing it would orphan every saved login.

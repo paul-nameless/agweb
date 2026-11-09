@@ -80,6 +80,20 @@ check "Page" -w alpha type ' world'
 check "Page" -w alpha type '!' --instant
 check '\["hello world!",7\]' -w alpha eval '[q.value, inputs]'
 
+echo "== double click, drag and wheel"
+check "Page" -w alpha dblclick '#b'
+check '^1$' -w alpha eval 'dbl'
+check "Page" -w alpha drag '#rng' '#lane'
+check 'true' -w alpha eval "() => +rng.value > 50"
+check "HTML5-draggable" -w alpha drag '#card' '#lane'
+check '"card"' -w alpha eval 'dropped'
+check "Page" -w alpha eval "() => scrollTo(0, 0)"
+check "Page" -w alpha mousewheel 0 400
+check 'true' -w alpha eval "() => scrollY > 300"
+check "Page" -w alpha mousewheel 0 -400 --instant
+check '^0$' -w alpha eval 'scrollY'
+fails "positive dy" -w alpha mousewheel 0 down
+
 echo "== recording"
 fails "must end in .mp4" -w alpha video-start "$dir"
 fails "max-idle takes seconds" -w alpha video-start "$dir/v.mp4" --max-idle=soon
@@ -162,11 +176,11 @@ fails "in use by beta, gamma" profile-delete selftest-shared
 check "confirm() and prompt() will be accepted" -w beta dialog-accept
 check "will be dismissed" -w beta dialog-dismiss
 
-echo "== close and quit finish a recording; a named profile and the window frame survive a relaunch"
+echo "== close and quit finish a recording; a named profile, its session cookies and the window frame survive a relaunch"
 check "recording" -w eph2 video-start "$dir/close.mp4"
 check "### Video" -w eph2 close
 LC_ALL=C grep -qa moov "$dir/close.mp4" || fail "close left the video without its index"
-check "Page" -w beta eval "() => { document.cookie = 'kept=1; max-age=600' }"
+check "Page" -w beta eval "() => { document.cookie = 'kept=1; max-age=600'; document.cookie = 'sso=1' }"
 check "recording" -w beta video-start "$dir/quit.mp4"
 check "### Video" quit
 LC_ALL=C grep -qa moov "$dir/quit.mp4" || fail "quit left the video without its index"
@@ -174,6 +188,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e "$AGWEB_SOCKET" ] || break; sleep 0.5; do
 sleep 1
 check "Title" -w delta open "$u" -p selftest-shared
 check 'kept=1' -w delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
+check 'sso=1' -w delta eval 'document.cookie'
 [ "$(defaults read $domain "NSWindow Frame agwebTest" | cut -d' ' -f3)" = 900 ] || fail "the test window's saved frame was not restored"
 [ "$(defaults read $domain "NSWindow Frame agwebMain" 2>/dev/null)" = "$person_frame" ] || fail "the selftest changed the person's saved window frame"
 check "workspace delta closed" close-all

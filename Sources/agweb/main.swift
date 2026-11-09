@@ -15,8 +15,12 @@ workspace naming it.
   snapshot                      page as a tree with [ref=eN] handles
   click <ref|css> [--js]        native trusted click: the pointer glides there like a person's
                                 (--js: element.click())
+  dblclick <ref|css>            native double click
+  drag <from> <to>              press on one element, move to the other with the button held, release
+                                (HTML5-draggable sources get DOM drag events instead)
   hover <ref|css>               glide the pointer onto an element, so :hover and mouseover fire
   mousemove <x> <y>             glide the pointer to a viewport point (CSS pixels)
+  mousewheel <dx> <dy>          scroll at the pointer; positive dy scrolls down
   fill <ref|css> <text>         text fields, <select> options, date/colour/number inputs
   type <text>                   insert text at the focused element a character at a time, at a person's pace
                                 (input events, not key events; use press for keys)
@@ -39,7 +43,7 @@ workspace naming it.
   profile-delete <name>         delete a named profile and everything it stored
   quit                          stop agweb
 
---instant                       click, upload, hover, mousemove and type act at once instead of at human speed
+--instant                       pointer verbs, upload and type act at once instead of at human speed
 -w NAME, --workspace=NAME       default $AGWEB_WORKSPACE, else "default"
 -p NAME, --profile=NAME         default $AGWEB_PROFILE, else a fresh profile
 `--` ends options, so text that starts with dashes can be passed: agweb type -- --verbose

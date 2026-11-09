@@ -7,10 +7,20 @@
 <button id="pop" onclick="window.open('/index.html?popup')">Open popup</button>
 <button id="al" onclick="alert('hi')">Alert</button>
 <a href="/index.html?next">Next page</a>
+<input type="range" id="rng" min="0" max="100" value="0" style="width:300px">
+<div id="card" draggable="true" style="display:inline-block;padding:8px;background:#ddd">card</div>
+<div id="lane" style="display:inline-block;width:120px;height:40px;background:#eef">lane</div>
+<div style="height:3000px"></div>
 <script>
 window.log = [];
 window.moves = 0;
 window.inputs = 0;
+window.dbl = 0;
+window.dropped = '';
+b.addEventListener('dblclick', () => dbl++);
+card.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', 'card'));
+lane.addEventListener('dragover', e => e.preventDefault());
+lane.addEventListener('drop', e => { e.preventDefault(); dropped = e.dataTransfer.getData('text/plain'); });
 q.addEventListener('input', () => inputs++);
 addEventListener('mousemove', e => { if (e.isTrusted) moves++; });
 b.addEventListener('click', e => log.push('click trusted=' + e.isTrusted));

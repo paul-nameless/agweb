@@ -16,12 +16,31 @@ enum NativeInput {
         unsafeBitCast(webView.method(for: simulate), to: Send.self)(webView, simulate, try mouse(.mouseMoved, webView, cssPoint, viewportHeight))
     }
 
-    static func button(_ webView: WKWebView, down: Bool, at cssPoint: CGPoint, viewportHeight: CGFloat) throws {
-        let event = try mouse(down ? .leftMouseDown : .leftMouseUp, webView, cssPoint, viewportHeight)
+    static func button(_ webView: WKWebView, down: Bool, at cssPoint: CGPoint, viewportHeight: CGFloat, clickCount: Int = 1) throws {
+        let event = try mouse(down ? .leftMouseDown : .leftMouseUp, webView, cssPoint, viewportHeight, clickCount: clickCount)
         if down { webView.mouseDown(with: event) } else { webView.mouseUp(with: event) }
     }
 
-    private static func mouse(_ type: NSEvent.EventType, _ webView: WKWebView, _ cssPoint: CGPoint, _ viewportHeight: CGFloat) throws -> NSEvent {
+    static func drag(_ webView: WKWebView, to cssPoint: CGPoint, viewportHeight: CGFloat) throws {
+        webView.mouseDragged(with: try mouse(.leftMouseDragged, webView, cssPoint, viewportHeight))
+    }
+
+    /// AppKit has no constructor for scroll events; a CGEvent converts, given the window and a screen location.
+    static func wheel(_ webView: WKWebView, at cssPoint: CGPoint, viewportHeight: CGFloat, dx: Int32, dy: Int32) throws {
+        guard let window = webView.window,
+              let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -dy, wheel2: -dx, wheel3: 0) else {
+            throw Failure("tab has no window to receive input")
+        }
+        let inScreen = window.convertPoint(toScreen: try mouse(.mouseMoved, webView, cssPoint, viewportHeight).locationInWindow)
+        event.location = CGPoint(x: inScreen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - inScreen.y)
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+        guard let scroll = NSEvent(cgEvent: event) else { throw Failure("could not make a scroll event") }
+        webView.scrollWheel(with: scroll)
+    }
+
+    private static func mouse(_ type: NSEvent.EventType, _ webView: WKWebView, _ cssPoint: CGPoint, _ viewportHeight: CGFloat,
+                              clickCount: Int = 1) throws -> NSEvent {
         guard let window = webView.window else { throw Failure("tab has no window to receive input") }
         let scale = webView.pageZoom * webView.magnification
         // Under a full-size content view WebKit insets the page below the toolbar; the viewport starts there.
@@ -30,7 +49,8 @@ enum NativeInput {
         if !webView.isFlipped { point.y = webView.bounds.height - point.y }
         return NSEvent.mouseEvent(with: type, location: webView.convert(point, to: nil), modifierFlags: [],
                                   timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
-                                  eventNumber: 0, clickCount: type == .mouseMoved ? 0 : 1, pressure: type == .leftMouseDown ? 1 : 0)!
+                                  eventNumber: 0, clickCount: type == .mouseMoved ? 0 : clickCount,
+                                  pressure: type == .leftMouseDown || type == .leftMouseDragged ? 1 : 0)!
     }
 
     /// Key events go to the first responder's text input path, so the tab must be first responder while

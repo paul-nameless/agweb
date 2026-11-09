@@ -113,7 +113,7 @@ public enum PageScripts {
     // what kind of control it is (some controls open native popups when clicked).
     public static let locate = find + """
     const el = find(target);
-    el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+    if (scroll) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const r = el.getBoundingClientRect();
     const x = r.left + r.width / 2, y = r.top + r.height / 2;
     const hit = el.getRootNode().elementFromPoint?.(x, y) ?? document.elementFromPoint(x, y);
@@ -130,6 +130,28 @@ public enum PageScripts {
 
     public static let viewport = """
     return JSON.stringify({ viewportWidth: innerWidth, viewportHeight: innerHeight });
+    """
+
+    // Links and images are draggable by default, and the element under the pointer may be one inside the target.
+    public static let isDraggable = find + """
+    const el = find(target);
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const draggable = (e) => !!e && (e.draggable || !!e.closest('[draggable="true"]'));
+    return String(draggable(el) || (el.contains(hit) && draggable(hit)));
+    """
+
+    public static let html5Drag = find + """
+    const src = find(from), dst = find(to);
+    const dataTransfer = new DataTransfer();
+    const center = (e) => { const r = e.getBoundingClientRect(); return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }; };
+    const fire = (e, type, at) => e.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer, ...at }));
+    fire(src, 'dragstart', center(src));
+    fire(dst, 'dragenter', center(dst));
+    fire(dst, 'dragover', center(dst));
+    fire(dst, 'drop', center(dst));
+    fire(src, 'dragend', center(dst));
+    return 'ok';
     """
 
     public static let jsClick = find + """

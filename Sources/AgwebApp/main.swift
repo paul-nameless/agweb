@@ -32,10 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    /// ⌘Q and logout prepare here; the quit command prepares before it terminates.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard browser.model.workspaces.contains(where: { $0.recorder != nil }) else { return .terminateNow }
+        if browser.preparedToQuit { return .terminateNow }
         Task {
-            _ = await browser.finishRecordings()
+            _ = await browser.prepareToQuit()
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
