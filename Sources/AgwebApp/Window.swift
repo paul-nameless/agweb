@@ -12,7 +12,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     let model: BrowserModel
     let urlField = NSTextField()
     private let container = NSView()
-    private let placeholder = NSTextField(labelWithString: "No tabs yet.\nAgents: agweb -s=<agent> open <url>    You: ⌘T")
+    private let placeholder = NSTextField(labelWithString: "No tabs yet.\nAgents: agweb -w <task> open <url>    You: ⌘T")
 
     init(model: BrowserModel) {
         self.model = model

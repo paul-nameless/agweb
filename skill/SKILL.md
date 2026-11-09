@@ -26,4 +26,4 @@ agweb -w me console                       # page console since last call
 agweb -w me close                         # when done; agweb profile-list shows named profiles
 ```
 
-Popups your actions open become your current tab. confirm() and prompt() are dismissed unless you run `agweb -w me dialog accept`; everything is listed under `### Events`. Use `fill`, not `click`, for selects and date or colour inputs. Text starting with dashes goes after `--`. Take a new snapshot after anything that changes the page. Pointer and typing move at a person's pace; add `--instant` when speed matters more than looking human (long text, many clicks).
+Popups your actions open become your current tab. confirm() and prompt() are dismissed unless you run `agweb -w me dialog-accept`; everything is listed under `### Events`. Use `fill`, not `click`, for selects and date or colour inputs. Text starting with dashes goes after `--`. Take a new snapshot after anything that changes the page. Pointer and typing move at a person's pace; add `--instant` when speed matters more than looking human (long text, many clicks).
