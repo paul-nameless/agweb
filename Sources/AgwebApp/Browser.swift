@@ -111,6 +111,10 @@ final class Browser {
     }
 
     func closeSession(_ session: Session) {
+        if let recorder = session.recorder {
+            session.recorder = nil
+            Task { _ = try? await recorder.stop() }
+        }
         for tab in session.tabs { closeTab(tab) }
         session.contentController.removeScriptMessageHandler(forName: "agwebConsole")
         model.sessions.removeAll { $0 === session }
@@ -205,6 +209,20 @@ final class Browser {
             }
             closeTab(tab)
             return tabList(session)
+        case "video-start":
+            if let recorder = session.recorder { throw Failure("already recording to \(recorder.url.path); run video-stop first") }
+            let maxIdle = try request.options["max-idle"].map { text -> Double in
+                guard let value = Double(text), value >= 0, value.isFinite else { throw Failure("--max-idle takes seconds, 0 for none") }
+                return value
+            } ?? 1.5
+            let recorder = try Recorder(session: session, url: URL(fileURLWithPath: try arg(0, "path")), maxIdle: maxIdle)
+            session.recorder = recorder
+            recorder.start()
+            return "recording \(session.name) to \(recorder.url.path)"
+        case "video-stop":
+            guard let recorder = session.recorder else { throw Failure("not recording; run video-start") }
+            session.recorder = nil
+            return try await recorder.stop()
         case "show":
             // Shows the agent's tab inside the window; never raises or activates the app.
             guard let tab = session.current else { throw Failure("session has no tabs") }
@@ -342,6 +360,7 @@ final class Browser {
         if let covered = landed.covered { tab.events.append("click target was covered by <\(covered)>") }
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.04))) }
         try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: landed.viewport.height)
+        tab.lastClick = (point, ProcessInfo.processInfo.systemUptime)
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.095, 0.015))) }
         try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: landed.viewport.height)
     }

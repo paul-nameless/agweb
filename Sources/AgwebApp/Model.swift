@@ -38,6 +38,7 @@ final class Session: Identifiable {
     /// True while an agent command runs. Commands on one session are serialized, so this is exact.
     var busy = false
     @ObservationIgnored var acceptDialogs = false
+    @ObservationIgnored var recorder: Recorder?
     @ObservationIgnored let dataStore: WKWebsiteDataStore
     @ObservationIgnored let contentController = WKUserContentController()
 
@@ -99,6 +100,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     /// Where the agent's pointer last went, in CSS pixels of the viewport; nil until the first move.
     @ObservationIgnored var pointer: CGPoint?
     @ObservationIgnored var motion = Motion()
+    /// For the click ring in recordings.
+    @ObservationIgnored var lastClick: (point: CGPoint, time: Double)?
     @ObservationIgnored private var loadWaiter: CheckedContinuation<Void, Error>?
     @ObservationIgnored private var loadToken: UUID?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []

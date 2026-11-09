@@ -20,6 +20,10 @@ usage: agweb [-s <session>] <command> [args] [--options]
   press <key>                   native key press: Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a
   upload <ref|css> <file...>    click a file input and answer its chooser with the files
   eval <js>                     expression or () => ... in the page; prints JSON
+  video-start [path]            record the session's tab to MP4 (default .agweb/video-<time>.mp4), with the
+              [--max-idle=S]    pointer drawn in; frames only when something changes; still gaps over S
+                                seconds (default 1.5, 0 keeps real time) are shortened to S
+  video-stop                    finish the recording and print its path
   screenshot [path]             PNG of the viewport (default .agweb/page-<time>.png)
   console                       page console messages since last call
   dialog accept|dismiss         how confirm() and prompt() are answered (default dismiss)
@@ -45,7 +49,7 @@ var options: [String: String] = [:]
 var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
 let flags: Set = ["js", "help", "instant"]
-let valued: Set = ["profile", "session"]
+let valued: Set = ["profile", "session", "max-idle"]
 while let arg = input.popFirst() {
     if arg == "--" {
         positional += input
@@ -87,6 +91,9 @@ switch command {
 case "screenshot":
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
     args = [absolute(args.first ?? ".agweb/page-\(stamp).png")]
+case "video-start":
+    let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+    args = [absolute(args.first ?? ".agweb/video-\(stamp).mp4")]
 case "upload" where args.count > 1:
     args = [args[0]] + args.dropFirst().map(absolute)
 case "open", "goto", "tab-new":
