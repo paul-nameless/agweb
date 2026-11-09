@@ -361,6 +361,7 @@ final class Browser {
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.04))) }
         try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: landed.viewport.height)
         tab.lastClick = (point, ProcessInfo.processInfo.systemUptime)
+        if !instant { await tab.session.recorder?.capture() }
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.095, 0.015))) }
         try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: landed.viewport.height)
     }

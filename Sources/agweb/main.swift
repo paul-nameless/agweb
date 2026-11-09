@@ -21,8 +21,8 @@ usage: agweb [-s <session>] <command> [args] [--options]
   upload <ref|css> <file...>    click a file input and answer its chooser with the files
   eval <js>                     expression or () => ... in the page; prints JSON
   video-start [path]            record the session's tab to MP4 (default .agweb/video-<time>.mp4), with the
-              [--max-idle=S]    pointer drawn in; frames only when something changes; still gaps over S
-                                seconds (default 1.5, 0 keeps real time) are shortened to S
+              [--max-idle=S]    pointer drawn in; frames only when something changes; time between commands
+                                is cut to S seconds (default 1.5, 0 keeps real time)
   video-stop                    finish the recording and print its path
   screenshot [path]             PNG of the viewport (default .agweb/page-<time>.png)
   console                       page console messages since last call

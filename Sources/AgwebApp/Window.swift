@@ -1,3 +1,4 @@
+import AgwebCore
 import AppKit
 import SwiftUI
 import WebKit
@@ -42,11 +43,17 @@ final class MainWindow: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 1280, height: 820))
         window.center()
-        window.setFrameAutosaveName("agwebMain")
         super.init()
         window.delegate = self
         installToolbar()
+        // The autosave name only saves; restoring is explicit, and after the toolbar so it can't shift the frame.
+        // AppKit moves a frame saved on a display that is gone onto one that exists.
+        window.setFrameUsingName(Self.frameName)
+        window.setFrameAutosaveName(Self.frameName)
     }
+
+    // Test instances on their own socket keep their own frame, so they never move the person's window.
+    private static let frameName = Agweb.customSocket ? "agwebTest" : "agwebMain"
 
     /// Puts the window on screen behind everything else, so it appears in the window list without
     /// covering or activating anything.

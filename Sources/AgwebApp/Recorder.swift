@@ -3,8 +3,9 @@ import AVFoundation
 import WebKit
 
 /// Records a session's current tab to MP4. Frames are written only when the page, the pointer or a click
-/// ring changed, each at its own time, so a still page costs nothing; gaps longer than `maxIdle` (agents
-/// thinking, pages loading) are shortened to it. The pointer is drawn into the frames, never into the page.
+/// ring changed, each at its own time, so a still page costs nothing. While the agent is between commands,
+/// only the first `maxIdle` seconds are kept: a blinking caret or a spinner changes pixels forever, so
+/// pixel changes alone can't tell a page at rest. The pointer is drawn into the frames, never into the page.
 @MainActor
 final class Recorder {
     let url: URL
@@ -20,6 +21,7 @@ final class Recorder {
     private var lastPixels: Data?
     private var lastPointer: CGPoint?
     private var frames = 0
+    private var lastBusy = ProcessInfo.processInfo.systemUptime
 
     init(session: Session, url: URL, maxIdle: Double) throws {
         guard let tab = session.current, let rect = Self.viewport(of: tab.webView) else {
@@ -73,7 +75,10 @@ final class Recorder {
         return "### Video\n\(url.path)\n- \(frames) frames, \(String(format: "%.1f", clock + 1)) s, \(Int(size.width))x\(Int(size.height))"
     }
 
-    private func capture() async {
+    /// Also called by a click while the button is down, so the pressed state makes it into the video.
+    func capture() async {
+        let now = ProcessInfo.processInfo.systemUptime
+        if session.busy { lastBusy = now } else if maxIdle > 0, now - lastBusy > maxIdle { return }
         guard let tab = session.current, let rect = Self.viewport(of: tab.webView), let image = await snapshot(tab.webView, rect) else { return }
         let pixels = image.dataProvider?.data as Data?
         let ring = tab.lastClick.map { ProcessInfo.processInfo.systemUptime - $0.time }.flatMap { $0 < Self.ringSeconds ? $0 : nil }

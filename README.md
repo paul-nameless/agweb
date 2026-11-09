@@ -7,7 +7,7 @@ A WebKit (WKWebView) browser for coding agents, driven by a playwright-cli-style
 - Each session gets a persistent WebKit profile. Sessions that pass the same `--profile` share logins, in parallel, which Chrome can't do with one profile dir. `--profile=ephemeral` keeps and shares nothing.
 - Clicks and key presses are native AppKit events delivered straight to the tab's web view, so pages see `isTrusted == true`, and they reach tabs nobody is looking at.
 - Input moves at a person's pace by default: the pointer glides to its target (Fitts's-law timing, a curved minimum-jerk path, off-centre aim, from the qa-video skill), so hover menus react, and `type` inserts a character at a time with human gaps. `--instant` jumps and inserts at once.
-- `video-start` / `video-stop` record the session's tab to MP4 with the pointer and click rings drawn in. A frame is written only when the page or pointer changed, and still gaps (agents thinking, pages loading) are cut to 1.5 s (`--max-idle`).
+- `video-start` / `video-stop` record the session's tab to MP4 with the pointer and click rings drawn in. A frame is written only when the page or pointer changed, and time between agent commands is cut to 1.5 s (`--max-idle`), even while a caret blinks.
 - Nothing pops up: popups become tabs, dialogs are answered in code (confirm and prompt dismissed unless `agweb dialog accept`) and reported under `### Events`, file choosers take files from `agweb upload`, and controls that open native pickers (select, date, colour) must be set with `fill`.
 
 ## Build and run
