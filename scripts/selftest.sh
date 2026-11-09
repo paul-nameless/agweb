@@ -6,6 +6,7 @@ set -u
 cd "$(dirname "$0")"
 dir=$(mktemp -d /tmp/agweb-test.XXXXXX)
 export AGWEB_SOCKET="$dir/s.sock"
+unset AGWEB_PROFILE AGWEB_WORKSPACE
 agweb="$PWD/../bin/agweb"
 cp testpage.html "$dir/index.html"
 domain=dev.playground.agweb
@@ -45,131 +46,145 @@ lacks() {
 }
 video_seconds() { sed -n 's/.* frames, \([0-9.]*\) s.*/\1/p'; }
 
-check "Title: agweb test" -s alpha open "$u" --profile=selftest-alpha
-check "Title: agweb test" -s beta open "$u?beta" --profile=selftest-shared
-check 'button "Press me" \[ref=e2\]' -s alpha snapshot
-check 'option "Two"' -s alpha snapshot
-check "Page" -s alpha click e2
-check "Page" -s alpha fill '#q' hello
-check "Page" -s alpha press Enter
-fails "native picker" -s alpha click '#s'
-check "Page" -s alpha fill '#s' Two
-check "Page" -s alpha eval "() => { s.focus() }"
-fails "native picker" -s alpha press ArrowDown
-check "Page" -s alpha fill '#pw' secret
-check 'textbox \[value=<hidden>\]' -s alpha snapshot
-lacks "secret" -s alpha snapshot
-check "file chooser got" -s alpha upload '#file' /etc/hosts
-fails "no file chooser opened" -s alpha upload e2 /etc/hosts
-check "alert: hi" -s alpha click '#al'
-check '"click trusted=true","keydown Enter trusted=true","submit:hello","file:hosts"' -s alpha eval 'window.log'
-check '"2"' -s alpha eval "() => document.querySelector('#s').value"
+check "Title: agweb test" -w alpha open "$u" -p selftest-alpha
+check "Title: agweb test" -w beta open "$u?beta" -p selftest-shared
+check 'button "Press me" \[ref=e2\]' -w alpha snapshot
+check 'option "Two"' -w alpha snapshot
+check "Page" -w alpha click e2
+check "Page" -w alpha fill '#q' hello
+check "Page" -w alpha press Enter
+fails "native picker" -w alpha click '#s'
+check "Page" -w alpha fill '#s' Two
+check "Page" -w alpha eval "() => { s.focus() }"
+fails "native picker" -w alpha press ArrowDown
+check "Page" -w alpha fill '#pw' secret
+check 'textbox \[value=<hidden>\]' -w alpha snapshot
+lacks "secret" -w alpha snapshot
+check "file chooser got" -w alpha upload '#file' /etc/hosts
+fails "no file chooser opened" -w alpha upload e2 /etc/hosts
+check "alert: hi" -w alpha click '#al'
+check '"click trusted=true","keydown Enter trusted=true","submit:hello","file:hosts"' -w alpha eval 'window.log'
+check '"2"' -w alpha eval "() => document.querySelector('#s').value"
 
 echo "== the pointer glides: trusted mousemoves arrive, :hover follows, typing is per key"
-check "Page" -s alpha mousemove 5 5 --instant
-check 'false' -s alpha eval "() => { moves = 0; return document.querySelector('#b').matches(':hover') }"
-check "Page" -s alpha hover '#b'
-check 'true' -s alpha eval "() => document.querySelector('#b').matches(':hover') && moves > 5"
-fails "inside the" -s alpha mousemove nan 5
-fails "inside the" -s alpha mousemove 5 99999
-check "Page" -s alpha eval "() => { q.focus(); q.setSelectionRange(99, 99); inputs = 0 }"
+check "Page" -w alpha mousemove 5 5 --instant
+check 'false' -w alpha eval "() => { moves = 0; return document.querySelector('#b').matches(':hover') }"
+check "Page" -w alpha hover '#b'
+check 'true' -w alpha eval "() => document.querySelector('#b').matches(':hover') && moves > 5"
+fails "inside the" -w alpha mousemove nan 5
+fails "inside the" -w alpha mousemove 5 99999
+check "Page" -w alpha eval "() => { q.focus(); q.setSelectionRange(99, 99); inputs = 0 }"
 start=$(now)
-check "Page" -s alpha type ' world'
+check "Page" -w alpha type ' world'
 /usr/bin/python3 -c "import sys; sys.exit(0 if $(now) - $start >= 0.6 else 1)" || fail "typing ' world' took under 0.6 s; it should go at a person's pace"
-check "Page" -s alpha type '!' --instant
-check '\["hello world!",7\]' -s alpha eval '[q.value, inputs]'
+check "Page" -w alpha type '!' --instant
+check '\["hello world!",7\]' -w alpha eval '[q.value, inputs]'
 
 echo "== recording"
-fails "must end in .mp4" -s alpha video-start "$dir"
-fails "max-idle takes seconds" -s alpha video-start "$dir/v.mp4" --max-idle=soon
-check "recording alpha" -s alpha video-start "$dir/v.mp4"
-check "Page" -s alpha hover '#al'
-check "Page" -s alpha eval "async () => { for (const c of ['#fee', '#efe', '#eef']) { document.body.style.background = c; await new Promise(r => setTimeout(r, 150)) } }"
-fails "already recording" -s alpha video-start "$dir/w.mp4"
-check "frames, " -s alpha video-stop
+fails "must end in .mp4" -w alpha video-start "$dir"
+fails "max-idle takes seconds" -w alpha video-start "$dir/v.mp4" --max-idle=soon
+check "recording alpha" -w alpha video-start "$dir/v.mp4"
+check "Page" -w alpha hover '#al'
+check "Page" -w alpha eval "async () => { for (const c of ['#fee', '#efe', '#eef']) { document.body.style.background = c; await new Promise(r => setTimeout(r, 150)) } }"
+fails "already recording" -w alpha video-start "$dir/w.mp4"
+check "frames, " -w alpha video-stop
 LC_ALL=C grep -qa moov "$dir/v.mp4" || fail "the video has no index (moov)"
-fails "not recording" -s alpha video-stop
+fails "not recording" -w alpha video-stop
 # A page that never stops changing: time between commands is still cut to max-idle.
-check "Page" -s alpha eval "() => { window.blink = setInterval(() => document.body.style.background = document.body.style.background ? '' : '#eee', 100) }"
-check "recording" -s alpha video-start "$dir/idle.mp4" --max-idle=0.5
+check "Page" -w alpha eval "() => { window.blink = setInterval(() => document.body.style.background = document.body.style.background ? '' : '#eee', 100) }"
+check "recording" -w alpha video-start "$dir/idle.mp4" --max-idle=0.5
 sleep 3
-seconds=$("$agweb" -s alpha video-stop | video_seconds)
+seconds=$("$agweb" -w alpha video-stop | video_seconds)
 /usr/bin/python3 -c "import sys; sys.exit(0 if 0 < ${seconds:-0} < 2.5 else 1)" || fail "3 s idle with --max-idle=0.5 gave a ${seconds:-?} s video"
-check "Page" -s alpha eval "() => { clearInterval(window.blink); document.body.style.background = '' }"
+check "Page" -w alpha eval "() => { clearInterval(window.blink); document.body.style.background = '' }"
 
 echo "== tabs and popups"
-check "popup opened as tab 1" -s alpha click '#pop'
-check "1: (current)" -s alpha tab-list
-check "0: (current)" -s alpha tab-select 0
-check "1: (current)" -s alpha tab-select 1
-fails "no tab 9" -s alpha tab-close 9
-check "0: (current)" -s alpha tab-close 1
-check "Page" -s alpha eval "() => { setTimeout(() => open('/index.html?ad'), 200) }"
+check "popup opened as tab 1" -w alpha click '#pop'
+check "1: (current)" -w alpha tab-list
+check "0: (current)" -w alpha tab-select 0
+check "1: (current)" -w alpha tab-select 1
+fails "no tab 9" -w alpha tab-close 9
+check "0: (current)" -w alpha tab-close 1
+check "Page" -w alpha eval "() => { setTimeout(() => open('/index.html?ad'), 200) }"
 sleep 1
-check "0: (current)" -s alpha tab-list
-check "index.html?next" -s alpha click 'a'
-check "URL: $u\$" -s alpha go-back
-check "index.html?next" -s alpha go-forward
-check "index.html?next" -s alpha reload
-check "#frag" -s alpha goto "$u#frag"
-check "Safari/" -s alpha eval navigator.userAgent
-check '() => 1' -s alpha eval '() => () => 1'
-check '42' -s alpha eval '40 + 2 // trailing comment'
-fails "already uses profile" -s alpha open --profile=other
-fails "unknown command" -s alpha frobnicate
-fails "missing <ref>" -s alpha click
-fails "navigation failed" -s alpha goto http://127.0.0.1:1/
-fails "boom" -s alpha eval '() => { throw new Error("boom") }'
-fails "is not a field" -s alpha fill '#b' x
-fails "no workspace\|no session" -s nobody snapshot
+check "0: (current)" -w alpha tab-list
+check "index.html?next" -w alpha click 'a'
+check "URL: $u\$" -w alpha go-back
+check "index.html?next" -w alpha go-forward
+check "index.html?next" -w alpha reload
+check "#frag" -w alpha goto "$u#frag"
+check "Safari/" -w alpha eval navigator.userAgent
+check '() => 1' -w alpha eval '() => () => 1'
+check '42' -w alpha eval '40 + 2 // trailing comment'
+fails "already uses profile selftest-alpha" -w alpha open -p other
+fails "unknown command" -w alpha frobnicate
+fails "missing <ref>" -w alpha click
+fails "navigation failed" -w alpha goto http://127.0.0.1:1/
+fails "boom" -w alpha eval '() => { throw new Error("boom") }'
+fails "is not a field" -w alpha fill '#b' x
+fails "no workspace\|no session" -w nobody snapshot
 
 echo "== workspaces run in parallel"
 start=$(now)
-"$agweb" -s alpha eval '() => new Promise(r => setTimeout(r, 2000))' >/dev/null & a=$!
-"$agweb" -s beta eval '() => new Promise(r => setTimeout(r, 2000))' >/dev/null & b=$!
+"$agweb" -w alpha eval '() => new Promise(r => setTimeout(r, 2000))' >/dev/null & a=$!
+"$agweb" -w beta eval '() => new Promise(r => setTimeout(r, 2000))' >/dev/null & b=$!
 wait $a || fail "parallel eval in alpha failed"
 wait $b || fail "parallel eval in beta failed"
 /usr/bin/python3 -c "import sys; sys.exit(0 if $(now) - $start < 3.5 else 1)" || fail "two 2 s evals in different workspaces took over 3.5 s"
 
-echo "== profiles: separate unless named alike; ephemeral keeps nothing"
-check '"who=alpha"' -s alpha eval "() => { document.cookie = 'who=alpha'; return document.cookie }"
-check 'who=beta' -s beta eval "() => { document.cookie = 'who=beta'; return document.cookie }"
+echo "== profiles: fresh by default, shared when named alike"
+check '"who=alpha"' -w alpha eval "() => { document.cookie = 'who=alpha'; return document.cookie }"
+check 'who=beta' -w beta eval "() => { document.cookie = 'who=beta'; return document.cookie }"
 check '^### Result
-"who=alpha"' -s alpha eval 'document.cookie'
-check "Title" -s gamma open "$u?gamma" --profile=selftest-shared
-check 'who=gamma' -s gamma eval "() => { document.cookie = 'who=gamma'; return document.cookie }"
-check 'who=gamma' -s beta eval 'document.cookie'
-check "Title" -s eph1 open "$u" --profile=ephemeral
-check '"who=eph"' -s eph1 eval "() => { document.cookie = 'who=eph'; return document.cookie }"
-check "Title" -s eph2 open "$u" --profile=ephemeral
-check '""' -s eph2 eval 'document.cookie'
+"who=alpha"' -w alpha eval 'document.cookie'
+check "Title" -w gamma open "$u?gamma" -p selftest-shared
+check 'who=gamma' -w gamma eval "() => { document.cookie = 'who=gamma'; return document.cookie }"
+check 'who=gamma' -w beta eval 'document.cookie'
+check "Title" -w eph1 open "$u"
+check '"who=eph"' -w eph1 eval "() => { document.cookie = 'who=eph'; return document.cookie }"
+check "Title" -w eph2 open "$u"
+check '""' -w eph2 eval 'document.cookie'
 
 echo "== beta is not the displayed tab: snapshot, hover and screenshots still work"
-check 'button "Press me"' -s beta snapshot
-check "Page" -s beta hover '#b'
-check 'true' -s beta eval "() => document.querySelector('#b').matches(':hover') && moves > 5"
-check "Screenshot" -s beta screenshot "$dir/beta1.png"
-check "Page" -s beta eval "() => { document.body.style.background = '#c00' }"
-check "Screenshot" -s beta screenshot "$dir/beta2.png"
+check 'button "Press me"' -w beta snapshot
+check "Page" -w beta hover '#b'
+check 'true' -w beta eval "() => document.querySelector('#b').matches(':hover') && moves > 5"
+check "Screenshot" -w beta screenshot "$dir/beta1.png"
+check "Page" -w beta eval "() => { document.body.style.background = '#c00' }"
+check "Screenshot" -w beta screenshot "$dir/beta2.png"
 cmp -s "$dir/beta1.png" "$dir/beta2.png" && fail "a hidden tab's screenshot did not change with the page"
-check "loaded ?parallel-b\|loaded ?beta" -s beta console
-check "Title" -s beta show
-check "selftest-shared" list
+check "loaded ?parallel-b\|loaded ?beta" -w beta console
+check "Title" -w beta show
+check "beta (profile selftest-shared" list
+check "eph1 (fresh profile" list
+check "selftest-shared: beta, gamma" profile-list
+fails "in use by beta, gamma" profile-delete selftest-shared
+check "confirm() and prompt() will be accepted" -w beta dialog-accept
+check "will be dismissed" -w beta dialog-dismiss
 
 echo "== close and quit finish a recording; a named profile and the window frame survive a relaunch"
-check "recording" -s eph2 video-start "$dir/close.mp4"
-check "### Video" -s eph2 close
+check "recording" -w eph2 video-start "$dir/close.mp4"
+check "### Video" -w eph2 close
 LC_ALL=C grep -qa moov "$dir/close.mp4" || fail "close left the video without its index"
-check "Page" -s beta eval "() => { document.cookie = 'kept=1; max-age=600' }"
-check "recording" -s beta video-start "$dir/quit.mp4"
+check "Page" -w beta eval "() => { document.cookie = 'kept=1; max-age=600' }"
+check "recording" -w beta video-start "$dir/quit.mp4"
 check "### Video" quit
 LC_ALL=C grep -qa moov "$dir/quit.mp4" || fail "quit left the video without its index"
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e "$AGWEB_SOCKET" ] || break; sleep 0.5; done
 sleep 1
-check "Title" -s delta open "$u" --profile=selftest-shared
-check 'kept=1' -s delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
+check "Title" -w delta open "$u" -p selftest-shared
+check 'kept=1' -w delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
 [ "$(defaults read $domain "NSWindow Frame agwebTest" | cut -d' ' -f3)" = 900 ] || fail "the test window's saved frame was not restored"
 [ "$(defaults read $domain "NSWindow Frame agwebMain" 2>/dev/null)" = "$person_frame" ] || fail "the selftest changed the person's saved window frame"
+check "workspace delta closed" close-all
+check "profile selftest-shared deleted" profile-delete selftest-shared
+check "Title" -w zeta open "$u" -p selftest-shared
+check '^""$' -w zeta eval 'document.cookie'
+check "workspace zeta closed" -w zeta close
+check "profile selftest-shared deleted" profile-delete selftest-shared
+check "profile selftest-alpha deleted" profile-delete selftest-alpha
+lacks "selftest" profile-list
+fails "no profile selftest-alpha" profile-delete selftest-alpha
 
 echo
 if [ "$failures" -eq 0 ]; then echo "all checks passed"; else echo "$failures checks failed"; fi

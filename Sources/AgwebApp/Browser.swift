@@ -10,8 +10,8 @@ final class Browser {
     private var queues: [String: Task<Response, Never>] = [:]
     private var nextTabID = 1
 
-    /// Tabs a person opens from the window, when no agent tab is displayed, live in this session.
-    static let userSession = "user"
+    /// Tabs a person opens from the window, when no agent tab is displayed, live in this workspace.
+    static let userWorkspace = "user"
 
     init() {
         console.browser = self
@@ -20,53 +20,52 @@ final class Browser {
             self.mainWindow.bringToTop(tab.webView)
         }
         model.onCloseTab = { [weak self] tab in self?.closeTab(tab) }
-        model.onCloseSession = { [weak self] session in self?.closeSession(session) }
-        model.onNewTab = { [weak self] session in self?.newTabFromUser(in: session) }
+        model.onCloseWorkspace = { [weak self] workspace in self?.closeWorkspace(workspace) }
+        model.onNewTab = { [weak self] workspace in self?.newTabFromUser(in: workspace) }
     }
 
-    // MARK: Sessions and tabs
+    // MARK: Workspaces and tabs
 
     func tab(for webView: WKWebView?) -> Tab? {
-        model.sessions.lazy.flatMap(\.tabs).first { $0.webView === webView }
+        model.workspaces.lazy.flatMap(\.tabs).first { $0.webView === webView }
     }
 
-    private func session(named name: String, profile: String?) throws -> Session {
-        if let session = model.sessions.first(where: { $0.name == name }) {
-            if let profile, profile != session.profile {
-                throw Failure("session \(name) already uses profile \(session.profile); close it first to switch")
+    private func workspace(named name: String, profile: String?) throws -> Workspace {
+        if let workspace = model.workspaces.first(where: { $0.name == name }) {
+            if let profile, profile != workspace.profile {
+                throw Failure("workspace \(name) already uses \(Self.describe(profile: workspace.profile)); close it first to switch")
             }
-            return session
+            return workspace
         }
-        let profile = profile ?? name
-        let session = Session(name: name, profile: profile, dataStore: Session.dataStore(for: profile), console: console)
-        model.sessions.append(session)
-        return session
+        let workspace = Workspace(name: name, profile: profile, console: console)
+        model.workspaces.append(workspace)
+        return workspace
     }
 
-    private func makeTab(in session: Session, configuration: WKWebViewConfiguration?, opener: Tab?) -> Tab {
-        let tab = Tab(id: nextTabID, session: session, configuration: configuration ?? session.makeConfiguration(), browser: self, opener: opener)
+    private func makeTab(in workspace: Workspace, configuration: WKWebViewConfiguration?, opener: Tab?) -> Tab {
+        let tab = Tab(id: nextTabID, workspace: workspace, configuration: configuration ?? workspace.makeConfiguration(), browser: self, opener: opener)
         nextTabID += 1
-        if let opener, let index = session.tabs.firstIndex(where: { $0 === opener }) {
-            session.tabs.insert(tab, at: index + 1)
+        if let opener, let index = workspace.tabs.firstIndex(where: { $0 === opener }) {
+            workspace.tabs.insert(tab, at: index + 1)
         } else {
-            session.tabs.append(tab)
+            workspace.tabs.append(tab)
         }
         mainWindow.add(tab.webView)
         return tab
     }
 
     @discardableResult
-    func addTab(to session: Session) -> Tab {
-        let tab = makeTab(in: session, configuration: nil, opener: nil)
+    func addTab(to workspace: Workspace) -> Tab {
+        let tab = makeTab(in: workspace, configuration: nil, opener: nil)
         drive(tab)
         return tab
     }
 
     /// A popup becomes the agent's tab only when the agent's own command opened it; an ad or a timer-opened
     /// window must not redirect the agent's next commands.
-    func addPopup(to session: Session, configuration: WKWebViewConfiguration, opener: Tab) -> Tab {
-        let tab = makeTab(in: session, configuration: configuration, opener: opener)
-        if session.busy {
+    func addPopup(to workspace: Workspace, configuration: WKWebViewConfiguration, opener: Tab) -> Tab {
+        let tab = makeTab(in: workspace, configuration: configuration, opener: opener)
+        if workspace.busy {
             drive(tab)
         } else if NSApp.isActive, model.displayedTabID == opener.id {
             model.display(tab.id)
@@ -75,28 +74,28 @@ final class Browser {
     }
 
     /// Makes `tab` the one its agent drives. The window follows only when someone is already watching that
-    /// session, so one agent never yanks the view away from another.
+    /// workspace, so one agent never yanks the view away from another.
     private func drive(_ tab: Tab) {
-        let watching = model.displayedTab.map { $0.session === tab.session } ?? true
-        tab.session.currentID = tab.id
+        let watching = model.displayedTab.map { $0.workspace === tab.workspace } ?? true
+        tab.workspace.currentID = tab.id
         if watching { model.display(tab.id) }
     }
 
     func closeTab(_ tab: Tab) {
-        let session = tab.session
-        guard let index = session.tabs.firstIndex(where: { $0 === tab }) else { return }
+        let workspace = tab.workspace
+        guard let index = workspace.tabs.firstIndex(where: { $0 === tab }) else { return }
         tab.finishLoad(Failure("the tab was closed"))
         tab.webView.stopLoading()
         tab.webView.navigationDelegate = nil
         tab.webView.uiDelegate = nil
         tab.webView.removeFromSuperview()
-        session.tabs.remove(at: index)
-        if session.currentID == tab.id {
-            let opener = tab.opener.flatMap { opener in session.tabs.contains { $0 === opener } ? opener : nil }
-            session.currentID = opener?.id ?? (session.tabs.indices.contains(index) ? session.tabs[index] : session.tabs.last)?.id
+        workspace.tabs.remove(at: index)
+        if workspace.currentID == tab.id {
+            let opener = tab.opener.flatMap { opener in workspace.tabs.contains { $0 === opener } ? opener : nil }
+            workspace.currentID = opener?.id ?? (workspace.tabs.indices.contains(index) ? workspace.tabs[index] : workspace.tabs.last)?.id
         }
         if model.displayedTabID == tab.id {
-            if let next = session.current ?? model.sessions.lazy.flatMap(\.tabs).first {
+            if let next = workspace.current ?? model.workspaces.lazy.flatMap(\.tabs).first {
                 model.display(next.id)
             } else {
                 model.displayedTabID = nil
@@ -107,29 +106,29 @@ final class Browser {
     /// An MP4 without its index is unplayable, so quitting finishes every recording first.
     func finishRecordings() async -> [String] {
         var videos: [String] = []
-        for session in model.sessions { videos += await describeStop(session) }
+        for workspace in model.workspaces { videos += await describeStop(workspace) }
         return videos
     }
 
-    private func describeStop(_ session: Session) async -> [String] {
+    private func describeStop(_ workspace: Workspace) async -> [String] {
         do {
-            return try await session.stopRecording().map { [$0] } ?? []
+            return try await workspace.stopRecording().map { [$0] } ?? []
         } catch {
             return ["### Video\nrecording failed: \(error)"]
         }
     }
 
-    func closeSession(_ session: Session) {
-        // From the sidebar, outside the session's queue; an agent's close has already stopped it.
-        if session.recorder != nil { Task { _ = await describeStop(session) } }
-        for tab in session.tabs { closeTab(tab) }
-        session.contentController.removeScriptMessageHandler(forName: "agwebConsole")
-        model.sessions.removeAll { $0 === session }
+    func closeWorkspace(_ workspace: Workspace) {
+        // From the sidebar, outside the workspace's queue; an agent's close has already stopped it.
+        if workspace.recorder != nil { Task { _ = await describeStop(workspace) } }
+        for tab in workspace.tabs { closeTab(tab) }
+        workspace.contentController.removeScriptMessageHandler(forName: "agwebConsole")
+        model.workspaces.removeAll { $0 === workspace }
     }
 
-    private func newTabFromUser(in session: Session?) {
-        guard let session = session ?? model.displayedTab?.session ?? (try? self.session(named: Self.userSession, profile: nil)) else { return }
-        let tab = makeTab(in: session, configuration: nil, opener: nil)
+    private func newTabFromUser(in workspace: Workspace?) {
+        guard let workspace = workspace ?? model.displayedTab?.workspace ?? (try? self.workspace(named: Self.userWorkspace, profile: nil)) else { return }
+        let tab = makeTab(in: workspace, configuration: nil, opener: nil)
         model.display(tab.id)
         mainWindow.focusAddress()
     }
@@ -138,19 +137,19 @@ final class Browser {
 
     // MARK: Commands
 
-    /// Commands for one session run one at a time, in arrival order; different sessions run concurrently.
+    /// Commands for one workspace run one at a time, in arrival order; different workspaces run concurrently.
     func handle(_ request: Request) async -> Response {
-        let previous = queues[request.session]
+        let previous = queues[request.workspace]
         let work = Task { @MainActor () -> Response in
             _ = await previous?.value
             return await self.execute(request)
         }
-        queues[request.session] = work
+        queues[request.workspace] = work
         return await work.value
     }
 
     private func execute(_ request: Request) async -> Response {
-        defer { model.sessions.first { $0.name == request.session }?.busy = false }
+        defer { model.workspaces.first { $0.name == request.workspace }?.busy = false }
         do {
             return Response(ok: true, output: try await run(request))
         } catch {
@@ -167,70 +166,87 @@ final class Browser {
 
         switch request.command {
         case "list":
-            if model.sessions.isEmpty { return "no sessions" }
-            return model.sessions.map { "- \($0.name) (profile \($0.profile), \($0.tabs.count) tabs)" }.joined(separator: "\n")
+            if model.workspaces.isEmpty { return "no workspaces" }
+            return model.workspaces.map { "- \($0.name) (\(Self.describe(profile: $0.profile)), \($0.tabs.count) tabs)" }.joined(separator: "\n")
+        case "close-all":
+            var lines: [String] = []
+            for workspace in model.workspaces {
+                lines += await describeStop(workspace)
+                closeWorkspace(workspace)
+                lines.append("workspace \(workspace.name) closed")
+            }
+            return lines.isEmpty ? "no workspaces" : lines.joined(separator: "\n")
+        case "profile-list":
+            let names = Profiles.names
+            if names.isEmpty { return "no named profiles; open a workspace with -p NAME to create one" }
+            return names.map { name in
+                let users = model.workspaces.filter { $0.profile == name }.map(\.name)
+                return "- \(name)" + (users.isEmpty ? "" : ": " + users.joined(separator: ", "))
+            }.joined(separator: "\n")
+        case "profile-delete":
+            let name = try arg(0, "name")
+            let users = model.workspaces.filter { $0.profile == name }.map(\.name)
+            guard users.isEmpty else { throw Failure("profile \(name) is in use by \(users.joined(separator: ", ")); close them first") }
+            try await Profiles.delete(name)
+            return "profile \(name) deleted"
         case "quit":
             let videos = await finishRecordings()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) }
             return (["bye"] + videos).joined(separator: "\n")
         case "open":
-            let session = try session(named: request.session, profile: request.options["profile"])
-            session.busy = true
+            let workspace = try workspace(named: request.workspace, profile: request.options["profile"])
+            workspace.busy = true
             mainWindow.showQuietly()
-            let tab = session.current ?? addTab(to: session)
+            let tab = workspace.current ?? addTab(to: workspace)
             if let url = args.first { try await tab.goto(try Address.url(url)) }
             return describe(tab)
         default:
             break
         }
 
-        guard let session = model.sessions.first(where: { $0.name == request.session }) else {
-            throw Failure("no session '\(request.session)'; start it with: agweb -s=\(request.session) open [url]")
+        guard let workspace = model.workspaces.first(where: { $0.name == request.workspace }) else {
+            throw Failure("no workspace '\(request.workspace)'; start it with: agweb -w \(request.workspace) open [url]")
         }
-        session.busy = true
+        workspace.busy = true
 
         switch request.command {
         case "close":
-            let video = await describeStop(session)
-            closeSession(session)
-            return (["session \(session.name) closed"] + video).joined(separator: "\n")
-        case "dialog":
-            switch try arg(0, "accept|dismiss") {
-            case "accept": session.acceptDialogs = true
-            case "dismiss": session.acceptDialogs = false
-            default: throw Failure("use: agweb dialog accept|dismiss")
-            }
-            return "confirm() and prompt() will be \(session.acceptDialogs ? "accepted" : "dismissed")"
+            let video = await describeStop(workspace)
+            closeWorkspace(workspace)
+            return (["workspace \(workspace.name) closed"] + video).joined(separator: "\n")
+        case "dialog-accept", "dialog-dismiss":
+            workspace.acceptDialogs = request.command == "dialog-accept"
+            return "confirm() and prompt() will be \(workspace.acceptDialogs ? "accepted" : "dismissed")"
         case "tab-list":
-            return tabList(session)
+            return tabList(workspace)
         case "tab-new":
-            let tab = addTab(to: session)
+            let tab = addTab(to: workspace)
             if let url = args.first { try await tab.goto(try Address.url(url)) }
-            return tabList(session)
+            return tabList(workspace)
         case "tab-select":
-            drive(try tabAt(try arg(0, "index"), in: session))
-            return tabList(session)
+            drive(try tabAt(try arg(0, "index"), in: workspace))
+            return tabList(workspace)
         case "tab-close":
-            guard let tab = try args.first.map({ try tabAt($0, in: session) }) ?? session.current else {
+            guard let tab = try args.first.map({ try tabAt($0, in: workspace) }) ?? workspace.current else {
                 throw Failure("no tab to close")
             }
             closeTab(tab)
-            return tabList(session)
+            return tabList(workspace)
         case "video-start":
-            if let recorder = session.recorder { throw Failure("already recording to \(recorder.url.path); run video-stop first") }
+            if let recorder = workspace.recorder { throw Failure("already recording to \(recorder.url.path); run video-stop first") }
             let maxIdle = try request.options["max-idle"].map { text -> Double in
                 guard let value = Double(text), value >= 0, value.isFinite else { throw Failure("--max-idle takes seconds, 0 for none") }
                 return value
             } ?? 1.5
-            let recorder = try Recorder(session: session, url: URL(fileURLWithPath: try arg(0, "path")), maxIdle: maxIdle)
-            session.recorder = recorder
-            return "recording \(session.name) to \(recorder.url.path)"
+            let recorder = try Recorder(workspace: workspace, url: URL(fileURLWithPath: try arg(0, "path")), maxIdle: maxIdle)
+            workspace.recorder = recorder
+            return "recording \(workspace.name) to \(recorder.url.path)"
         case "video-stop":
-            guard let video = try await session.stopRecording() else { throw Failure("not recording; run video-start") }
+            guard let video = try await workspace.stopRecording() else { throw Failure("not recording; run video-start") }
             return video
         case "show":
             // Shows the agent's tab inside the window; never raises or activates the app.
-            guard let tab = session.current else { throw Failure("session has no tabs") }
+            guard let tab = workspace.current else { throw Failure("workspace has no tabs") }
             model.display(tab.id)
             mainWindow.showQuietly()
             return describe(tab)
@@ -238,7 +254,7 @@ final class Browser {
             break
         }
 
-        guard let tab = session.current else { throw Failure("session has no tabs; run tab-new") }
+        guard let tab = workspace.current else { throw Failure("workspace has no tabs; run tab-new") }
         let webView = tab.webView
         let instant = request.options["instant"] != nil
 
@@ -340,11 +356,11 @@ final class Browser {
         return describe(tab)
     }
 
-    private func tabAt(_ text: String, in session: Session) throws -> Tab {
-        guard let index = Int(text), session.tabs.indices.contains(index) else {
-            throw Failure("no tab \(text); tabs are 0...\(session.tabs.count - 1)")
+    private func tabAt(_ text: String, in workspace: Workspace) throws -> Tab {
+        guard let index = Int(text), workspace.tabs.indices.contains(index) else {
+            throw Failure("no tab \(text); tabs are 0...\(workspace.tabs.count - 1)")
         }
-        return session.tabs[index]
+        return workspace.tabs[index]
     }
 
     // Controls that open native pickers (select menus, date and colour panels) would pop up on the person's
@@ -377,7 +393,7 @@ final class Browser {
         try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: landed.viewport.height)
         tab.lastClick = (point, ProcessInfo.processInfo.systemUptime)
         // A short timeout: the press waits on this frame.
-        if !instant { await tab.session.recorder?.capture(timeout: 0.3) }
+        if !instant { await tab.workspace.recorder?.capture(timeout: 0.3) }
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.095, 0.015))) }
         try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: landed.viewport.height)
     }
@@ -441,7 +457,7 @@ final class Browser {
     private func describe(_ tab: Tab) -> String {
         var out = "### Page\n- URL: \(tab.webView.url?.absoluteString ?? "about:blank")\n- Title: \(tab.webView.title ?? "")"
         if windowHidden { out += "\n- Note: the window is closed or minimized; pages may pause (agweb show)" }
-        if tab.session.tabs.count > 1 { out += "\n" + tabList(tab.session) }
+        if tab.workspace.tabs.count > 1 { out += "\n" + tabList(tab.workspace) }
         if !tab.events.isEmpty {
             out += "\n### Events\n" + tab.events.map { "- \($0)" }.joined(separator: "\n")
             tab.events.removeAll()
@@ -451,9 +467,11 @@ final class Browser {
         return out
     }
 
-    private func tabList(_ session: Session) -> String {
-        "### Tabs\n" + session.tabs.enumerated().map { index, tab in
-            let current = tab.id == session.currentID ? " (current)" : ""
+    static func describe(profile: String?) -> String { profile.map { "profile \($0)" } ?? "fresh profile" }
+
+    private func tabList(_ workspace: Workspace) -> String {
+        "### Tabs\n" + workspace.tabs.enumerated().map { index, tab in
+            let current = tab.id == workspace.currentID ? " (current)" : ""
             return "- \(index):\(current) [\(tab.webView.title ?? "")](\(tab.webView.url?.absoluteString ?? "about:blank"))"
         }.joined(separator: "\n")
     }

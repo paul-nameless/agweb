@@ -2,13 +2,13 @@ import Darwin
 import Foundation
 
 public struct Request: Codable, Sendable {
-    public var session: String
+    public var workspace: String
     public var command: String
     public var args: [String]
     public var options: [String: String]
 
-    public init(session: String, command: String, args: [String], options: [String: String]) {
-        self.session = session
+    public init(workspace: String, command: String, args: [String], options: [String: String]) {
+        self.workspace = workspace
         self.command = command
         self.args = args
         self.options = options

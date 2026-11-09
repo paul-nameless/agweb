@@ -6,12 +6,12 @@ import AgwebCore
 
 @Observable @MainActor
 final class BrowserModel {
-    var sessions: [Session] = []
+    var workspaces: [Workspace] = []
     var displayedTabID: Int?
     @ObservationIgnored var onDisplay: ((Int) -> Void)?
     @ObservationIgnored var onCloseTab: ((Tab) -> Void)?
-    @ObservationIgnored var onCloseSession: ((Session) -> Void)?
-    @ObservationIgnored var onNewTab: ((Session?) -> Void)?
+    @ObservationIgnored var onCloseWorkspace: ((Workspace) -> Void)?
+    @ObservationIgnored var onNewTab: ((Workspace?) -> Void)?
 
     func display(_ id: Int) {
         displayedTabID = id
@@ -19,18 +19,19 @@ final class BrowserModel {
     }
 
     var displayedTab: Tab? {
-        sessions.lazy.flatMap(\.tabs).first { $0.id == self.displayedTabID }
+        workspaces.lazy.flatMap(\.tabs).first { $0.id == self.displayedTabID }
     }
 }
 
-/// One agent's workspace: its tabs, which one it drives, and the profile (website data store) behind them.
+/// One agent's tabs, the one it drives, and the profile (website data store) behind them: a named one, or
+/// with `profile` nil a fresh one that keeps nothing.
 @Observable @MainActor
-final class Session: Identifiable {
+final class Workspace: Identifiable {
     nonisolated let name: String
-    let profile: String
+    let profile: String?
     var tabs: [Tab] = []
     var currentID: Int?
-    /// True while an agent command runs. Commands on one session are serialized, so this is exact.
+    /// True while an agent command runs. Commands on one workspace are serialized, so this is exact.
     var busy = false
     @ObservationIgnored var acceptDialogs = false
     @ObservationIgnored var recorder: Recorder?
@@ -47,11 +48,11 @@ final class Session: Identifiable {
         return try await recorder.stop()
     }
 
-    init(name: String, profile: String, dataStore: WKWebsiteDataStore, console: WKScriptMessageHandler) {
+    init(name: String, profile: String?, console: WKScriptMessageHandler) {
         self.name = name
         self.profile = profile
-        self.dataStore = dataStore
-        // One controller per session: popups get a copy of the opener's configuration, and registering
+        dataStore = Profiles.store(profile)
+        // One controller per workspace: popups get a copy of the opener's configuration, and registering
         // a message handler twice on a shared controller throws.
         contentController.addUserScript(WKUserScript(source: PageScripts.consoleHook, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         contentController.add(console, name: "agwebConsole")
@@ -75,19 +76,48 @@ final class Session: Identifiable {
         return plist?["CFBundleShortVersionString"] as? String ?? "18.0"
     }()
 
-    /// The same profile name always maps to the same persistent store, so sessions can share logins.
-    /// "ephemeral" gets a fresh in-memory store every time.
-    static func dataStore(for profile: String) -> WKWebsiteDataStore {
-        if profile == "ephemeral" { return .nonPersistent() }
-        if let store = stores[profile] { return store }
-        let digest = Array(SHA256.hash(data: Data("agweb.profile.\(profile)".utf8)).prefix(16))
-        let uuid = digest.withUnsafeBufferPointer { NSUUID(uuidBytes: $0.baseAddress!) as UUID }
-        let store = WKWebsiteDataStore(forIdentifier: uuid)
-        stores[profile] = store
+}
+
+/// Named profiles: persistent website data stores shared by every workspace naming them. WebKit keys a store
+/// by a UUID that can't be turned back into the name, so the names live in a file of their own.
+@MainActor
+enum Profiles {
+    private static let file = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/agweb/profiles.json")
+    private static var stores: [String: WKWebsiteDataStore] = [:]
+
+    static var names: [String] { (try? JSONDecoder().decode([String].self, from: Data(contentsOf: file))) ?? [] }
+
+    static func store(_ name: String?) -> WKWebsiteDataStore {
+        guard let name else { return .nonPersistent() }
+        if let store = stores[name] { return store }
+        let store = WKWebsiteDataStore(forIdentifier: identifier(name))
+        stores[name] = store
+        if !names.contains(name) { save(names + [name]) }
         return store
     }
 
-    private static var stores: [String: WKWebsiteDataStore] = [:]
+    static func delete(_ name: String) async throws {
+        guard names.contains(name) else { throw Failure("no profile \(name); see agweb profile-list") }
+        // WebKit refuses to remove a store it still holds, which it does for a while after the store's last tab
+        // closes, and crashes removing one before any web view exists. Wiping its data works in both cases;
+        // removing the emptied store itself is a bonus.
+        let store = stores.removeValue(forKey: name) ?? WKWebsiteDataStore(forIdentifier: identifier(name))
+        await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        try? await WKWebsiteDataStore.remove(forIdentifier: identifier(name))
+        save(names.filter { $0 != name })
+    }
+
+    /// Stable forever: changing it would orphan every saved login.
+    private static func identifier(_ name: String) -> UUID {
+        let digest = Array(SHA256.hash(data: Data("agweb.profile.\(name)".utf8)).prefix(16))
+        return digest.withUnsafeBufferPointer { NSUUID(uuidBytes: $0.baseAddress!) as UUID }
+    }
+
+    private static func save(_ names: [String]) {
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(names.sorted()).write(to: file, options: .atomic)
+    }
 }
 
 @Observable @MainActor
@@ -98,7 +128,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     var title = ""
     var url = ""
     /// Strong on purpose: a closed tab can still get page callbacks, and closeTab breaks the cycle.
-    @ObservationIgnored let session: Session
+    @ObservationIgnored let workspace: Workspace
     @ObservationIgnored let webView: WKWebView
     @ObservationIgnored weak var browser: Browser?
     @ObservationIgnored weak var opener: Tab?
@@ -116,9 +146,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     @ObservationIgnored private var lastCrash: Double?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
 
-    init(id: Int, session: Session, configuration: WKWebViewConfiguration, browser: Browser, opener: Tab?) {
+    init(id: Int, workspace: Workspace, configuration: WKWebViewConfiguration, browser: Browser, opener: Tab?) {
         self.id = id
-        self.session = session
+        self.workspace = workspace
         self.browser = browser
         self.opener = opener
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -238,8 +268,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         guard let browser else { return nil }
-        let popup = browser.addPopup(to: session, configuration: configuration, opener: self)
-        let index = session.tabs.firstIndex { $0 === popup } ?? -1
+        let popup = browser.addPopup(to: workspace, configuration: configuration, opener: self)
+        let index = workspace.tabs.firstIndex { $0 === popup } ?? -1
         events.append("popup opened as tab \(index): \(navigationAction.request.url?.absoluteString ?? "")")
         return popup.webView
     }
@@ -256,14 +286,14 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
-        let accept = session.acceptDialogs
+        let accept = workspace.acceptDialogs
         events.append("confirm \(accept ? "accepted" : "dismissed"): \(message)")
         completionHandler(accept)
     }
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
-        let accept = session.acceptDialogs
+        let accept = workspace.acceptDialogs
         events.append("prompt \(accept ? "answered with default" : "dismissed"): \(prompt)")
         completionHandler(accept ? defaultText ?? "" : nil)
     }
@@ -278,7 +308,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
             return
         }
         // Only a person using the window gets a real panel; an agent's stray chooser is cancelled.
-        guard !session.busy, NSApp.isActive, let window = webView.window else {
+        guard !workspace.busy, NSApp.isActive, let window = webView.window else {
             events.append("file chooser cancelled (use: agweb upload <ref> <file>)")
             completionHandler(nil)
             return

@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 import WebKit
 
-/// One window for every agent: a sidebar of sessions and their tabs, and a content area where all web views
+/// One window for every agent: a sidebar of workspaces and their tabs, and a content area where all web views
 /// sit stacked in the same frame. The displayed tab is simply the top one. Nothing is hidden, so WebKit keeps
 /// every tab "visible" and agents can render, snapshot and click in tabs nobody is looking at.
 @MainActor
@@ -109,18 +109,18 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: Binding(get: { model.displayedTabID }, set: { if let id = $0 { model.display(id) } })) {
-            ForEach(model.sessions) { session in
+            ForEach(model.workspaces) { workspace in
                 Section {
-                    ForEach(session.tabs) { tab in
-                        TabRow(tab: tab, driven: tab.id == session.currentID) { model.onCloseTab?(tab) }
+                    ForEach(workspace.tabs) { tab in
+                        TabRow(tab: tab, driven: tab.id == workspace.currentID) { model.onCloseTab?(tab) }
                             .tag(tab.id)
                             .contextMenu {
                                 Button("Close Tab") { model.onCloseTab?(tab) }
-                                Button("New Tab in \(session.name)") { model.onNewTab?(session) }
+                                Button("New Tab in \(workspace.name)") { model.onNewTab?(workspace) }
                             }
                     }
                 } header: {
-                    SessionHeader(session: session, model: model)
+                    WorkspaceHeader(workspace: workspace, model: model)
                 }
             }
         }
@@ -128,25 +128,26 @@ struct SidebarView: View {
     }
 }
 
-private struct SessionHeader: View {
-    let session: Session
+private struct WorkspaceHeader: View {
+    let workspace: Workspace
     let model: BrowserModel
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(session.name)
-            if session.profile != session.name {
-                Text(session.profile).foregroundStyle(.tertiary)
+            Text(workspace.name)
+            if let profile = workspace.profile {
+                Label(profile, systemImage: "person.crop.circle").labelStyle(.titleAndIcon).foregroundStyle(.tertiary)
+                    .help("Profile \(profile): logins shared by every workspace using it")
             }
             Spacer()
-            if session.busy { ProgressView().controlSize(.mini) }
-            Button { model.onNewTab?(session) } label: { Image(systemName: "plus") }
+            if workspace.busy { ProgressView().controlSize(.mini) }
+            Button { model.onNewTab?(workspace) } label: { Image(systemName: "plus") }
                 .buttonStyle(.borderless)
-                .help("New tab in \(session.name)")
+                .help("New tab in \(workspace.name)")
         }
         .contextMenu {
-            Button("New Tab") { model.onNewTab?(session) }
-            Button("Close Session") { model.onCloseSession?(session) }
+            Button("New Tab") { model.onNewTab?(workspace) }
+            Button("Close Workspace") { model.onCloseWorkspace?(workspace) }
         }
     }
 }

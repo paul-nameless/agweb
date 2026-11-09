@@ -4,10 +4,13 @@ import AgwebCore
 let usage = """
 agweb: drive a WebKit browser like playwright-cli. The browser never activates or raises its window.
 
-usage: agweb [-s <session>] <command> [args] [--options]
+usage: agweb [-w <workspace>] [-p <profile>] <command> [args] [--options]
 
-  open [url] [--profile=NAME]   start a session (default profile = session name; same profile = shared logins;
-                                --profile=ephemeral keeps nothing and shares nothing)
+A workspace is one agent's tabs; use one per task and close it when done. Its profile (logins, storage) is fixed
+when it opens: a fresh one that keeps nothing, or with -p a named one that persists and is shared by every
+workspace naming it.
+
+  open [url]                    start the workspace (-p to reuse a named profile's logins)
   goto <url> | reload | go-back | go-forward
   snapshot                      page as a tree with [ref=eN] handles
   click <ref|css> [--js]        native trusted click: the pointer glides there like a person's
@@ -20,21 +23,25 @@ usage: agweb [-s <session>] <command> [args] [--options]
   press <key>                   native key press: Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a
   upload <ref|css> <file...>    click a file input and answer its chooser with the files
   eval <js>                     expression or () => ... in the page; prints JSON
-  video-start [path]            record the session's tab to MP4 (default .agweb/video-<time>.mp4), with the
+  video-start [path]            record the workspace's tab to MP4 (default .agweb/video-<time>.mp4), with the
               [--max-idle=S]    pointer drawn in; frames only when something changes; time between commands
                                 is cut to S seconds (default 1.5, 0 keeps real time)
   video-stop                    finish the recording and print its path
   screenshot [path]             PNG of the viewport (default .agweb/page-<time>.png)
   console                       page console messages since last call
-  dialog accept|dismiss         how confirm() and prompt() are answered (default dismiss)
+  dialog-accept | dialog-dismiss  how confirm() and prompt() are answered (default dismiss)
   tab-list | tab-new [url] | tab-select <i> | tab-close [i]
-  show                          display this session's tab in the window (no activation)
-  close                         close the session
-  list                          sessions
+  show                          display this workspace's tab in the window (no activation)
+  close                         close the workspace; a named profile keeps its logins
+  list                          workspaces
+  close-all                     close every workspace
+  profile-list                  named profiles and the workspaces using them
+  profile-delete <name>         delete a named profile and everything it stored
   quit                          stop agweb
 
 --instant                       click, upload, hover, mousemove and type act at once instead of at human speed
-session: -s NAME, -s=NAME, --session=NAME or $AGWEB_SESSION; default "default"
+-w NAME, --workspace=NAME       default $AGWEB_WORKSPACE, else "default"
+-p NAME, --profile=NAME         default $AGWEB_PROFILE, else a fresh profile
 `--` ends options, so text that starts with dashes can be passed: agweb type -- --verbose
 env: AGWEB_SOCKET runs a separate instance on that socket; AGWEB_APP points at agweb.app
 """
@@ -44,23 +51,25 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
-var session = ProcessInfo.processInfo.environment["AGWEB_SESSION"] ?? "default"
+let env = ProcessInfo.processInfo.environment
+var workspace = env["AGWEB_WORKSPACE"].flatMap { $0.isEmpty ? nil : $0 } ?? "default"
 var options: [String: String] = [:]
 var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
 let flags: Set = ["js", "help", "instant"]
-let valued: Set = ["profile", "session", "max-idle"]
+let valued: Set = ["profile", "workspace", "max-idle"]
+let short = ["-w": "workspace", "-p": "profile"]
 while let arg = input.popFirst() {
     if arg == "--" {
         positional += input
         break
-    } else if arg == "-s" || arg == "--session" {
-        guard let value = input.popFirst() else { fail("\(arg) needs a session name") }
-        session = value
-    } else if arg.hasPrefix("-s=") {
-        session = String(arg.dropFirst(3))
     } else if arg == "-h" {
         options["help"] = ""
+    } else if let name = short[arg] {
+        guard let value = input.popFirst() else { fail("\(arg) needs a value") }
+        options[name] = value
+    } else if let name = short[String(arg.prefix(2))], arg.dropFirst(2).hasPrefix("=") {
+        options[name] = String(arg.dropFirst(3))
     } else if arg.hasPrefix("--"), case let parts = arg.dropFirst(2).split(separator: "=", maxSplits: 1).map(String.init),
               let name = parts.first, flags.contains(name) || valued.contains(name) {
         // Only known options are taken, so `agweb fill e3 --x` still types "--x".
@@ -70,11 +79,12 @@ while let arg = input.popFirst() {
         } else {
             options[name] = parts.count > 1 ? parts[1] : ""
         }
-        if name == "session" { session = options.removeValue(forKey: "session")! }
     } else {
         positional.append(arg)
     }
 }
+if let name = options.removeValue(forKey: "workspace") { workspace = name }
+if options["profile"] == nil, let profile = env["AGWEB_PROFILE"], !profile.isEmpty { options["profile"] = profile }
 
 guard let command = positional.first, command != "help", options["help"] == nil else {
     print(usage)
@@ -122,7 +132,7 @@ func waitForSocket(_ seconds: Double) -> Bool {
 }
 
 if !isServing(socket) {
-    if ["list", "quit", "close"].contains(command) {
+    if ["list", "quit", "close", "close-all"].contains(command) {
         print("agweb is not running")
         exit(0)
     }
@@ -144,7 +154,7 @@ if !isServing(socket) {
 // Commands time out inside the app (pages 30 s, scripts 30 s); this only catches a wedged app.
 // Typing at a person's pace averages about 0.25 s a key, so long text gets longer.
 let timeout = 120 + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
-guard let response = sendRequest(Request(session: session, command: command, args: args, options: options), path: socket, timeout: timeout) else {
+guard let response = sendRequest(Request(workspace: workspace, command: command, args: args, options: options), path: socket, timeout: timeout) else {
     fail("no response from agweb on \(socket)")
 }
 if response.ok {

@@ -3,14 +3,14 @@ import AppKit
 import AVFoundation
 import WebKit
 
-/// Records a session's current tab to MP4. Frames are written only when the page, the pointer or a click
+/// Records a workspace's current tab to MP4. Frames are written only when the page, the pointer or a click
 /// ring changed, each at its own time, so a still page writes nothing. While the agent is between commands,
 /// only the first `maxIdle` seconds are kept: a blinking caret or a spinner changes pixels forever, so
 /// pixel changes alone can't tell a page at rest. The pointer is drawn into the frames, never into the page.
 @MainActor
 final class Recorder {
     let url: URL
-    private let session: Session
+    private let workspace: Workspace
     private let size: CGSize
     private let maxIdle: Double
     private let writer: AVAssetWriter
@@ -26,8 +26,8 @@ final class Recorder {
     private var frames = 0
     private var lastBusy = ProcessInfo.processInfo.systemUptime
 
-    init(session: Session, url: URL, maxIdle: Double) throws {
-        guard let tab = session.current else { throw Failure("nothing to record: the session has no tabs") }
+    init(workspace: Workspace, url: URL, maxIdle: Double) throws {
+        guard let tab = workspace.current else { throw Failure("nothing to record: the workspace has no tabs") }
         guard let rect = Self.viewport(of: tab.webView) else {
             throw Failure(MainWindow.notRendering)
         }
@@ -38,7 +38,7 @@ final class Recorder {
         }
         // H.264 needs even dimensions. One pixel per point keeps files small and pages readable.
         size = CGSize(width: Int(rect.width) & ~1, height: Int(rect.height) & ~1)
-        self.session = session
+        self.workspace = workspace
         self.url = url
         self.maxIdle = maxIdle
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -90,8 +90,8 @@ final class Recorder {
         let now = ProcessInfo.processInfo.systemUptime
         // Idle time already in the video, so a pause never shows for more than maxIdle in total.
         let idleShown = max(0, (lastWall ?? now) - lastBusy)
-        if session.busy { lastBusy = now } else if maxIdle > 0, now - lastBusy > maxIdle { return }
-        guard !finished, let tab = session.current, let rect = Self.viewport(of: tab.webView),
+        if workspace.busy { lastBusy = now } else if maxIdle > 0, now - lastBusy > maxIdle { return }
+        guard !finished, let tab = workspace.current, let rect = Self.viewport(of: tab.webView),
               let image = await snapshot(tab, rect, timeout: timeout), !finished else { return }
         var ring: Double?
         if let click = tab.lastClick, ProcessInfo.processInfo.systemUptime - click.time < Self.ringSeconds {
