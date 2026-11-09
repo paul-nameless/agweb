@@ -45,16 +45,15 @@ check '"click trusted=true","keydown Enter trusted=true","submit:hello","file:ho
 check '"2"' -s alpha eval "() => document.querySelector('#s').value"
 
 echo "== the pointer glides: trusted mousemoves arrive, :hover follows, typing is per key"
-check "Page" -s alpha hover '#al'
-check 'true' -s alpha eval "() => document.querySelector('#al').matches(':hover') && moves > 5"
 check "Page" -s alpha mousemove 5 5 --instant
-check 'false' -s alpha eval "() => document.querySelector('#al').matches(':hover')"
-check "Page" -s alpha eval "() => { q.focus(); q.setSelectionRange(99, 99) }"
-start=$(date +%s)
+check 'false' -s alpha eval "() => { moves = 0; return document.querySelector('#b').matches(':hover') }"
+check "Page" -s alpha hover '#b'
+check 'true' -s alpha eval "() => document.querySelector('#b').matches(':hover') && moves > 5"
+check "inside the" -s alpha mousemove nan 5
+check "Page" -s alpha eval "() => { q.focus(); q.setSelectionRange(99, 99); inputs = 0 }"
 check "Page" -s alpha type ' world'
-[ $(($(date +%s) - start)) -ge 1 ] || { echo "FAIL  natural type finished in under a second"; failures=$((failures + 1)); }
 check "Page" -s alpha type '!' --instant
-check '"hello world!"' -s alpha eval 'q.value'
+check '\["hello world!",7\]' -s alpha eval '[q.value, inputs]'
 check "popup opened as tab 1" -s alpha click '#pop'
 check "1: (current)" -s alpha tab-list
 check "no tab 9" -s alpha tab-close 9

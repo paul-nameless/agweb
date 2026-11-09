@@ -6,7 +6,7 @@ A WebKit (WKWebView) browser for coding agents, driven by a playwright-cli-style
 - Toolbar: back, forward, reload, a centered address field, new tab. ⌘T, ⌘W, ⌘L, ⌘R, ⌘[, ⌘] and the usual Edit shortcuts work.
 - Each session gets a persistent WebKit profile. Sessions that pass the same `--profile` share logins, in parallel, which Chrome can't do with one profile dir. `--profile=ephemeral` keeps and shares nothing.
 - Clicks and key presses are native AppKit events delivered straight to the tab's web view, so pages see `isTrusted == true`, and they reach tabs nobody is looking at.
-- Input moves at a person's pace by default: the pointer glides to its target (Fitts's-law timing, a curved minimum-jerk path, off-centre aim, from the qa-video skill), so hover menus and tooltips react, and `type` sends one key at a time with human gaps. `--instant` jumps and inserts at once.
+- Input moves at a person's pace by default: the pointer glides to its target (Fitts's-law timing, a curved minimum-jerk path, off-centre aim, from the qa-video skill), so hover menus react, and `type` inserts a character at a time with human gaps. `--instant` jumps and inserts at once.
 - Nothing pops up: popups become tabs, dialogs are answered in code (confirm and prompt dismissed unless `wkb dialog accept`) and reported under `### Events`, file choosers take files from `wkb upload`, and controls that open native pickers (select, date, colour) must be set with `fill`.
 
 ## Build and run
@@ -33,5 +33,5 @@ The app is a regular app launched with `open -g`, never calls `activate`, and fi
 - No network interception or mocking, no tracing or video, no downloads handling, no iframe-internal refs.
 - `fill` and `type` use `execCommand('insertText')`, not key events (`type` per character). Only pointer input and `press` are native.
 - Closing (red button) or minimizing the window pauses pages; `wkb show` puts it back, and screenshots refuse until then.
-- `document.hasFocus()` is false in pages, since the window is never key while agents work. It only reports key to WebKit while the app is in the background, because WebKit drops mouse moves otherwise; pages therefore also react to your own pointer over the background window, as in Chrome.
+- `document.hasFocus()` is false in pages, since the window is never key while agents work. It only reports key to WebKit while the app is in the background, because WebKit drops mouse moves otherwise; pages therefore also react to your own pointer over the background window, as in Chrome, and a tab you clicked into yourself keeps `document.hasFocus()` true after you switch away.
 - Untested: real logins, passkeys (WebKit allows them only for entitled browsers or associated domains), Cloudflare and other bot checks.

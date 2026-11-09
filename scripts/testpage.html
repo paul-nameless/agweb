@@ -9,6 +9,8 @@
 <script>
 window.log = [];
 window.moves = 0;
+window.inputs = 0;
+q.addEventListener('input', () => inputs++);
 addEventListener('mousemove', e => { if (e.isTrusted) moves++; });
 b.addEventListener('click', e => log.push('click trusted=' + e.isTrusted));
 q.addEventListener('keydown', e => log.push('keydown ' + e.key + ' trusted=' + e.isTrusted));

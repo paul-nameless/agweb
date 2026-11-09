@@ -15,7 +15,8 @@ usage: wkb [-s <session>] <command> [args] [--options]
   hover <ref|css>               glide the pointer onto an element, so :hover and mouseover fire
   mousemove <x> <y>             glide the pointer to a viewport point (CSS pixels)
   fill <ref|css> <text>         text fields, <select> options, date/colour/number inputs
-  type <text>                   type at the focused element, one key at a time at a person's pace
+  type <text>                   insert text at the focused element a character at a time, at a person's pace
+                                (input events, not key events; use press for keys)
   press <key>                   native key press: Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a
   upload <ref|css> <file...>    click a file input and answer its chooser with the files
   eval <js>                     expression or () => ... in the page; prints JSON
@@ -28,7 +29,7 @@ usage: wkb [-s <session>] <command> [args] [--options]
   list                          sessions
   quit                          stop WKBrowser
 
---instant                       click, hover, mousemove and type act at once instead of at human speed
+--instant                       click, upload, hover, mousemove and type act at once instead of at human speed
 session: -s NAME, -s=NAME, --session=NAME or $WKB_SESSION; default "default"
 `--` ends options, so text that starts with dashes can be passed: wkb type -- --verbose
 env: WKB_SOCKET runs a separate instance on that socket; WKB_APP points at WKBrowser.app

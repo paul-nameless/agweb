@@ -240,10 +240,12 @@ final class Browser {
         case "hover":
             try await hover(tab, target: try arg(0, "ref"), instant: instant)
         case "mousemove":
-            guard let x = Double(try arg(0, "x")), let y = Double(try arg(1, "y")) else { throw Failure("use: wkb mousemove <x> <y>") }
             let json = try await tab.call(PageScripts.viewport)
             let size = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] ?? [:]
             let viewport = CGSize(width: size["viewportWidth"] ?? 0, height: size["viewportHeight"] ?? 0)
+            guard let x = Double(try arg(0, "x")), let y = Double(try arg(1, "y")), (0...viewport.width).contains(x), (0...viewport.height).contains(y) else {
+                throw Failure("use: wkb mousemove <x> <y> with a point inside the \(Int(viewport.width))x\(Int(viewport.height)) viewport")
+            }
             try await movePointer(tab, to: CGPoint(x: x, y: y), targetSize: 44, viewport: viewport, instant: instant)
         case "upload":
             let target = try arg(0, "ref")
@@ -266,7 +268,13 @@ final class Browser {
                 _ = try await tab.call(PageScripts.insertText, ["text": text])
             } else {
                 for (i, char) in text.enumerated() {
-                    _ = try await tab.call(PageScripts.insertText, ["text": String(char)])
+                    // A tab closed mid-word still runs scripts; the rest must not go nowhere and report success.
+                    guard tab.webView.window != nil else { throw Failure("the tab was closed after \(i) of \(text.count) characters") }
+                    do {
+                        _ = try await tab.call(PageScripts.insertText, ["text": String(char)])
+                    } catch {
+                        throw Failure("typed \(i) of \(text.count) characters: \(error)")
+                    }
                     if i < text.count - 1 { try await Task.sleep(for: .seconds(tab.motion.keyDelay(after: char))) }
                 }
             }
@@ -330,20 +338,37 @@ final class Browser {
             }
             throw Failure("\(target) has no size on screen; snapshot again or use --js")
         }
-        if let covered = spot.covered { tab.events.append("click target was covered by <\(covered)>") }
-        let point = instant ? spot.center : tab.motion.aim(center: spot.center, size: spot.size)
-        try await movePointer(tab, to: point, targetSize: min(spot.size.width, spot.size.height), viewport: spot.viewport, instant: instant)
+        let (point, landed) = try await glide(tab, onto: target, from: spot, instant: instant)
+        if let covered = landed.covered { tab.events.append("click target was covered by <\(covered)>") }
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.04))) }
-        try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: spot.viewport.height)
+        try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: landed.viewport.height)
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.095, 0.015))) }
-        try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: spot.viewport.height)
+        try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: landed.viewport.height)
     }
 
     private func hover(_ tab: Tab, target: String, instant: Bool) async throws {
         let spot = try await locate(tab, target)
         if spot.size.width == 0 || spot.size.height == 0 { throw Failure("\(target) has no size on screen; snapshot again") }
-        let point = instant ? spot.center : tab.motion.aim(center: spot.center, size: spot.size)
-        try await movePointer(tab, to: point, targetSize: min(spot.size.width, spot.size.height), viewport: spot.viewport, instant: instant)
+        let landed = try await glide(tab, onto: target, from: spot, instant: instant).spot
+        if let covered = landed.covered { tab.events.append("hover target is covered by <\(covered)>") }
+    }
+
+    /// Puts the pointer on the target and returns where it is and the target's latest position. A glide takes
+    /// up to a second, in which the page can move the target, so it is located again and corrected once.
+    private func glide(_ tab: Tab, onto target: String, from spot: Spot, instant: Bool) async throws -> (point: CGPoint, spot: Spot) {
+        if instant {
+            try await movePointer(tab, to: spot.center, targetSize: 0, viewport: spot.viewport, instant: true)
+            return (spot.center, spot)
+        }
+        var point = tab.motion.aim(center: spot.center, size: spot.size)
+        try await movePointer(tab, to: point, targetSize: min(spot.size.width, spot.size.height), viewport: spot.viewport, instant: false)
+        let now = try await locate(tab, target)
+        guard now.size.width > 0, now.size.height > 0 else { throw Failure("\(target) disappeared while the pointer moved to it") }
+        if !CGRect(x: now.center.x - now.size.width / 2, y: now.center.y - now.size.height / 2, width: now.size.width, height: now.size.height).contains(point) {
+            point = tab.motion.aim(center: now.center, size: now.size)
+            try await movePointer(tab, to: point, targetSize: min(now.size.width, now.size.height), viewport: now.viewport, instant: false)
+        }
+        return (point, now)
     }
 
     /// Glides the pointer to `point` through native mouse moves, so hover states follow it; `instant` jumps.
