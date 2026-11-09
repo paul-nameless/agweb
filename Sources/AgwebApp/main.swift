@@ -4,18 +4,17 @@ import AgwebCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let browser = Browser()
-    private var server: SocketServer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let path = Agweb.socketPath
-        if isServing(path) {
-            FileHandle.standardError.write(Data("agweb is already serving \(path)\n".utf8))
+        // Held until exit. Two launches racing for one socket: the loser leaves before showing anything.
+        guard Agweb.lockOwnership(of: path) != nil else {
+            FileHandle.standardError.write(Data("agweb is already running for \(path)\n".utf8))
             exit(0)
         }
         let browser = browser
-        server = SocketServer(path: path) { request in await browser.handle(request) }
         do {
-            try server?.start()
+            try serve(path: path) { request in await browser.handle(request) }
         } catch {
             FileHandle.standardError.write(Data("cannot listen on \(path): \(error)\n".utf8))
             exit(1)

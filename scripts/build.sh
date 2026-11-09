@@ -18,7 +18,10 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" bin
 cp -f Resources/Info.plist "$app/Contents/Info.plist"
 cp -f "$bin/AgwebApp" "$app/Contents/MacOS/agweb"
 cp -f "$bin/agweb" "$app/Contents/Helpers/agweb"
-codesign --force --sign - "$app/Contents/Helpers/agweb"
-codesign --force --sign - "$app"
+# macOS ties privacy grants (Downloads, Desktop, ...) to the signature. An ad-hoc one changes on every build,
+# so each rebuild asks again; a development identity keeps one Allow. AGWEB_SIGN overrides, "-" is ad-hoc.
+identity=${AGWEB_SIGN:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development: .*\)"/\1/p' | head -1)}
+codesign --force --sign "${identity:--}" "$app/Contents/Helpers/agweb"
+codesign --force --sign "${identity:--}" "$app"
 ln -sf "$PWD/$app/Contents/Helpers/agweb" bin/agweb
 echo "built $app; CLI: $PWD/bin/agweb"

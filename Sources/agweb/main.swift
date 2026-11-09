@@ -1,8 +1,8 @@
-import AppKit
+import Foundation
 import AgwebCore
 
 let usage = """
-agweb: drive agweb like playwright-cli. The browser never activates or raises its window.
+agweb: drive a WebKit browser like playwright-cli. The browser never activates or raises its window.
 
 usage: agweb [-s <session>] <command> [args] [--options]
 
@@ -87,12 +87,11 @@ func absolute(_ path: String) -> String {
     URL(fileURLWithPath: (path as NSString).expandingTildeInPath, relativeTo: cwd).standardizedFileURL.path
 }
 
+let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
 switch command {
 case "screenshot":
-    let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
     args = [absolute(args.first ?? ".agweb/page-\(stamp).png")]
 case "video-start":
-    let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
     args = [absolute(args.first ?? ".agweb/video-\(stamp).mp4")]
 case "upload" where args.count > 1:
     args = [args[0]] + args.dropFirst().map(absolute)
@@ -127,21 +126,19 @@ if !isServing(socket) {
         print("agweb is not running")
         exit(0)
     }
-    let running = !NSRunningApplication.runningApplications(withBundleIdentifier: Agweb.bundleIdentifier).isEmpty
-    if running && !Agweb.customSocket {
-        // Starting up, or serving a different socket. Never `open` it again: that reopens a running app.
-        if !waitForSocket(15) { fail("agweb is running but not serving \(socket); is AGWEB_SOCKET set differently?") }
-    } else {
+    // A held lock means an instance is starting up on this socket; a free one means nobody is.
+    if let fd = Agweb.lockOwnership(of: socket) {
+        close(fd)
         guard let app = appBundle() else { fail("agweb is not running and its app bundle was not found; set AGWEB_APP") }
         // -g: LaunchServices must not activate the app, or the launch itself steals focus.
-        // -n with AGWEB_SOCKET: a separate instance on its own socket, next to the default one.
+        // -n with the socket in its environment: an instance for exactly this socket, whatever else runs.
         let launch = Process()
         launch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        launch.arguments = Agweb.customSocket ? ["-g", "-n", "--env", "AGWEB_SOCKET=\(socket)", "-a", app] : ["-g", "-a", app]
+        launch.arguments = ["-g", "-n", "--env", "AGWEB_SOCKET=\(socket)", "-a", app]
         try launch.run()
         launch.waitUntilExit()
-        if !waitForSocket(15) { fail("agweb did not start listening on \(socket)") }
     }
+    if !waitForSocket(15) { fail("agweb did not start listening on \(socket)") }
 }
 
 // Commands time out inside the app (pages 30 s, scripts 30 s); this only catches a wedged app.

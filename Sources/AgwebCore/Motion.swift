@@ -4,13 +4,16 @@ import Foundation
 /// Human pointer paths and typing rhythm, ported from the qa-video skill's prelude.js: Fitts's-law duration,
 /// a bowed cubic Bezier at minimum-jerk speed, a corrective second leg on long throws, off-centre aim.
 /// Its tremor is left out: a pixel of wobble is invisible and only adds events.
-struct Motion {
-    typealias Step = (point: CGPoint, pause: Double)
+public struct Motion {
+    public typealias Step = (point: CGPoint, pause: Double)
 
-    private var state = UInt64.random(in: 0...UInt64.max)
+    private var state: UInt64
+
+    /// A fixed seed repeats the same paths and delays; tests use it.
+    public init(seed: UInt64 = .random(in: 0...UInt64.max)) { state = seed }
 
     /// SplitMix64, uniform in [0, 1).
-    mutating func random() -> Double {
+    public mutating func random() -> Double {
         state &+= 0x9E37_79B9_7F4A_7C15
         var z = state
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
@@ -18,14 +21,14 @@ struct Motion {
         return Double((z ^ (z >> 31)) >> 11) / Double(UInt64(1) << 53)
     }
 
-    mutating func jitter(_ base: Double, _ spread: Double) -> Double { base + (random() - 0.5) * 2 * spread }
+    public mutating func jitter(_ base: Double, _ spread: Double) -> Double { base + (random() - 0.5) * 2 * spread }
 
-    mutating func aim(center: CGPoint, size: CGSize) -> CGPoint {
+    public mutating func aim(center: CGPoint, size: CGSize) -> CGPoint {
         CGPoint(x: center.x + jitter(0, min(size.width * 0.18, 9)), y: center.y + jitter(0, min(size.height * 0.18, 5)))
     }
 
     /// Points about 60 Hz apart, each with the pause that follows it; the last point is `to`.
-    mutating func path(from: CGPoint, to: CGPoint, targetSize: Double) -> [Step] {
+    public mutating func path(from: CGPoint, to: CGPoint, targetSize: Double) -> [Step] {
         let dist = hypot(to.x - from.x, to.y - from.y)
         guard dist >= 0.5 else { return [(to, 0)] }
         let index = log2(2 * dist / min(max(targetSize, 14), 320) + 1)
@@ -59,7 +62,7 @@ struct Motion {
     }
 
     /// Seconds to wait after typing `char`: longer after spaces and punctuation, and now and then a hesitation.
-    mutating func keyDelay(after char: Character) -> Double {
+    public mutating func keyDelay(after char: Character) -> Double {
         var delay = jitter(0.165, 0.065)
         if char == " " {
             delay += jitter(0.09, 0.04)

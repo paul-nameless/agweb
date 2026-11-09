@@ -1,3 +1,4 @@
+import AgwebCore
 import AppKit
 import AVFoundation
 import WebKit
@@ -28,7 +29,7 @@ final class Recorder {
     init(session: Session, url: URL, maxIdle: Double) throws {
         guard let tab = session.current else { throw Failure("nothing to record: the session has no tabs") }
         guard let rect = Self.viewport(of: tab.webView) else {
-            throw Failure("the window is closed or minimized, so pages are not rendering; run: agweb show")
+            throw Failure(MainWindow.notRendering)
         }
         guard url.pathExtension.lowercased() == "mp4" else { throw Failure("the video path must end in .mp4: \(url.path)") }
         var isDirectory: ObjCBool = false
@@ -55,10 +56,6 @@ final class Recorder {
         writer.add(input)
         guard writer.startWriting() else { throw writer.error ?? Failure("could not start writing \(url.path)") }
         writer.startSession(atSourceTime: .zero)
-    }
-
-
-    func start() {
         loop = Task { @MainActor [weak self] in
             while !Task.isCancelled, let self {
                 let began = ProcessInfo.processInfo.systemUptime
@@ -95,7 +92,7 @@ final class Recorder {
         let idleShown = max(0, (lastWall ?? now) - lastBusy)
         if session.busy { lastBusy = now } else if maxIdle > 0, now - lastBusy > maxIdle { return }
         guard !finished, let tab = session.current, let rect = Self.viewport(of: tab.webView),
-              let image = await snapshot(tab.webView, rect, timeout: timeout), !finished else { return }
+              let image = await snapshot(tab, rect, timeout: timeout), !finished else { return }
         var ring: Double?
         if let click = tab.lastClick, ProcessInfo.processInfo.systemUptime - click.time < Self.ringSeconds {
             ring = ProcessInfo.processInfo.systemUptime - click.time
@@ -128,7 +125,7 @@ final class Recorder {
     /// The page's viewport: the web view minus the toolbar band a full-size content view puts over it.
     /// Snapshot rects start at the top of the page, below that band, so only the height changes.
     private static func viewport(of webView: WKWebView) -> CGRect? {
-        guard let window = webView.window, window.isVisible, !window.isMiniaturized else { return nil }
+        guard let window = webView.window, MainWindow.isRendering(window) else { return nil }
         let inWindow = webView.convert(webView.bounds, to: nil)
         let inset = max(0, inWindow.maxY - window.contentLayoutRect.maxY)
         let height = webView.bounds.height - inset
@@ -136,18 +133,11 @@ final class Recorder {
         return CGRect(x: 0, y: 0, width: webView.bounds.width, height: height)
     }
 
-    private func snapshot(_ webView: WKWebView, _ rect: CGRect, timeout: Double) async -> CGImage? {
+    private func snapshot(_ tab: Tab, _ rect: CGRect, timeout: Double) async -> CGImage? {
         let config = WKSnapshotConfiguration()
         config.rect = rect
-        config.snapshotWidth = NSNumber(value: rect.width * fit(rect).scale / (webView.window?.backingScaleFactor ?? 1))
-        let image = try? await withTimeout(timeout, "video frame") {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NSImage, Error>) in
-                webView.takeSnapshot(with: config) { image, error in
-                    if let image { continuation.resume(returning: image) } else { continuation.resume(throwing: error ?? Failure("snapshot failed")) }
-                }
-            }
-        }
-        return image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        config.snapshotWidth = NSNumber(value: rect.width * fit(rect).scale / (tab.webView.window?.backingScaleFactor ?? 1))
+        return try? await tab.snapshot(config, timeout: timeout).cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
     private static let ringSeconds = 0.42

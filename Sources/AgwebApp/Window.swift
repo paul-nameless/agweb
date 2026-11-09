@@ -55,6 +55,10 @@ final class MainWindow: NSObject, NSWindowDelegate {
     // Test instances on their own socket keep their own frame, so they never move the person's window.
     private static let frameName = Agweb.customSocket ? "agwebTest" : "agwebMain"
 
+    /// Closed (ordered out) or minimized windows don't render, so snapshots and recordings get nothing.
+    static func isRendering(_ window: NSWindow) -> Bool { window.isVisible && !window.isMiniaturized }
+    static let notRendering = "the window is closed or minimized, so pages are not rendering; run: agweb show"
+
     /// Puts the window on screen behind everything else, so it appears in the window list without
     /// covering or activating anything.
     func showQuietly() {

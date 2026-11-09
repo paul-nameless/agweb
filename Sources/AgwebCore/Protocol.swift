@@ -28,21 +28,29 @@ public struct Response: Codable, Sendable {
 public enum Agweb {
     public static let bundleIdentifier = "dev.playground.agweb"
 
-    /// True when AGWEB_SOCKET points somewhere other than the default, i.e. a separate instance is wanted.
-    public static var customSocket: Bool {
-        !(ProcessInfo.processInfo.environment["AGWEB_SOCKET"] ?? "").isEmpty
-    }
+    private static let defaultSocket = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/agweb/agweb.sock").path
+    private static let envSocket = ProcessInfo.processInfo.environment["AGWEB_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
 
-    public static var socketPath: String {
-        if let path = ProcessInfo.processInfo.environment["AGWEB_SOCKET"], !path.isEmpty { return path }
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/agweb")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("agweb.sock").path
+    public static let socketPath = envSocket ?? defaultSocket
+    /// A separate instance (tests, experiments), which must leave the person's window frame alone.
+    public static let customSocket = socketPath != defaultSocket
+
+    /// Held by the instance that owns a socket for as long as it runs. A free lock means nobody is serving or
+    /// starting up there; a held one means wait. One `open` per socket, and test instances never block the default.
+    public static func lockOwnership(of socket: String) -> Int32? {
+        try? FileManager.default.createDirectory(atPath: (socket as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let fd = open(socket + ".lock", O_CREAT | O_RDWR, 0o600)
+        guard fd >= 0 else { return nil }
+        if flock(fd, LOCK_EX | LOCK_NB) == 0 { return fd }
+        close(fd)
+        return nil
     }
 }
 
-public struct SocketError: Error, CustomStringConvertible {
+public struct Failure: Error, CustomStringConvertible {
     public let description: String
+    public init(_ description: String) { self.description = description }
 }
 
 // Plain AF_UNIX sockets: one JSON request line in, one JSON response out, then close.
@@ -53,7 +61,7 @@ private func unixAddress(_ path: String) throws -> sockaddr_un {
     let bytes = Array(path.utf8)
     let capacity = MemoryLayout.size(ofValue: addr.sun_path)
     // A silently truncated path would bind one file and unlink another.
-    guard bytes.count < capacity else { throw SocketError(description: "socket path is longer than \(capacity - 1) bytes: \(path)") }
+    guard bytes.count < capacity else { throw Failure("socket path is longer than \(capacity - 1) bytes: \(path)") }
     withUnsafeMutableBytes(of: &addr.sun_path) { buf in
         buf.copyBytes(from: bytes)
         buf[bytes.count] = 0
@@ -129,50 +137,41 @@ public func sendRequest(_ request: Request, path: String, timeout: Int) -> Respo
     return try? JSONDecoder().decode(Response.self, from: readAll(fd, untilNewline: false))
 }
 
-public final class SocketServer: @unchecked Sendable {
-    private let path: String
-    private let handler: @Sendable (Request) async -> Response
-
-    public init(path: String, handler: @escaping @Sendable (Request) async -> Response) {
-        self.path = path
-        self.handler = handler
+/// Answers each connection on `path` with `handler`, on a background thread, for the life of the process.
+public func serve(path: String, handler: @escaping @Sendable (Request) async -> Response) throws {
+    var addr = try unixAddress(path)
+    try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+    unlink(path)
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    // The socket file is created by bind; a umask keeps it private from the first instant.
+    let previousMask = umask(0o177)
+    let bound = fd >= 0 && withSockaddr(&addr, { bind(fd, $0, $1) }) == 0
+    umask(previousMask)
+    guard bound, listen(fd, 64) == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
-
-    public func start() throws {
-        var addr = try unixAddress(path)
-        unlink(path)
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        // The socket file is created by bind; a umask keeps it private from the first instant.
-        let previousMask = umask(0o177)
-        let bound = fd >= 0 && withSockaddr(&addr, { bind(fd, $0, $1) }) == 0
-        umask(previousMask)
-        guard bound, listen(fd, 64) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        let handler = self.handler
-        Thread.detachNewThread {
-            while true {
-                let client = accept(fd, nil, nil)
-                if client < 0 {
-                    usleep(10_000)  // EMFILE and friends: back off instead of spinning
-                    continue
-                }
-                setOption(client, SO_NOSIGPIPE, Int32(1))
-                // A client that connects and never finishes its line must not block the others.
-                setTimeouts(client, seconds: 10)
-                DispatchQueue.global().async {
-                    let data = readAll(client, untilNewline: true)
-                    Task {
-                        let response: Response
-                        if let request = try? JSONDecoder().decode(Request.self, from: data) {
-                            response = await handler(request)
-                        } else {
-                            response = Response(ok: false, output: "malformed request")
-                        }
-                        setTimeouts(client, seconds: 30)
-                        writeAll(client, (try? JSONEncoder().encode(response)) ?? Data())
-                        close(client)
+    Thread.detachNewThread {
+        while true {
+            let client = accept(fd, nil, nil)
+            if client < 0 {
+                usleep(10_000)  // EMFILE and friends: back off instead of spinning
+                continue
+            }
+            setOption(client, SO_NOSIGPIPE, Int32(1))
+            // A client that connects and never finishes its line must not block the others.
+            setTimeouts(client, seconds: 10)
+            DispatchQueue.global().async {
+                let data = readAll(client, untilNewline: true)
+                Task {
+                    let response: Response
+                    if let request = try? JSONDecoder().decode(Request.self, from: data) {
+                        response = await handler(request)
+                    } else {
+                        response = Response(ok: false, output: "malformed request")
                     }
+                    setTimeouts(client, seconds: 30)
+                    writeAll(client, (try? JSONEncoder().encode(response)) ?? Data())
+                    close(client)
                 }
             }
         }

@@ -50,7 +50,7 @@ public enum PageScripts {
     const nameOf = (el) => clean(
       el.getAttribute('aria-label') || el.labels?.[0]?.innerText || el.getAttribute('alt') || el.getAttribute('title') ||
       el.getAttribute('placeholder') || (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) ? '' : el.innerText) ||
-      el.querySelector?.('img[alt]')?.getAttribute('alt') || el.value
+      el.querySelector?.('img[alt]')?.getAttribute('alt') || (el.type === 'password' ? '' : el.value)
     );
     const emit = (line) => {
       if (lines.length >= \(maxSnapshotLines)) { truncated = true; return false; }
@@ -89,7 +89,9 @@ public enum PageScripts {
         if (role === 'heading') line += ` [level=${/^H[1-6]$/.test(node.tagName) ? node.tagName[1] : node.getAttribute('aria-level') || 2}]`;
         if (node.checked) line += ' [checked]';
         if (node.disabled) line += ' [disabled]';
-        if (['textbox', 'searchbox', 'combobox'].includes(role) && node.tagName !== 'SELECT' && node.value) line += ` [value=${JSON.stringify(clean(node.value))}]`;
+        // A password someone typed by hand must not reach an agent's transcript.
+        if (node.type === 'password') { if (node.value) line += ' [value=<hidden>]'; }
+        else if (['textbox', 'searchbox', 'combobox'].includes(role) && node.tagName !== 'SELECT' && node.value) line += ` [value=${JSON.stringify(clean(node.value))}]`;
         line += ` [ref=${ref}]`;
         if (node === document.activeElement) line += ' [focused]';
         if (!emit(line)) return;
@@ -116,8 +118,14 @@ public enum PageScripts {
     const x = r.left + r.width / 2, y = r.top + r.height / 2;
     const hit = el.getRootNode().elementFromPoint?.(x, y) ?? document.elementFromPoint(x, y);
     const covered = hit && hit !== el && !el.contains(hit) && !hit.contains(el) ? hit.tagName.toLowerCase() : null;
-    const kind = el.tagName === 'SELECT' ? 'select' : el.tagName === 'INPUT' ? (el.getAttribute('type') || 'text').toLowerCase() : el.tagName.toLowerCase();
-    return JSON.stringify({ x, y, covered, kind, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
+    const kindOf = (e) => !e ? '' : e.tagName === 'SELECT' ? 'select' : e.tagName === 'INPUT' ? (e.getAttribute('type') || 'text').toLowerCase() : e.tagName.toLowerCase();
+    const kind = kindOf(el), hitKind = kindOf(hit);
+    return JSON.stringify({ x, y, covered, kind, hitKind, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
+    """
+
+    public static let focusedKind = """
+    const e = document.activeElement;
+    return !e ? '' : e.tagName === 'SELECT' ? 'select' : e.tagName === 'INPUT' ? (e.getAttribute('type') || 'text').toLowerCase() : '';
     """
 
     public static let viewport = """
@@ -144,9 +152,12 @@ public enum PageScripts {
       if (!option) throw new Error(`no option ${text}; options: ${[...el.options].map(o => o.label).join(', ')}`);
       el.value = option.value;
       el.dispatchEvent(new Event('input', { bubbles: true }));
+      // Left focused, a select opens its native menu on the next arrow key or space.
+      el.blur();
     } else if (el.tagName === 'INPUT' && ['date', 'time', 'datetime-local', 'month', 'week', 'color', 'range', 'number'].includes(type)) {
       el.value = text;
       el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.blur();
     } else {
       if (el.select) el.select(); else document.execCommand('selectAll');
       if (!(text ? document.execCommand('insertText', false, text) : document.execCommand('delete'))) {

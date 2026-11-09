@@ -4,11 +4,6 @@ import Observation
 import WebKit
 import AgwebCore
 
-struct Failure: Error, CustomStringConvertible {
-    let description: String
-    init(_ description: String) { self.description = description }
-}
-
 @Observable @MainActor
 final class BrowserModel {
     var sessions: [Session] = []
@@ -66,7 +61,8 @@ final class Session: Identifiable {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = dataStore
         config.userContentController = contentController
-        config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        // Off: only a click opens a window, so an ad's timer can't hand the agent a new tab.
+        config.preferences.javaScriptCanOpenWindowsAutomatically = false
         // Keep timers alive in tabs nobody is looking at.
         config.preferences.inactiveSchedulingPolicy = .none
         // Without a Safari token Google sign-in and bot checks treat the browser as unknown.
@@ -83,10 +79,15 @@ final class Session: Identifiable {
     /// "ephemeral" gets a fresh in-memory store every time.
     static func dataStore(for profile: String) -> WKWebsiteDataStore {
         if profile == "ephemeral" { return .nonPersistent() }
+        if let store = stores[profile] { return store }
         let digest = Array(SHA256.hash(data: Data("agweb.profile.\(profile)".utf8)).prefix(16))
         let uuid = digest.withUnsafeBufferPointer { NSUUID(uuidBytes: $0.baseAddress!) as UUID }
-        return WKWebsiteDataStore(forIdentifier: uuid)
+        let store = WKWebsiteDataStore(forIdentifier: uuid)
+        stores[profile] = store
+        return store
     }
+
+    private static var stores: [String: WKWebsiteDataStore] = [:]
 }
 
 @Observable @MainActor
@@ -96,7 +97,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     nonisolated let id: Int
     var title = ""
     var url = ""
-    @ObservationIgnored unowned let session: Session
+    /// Strong on purpose: a closed tab can still get page callbacks, and closeTab breaks the cycle.
+    @ObservationIgnored let session: Session
     @ObservationIgnored let webView: WKWebView
     @ObservationIgnored weak var browser: Browser?
     @ObservationIgnored weak var opener: Tab?
@@ -110,7 +112,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     /// For the click ring in recordings.
     @ObservationIgnored var lastClick: (point: CGPoint, time: Double)?
     @ObservationIgnored private var loadWaiter: CheckedContinuation<Void, Error>?
-    @ObservationIgnored private var loadToken: UUID?
+    @ObservationIgnored private var loadTimeout: Task<Void, Never>?
+    @ObservationIgnored private var lastCrash: Double?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
 
     init(id: Int, session: Session, configuration: WKWebViewConfiguration, browser: Browser, opener: Tab?) {
@@ -151,14 +154,18 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
             try? await Task.sleep(for: .milliseconds(100))
             return
         }
+        load(url)
+        try await waitForLoad()
+        // The title arrives just after didFinish; agents read it from the reply.
+        for _ in 0..<5 where (webView.title ?? "").isEmpty { try? await Task.sleep(for: .milliseconds(60)) }
+    }
+
+    func load(_ url: URL) {
         if url.isFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
             webView.load(URLRequest(url: url))
         }
-        try await waitForLoad()
-        // The title arrives just after didFinish; agents read it from the reply.
-        for _ in 0..<5 where (webView.title ?? "").isEmpty { try? await Task.sleep(for: .milliseconds(60)) }
     }
 
     private static func sameDocument(_ a: URL, _ b: URL) -> Bool {
@@ -171,11 +178,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
 
     func waitForLoad() async throws {
         loadWaiter?.resume()
-        let token = UUID()
-        loadToken = token
-        Task {
+        loadTimeout?.cancel()
+        loadTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(30))
-            if self.loadToken == token { self.finishLoad(Failure("timed out waiting for the page to load")) }
+            if !Task.isCancelled { self?.finishLoad(Failure("timed out waiting for the page to load")) }
         }
         try await withCheckedThrowingContinuation { loadWaiter = $0 }
     }
@@ -190,15 +196,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     }
 
     func finishLoad(_ error: Error?) {
-        url = webView.url?.absoluteString ?? url
+        loadTimeout?.cancel()
         guard let waiter = loadWaiter else { return }
         loadWaiter = nil
-        loadToken = nil
         if let error { waiter.resume(throwing: error) } else { waiter.resume() }
-    }
-
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        url = webView.url?.absoluteString ?? ""
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -220,8 +221,15 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        events.append("page crashed (web content process ended); reloaded")
         finishLoad(Failure("page crashed while loading"))
+        // A page that crashes as it loads would otherwise reload forever in a tab nobody watches.
+        let now = ProcessInfo.processInfo.systemUptime
+        defer { lastCrash = now }
+        if let lastCrash, now - lastCrash < 30 {
+            events.append("page crashed again; not reloading (agweb reload)")
+            return
+        }
+        events.append("page crashed (web content process ended); reloaded")
         webView.reload()
     }
 
@@ -286,26 +294,27 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     // MARK: JavaScript
 
     /// Runs a function body; the body must return a string.
-    func call(_ body: String, _ arguments: [String: Any] = [:], world: WKContentWorld? = nil, timeout: Double = 30) async throws -> String {
+    func call(_ body: String, _ arguments: [String: Any] = [:], world: WKContentWorld? = nil) async throws -> String {
         let world = world ?? Tab.agentWorld
-        return try await withTimeout(timeout, "page script") { [webView] in
+        return try await withTimeout(30, "page script") { [webView] in
             try await withCheckedThrowingContinuation { continuation in
                 webView.callAsyncJavaScript(body, arguments: arguments, in: nil, in: world) { result in
                     switch result {
                     case .success(let value): continuation.resume(returning: value as? String ?? "\(value)")
                     case .failure(let error):
                         let message = (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
-                        continuation.resume(throwing: Failure(message))
+                        // Replies already start with "Error: ".
+                        continuation.resume(throwing: Failure(message.hasPrefix("Error: ") ? String(message.dropFirst(7)) : message))
                     }
                 }
             }
         }
     }
 
-    func screenshot() async throws -> NSImage {
-        try await withTimeout(10, "screenshot") { [webView] in
+    func snapshot(_ config: WKSnapshotConfiguration? = nil, timeout: Double = 10) async throws -> NSImage {
+        try await withTimeout(timeout, "snapshot") { [webView] in
             try await withCheckedThrowingContinuation { continuation in
-                webView.takeSnapshot(with: nil) { image, error in
+                webView.takeSnapshot(with: config) { image, error in
                     if let image { continuation.resume(returning: image) } else {
                         continuation.resume(throwing: error ?? Failure("snapshot failed"))
                     }

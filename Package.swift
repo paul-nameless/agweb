@@ -8,5 +8,6 @@ let package = Package(
         .target(name: "AgwebCore"),
         .executableTarget(name: "AgwebApp", dependencies: ["AgwebCore"]),
         .executableTarget(name: "agweb", dependencies: ["AgwebCore"]),
+        .testTarget(name: "AgwebCoreTests", dependencies: ["AgwebCore"]),
     ]
 )

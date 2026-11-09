@@ -1,3 +1,4 @@
+import AgwebCore
 import AppKit
 import WebKit
 

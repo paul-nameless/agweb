@@ -7,8 +7,7 @@ final class Browser {
     let model = BrowserModel()
     private(set) lazy var mainWindow = MainWindow(model: model)
     private let console = ConsoleSink()
-    private var stores: [String: WKWebsiteDataStore] = [:]
-    private var queues: [String: Task<Void, Never>] = [:]
+    private var queues: [String: Task<Response, Never>] = [:]
     private var nextTabID = 1
 
     /// Tabs a person opens from the window, when no agent tab is displayed, live in this session.
@@ -39,14 +38,7 @@ final class Browser {
             return session
         }
         let profile = profile ?? name
-        let store: WKWebsiteDataStore
-        if profile == "ephemeral" {
-            store = Session.dataStore(for: profile)
-        } else {
-            store = stores[profile] ?? Session.dataStore(for: profile)
-            stores[profile] = store
-        }
-        let session = Session(name: name, profile: profile, dataStore: store, console: console)
+        let session = Session(name: name, profile: profile, dataStore: Session.dataStore(for: profile), console: console)
         model.sessions.append(session)
         return session
     }
@@ -95,6 +87,8 @@ final class Browser {
         guard let index = session.tabs.firstIndex(where: { $0 === tab }) else { return }
         tab.finishLoad(Failure("the tab was closed"))
         tab.webView.stopLoading()
+        tab.webView.navigationDelegate = nil
+        tab.webView.uiDelegate = nil
         tab.webView.removeFromSuperview()
         session.tabs.remove(at: index)
         if session.currentID == tab.id {
@@ -140,9 +134,7 @@ final class Browser {
         mainWindow.focusAddress()
     }
 
-    private var windowHidden: Bool {
-        !mainWindow.window.isVisible || mainWindow.window.isMiniaturized
-    }
+    private var windowHidden: Bool { !MainWindow.isRendering(mainWindow.window) }
 
     // MARK: Commands
 
@@ -150,10 +142,10 @@ final class Browser {
     func handle(_ request: Request) async -> Response {
         let previous = queues[request.session]
         let work = Task { @MainActor () -> Response in
-            await previous?.value
+            _ = await previous?.value
             return await self.execute(request)
         }
-        queues[request.session] = Task { _ = await work.value }
+        queues[request.session] = work
         return await work.value
     }
 
@@ -186,7 +178,7 @@ final class Browser {
             session.busy = true
             mainWindow.showQuietly()
             let tab = session.current ?? addTab(to: session)
-            if let url = args.first { try await tab.goto(try Self.url(url)) }
+            if let url = args.first { try await tab.goto(try Address.url(url)) }
             return describe(tab)
         default:
             break
@@ -213,7 +205,7 @@ final class Browser {
             return tabList(session)
         case "tab-new":
             let tab = addTab(to: session)
-            if let url = args.first { try await tab.goto(try Self.url(url)) }
+            if let url = args.first { try await tab.goto(try Address.url(url)) }
             return tabList(session)
         case "tab-select":
             drive(try tabAt(try arg(0, "index"), in: session))
@@ -232,7 +224,6 @@ final class Browser {
             } ?? 1.5
             let recorder = try Recorder(session: session, url: URL(fileURLWithPath: try arg(0, "path")), maxIdle: maxIdle)
             session.recorder = recorder
-            recorder.start()
             return "recording \(session.name) to \(recorder.url.path)"
         case "video-stop":
             guard let video = try await session.stopRecording() else { throw Failure("not recording; run video-start") }
@@ -253,7 +244,7 @@ final class Browser {
 
         switch request.command {
         case "goto":
-            try await tab.goto(try Self.url(try arg(0, "url")))
+            try await tab.goto(try Address.url(try arg(0, "url")))
         case "reload":
             webView.reload()
             await tab.settle()
@@ -311,20 +302,28 @@ final class Browser {
                 }
             }
         case "press":
+            let combo = try arg(0, "key")
+            let focused = try await tab.call(PageScripts.focusedKind)
+            if Self.pickerKinds.contains(focused), Self.pickerKeys.contains(combo.lowercased().components(separatedBy: "+").last ?? "") {
+                throw Failure("\(combo) would open the focused \(focused)'s native picker; use: agweb fill <ref> <value>")
+            }
             let window = mainWindow.window
             var previous = window.firstResponder
             if let editor = previous as? NSTextView, editor.isFieldEditor { previous = editor.delegate as? NSResponder }
-            try NativeInput.press(webView, combo: try arg(0, "key"))
-            await tab.settle()
-            // Give the keyboard back to whatever the person was using.
+            // Another agent's press may have left its hidden tab first responder; the person types in the displayed one.
+            if previous is WKWebView { previous = model.displayedTab?.webView }
+            try NativeInput.press(webView, combo: combo)
+            // Give the keyboard back right away, not after the page settles: the person may be typing.
+            try? await Task.sleep(for: .milliseconds(50))
             if let previous, previous !== webView, window.firstResponder === webView { window.makeFirstResponder(previous) }
+            await tab.settle()
         case "eval":
             let result = try await tab.call(PageScripts.evaluate(try arg(0, "code")), world: .page)
             return "### Result\n\(result)\n" + describe(tab)
         case "screenshot":
-            if windowHidden { throw Failure("the window is closed or minimized, so pages are not rendering; run: agweb show") }
+            if windowHidden { throw Failure(MainWindow.notRendering) }
             let path = try arg(0, "path")
-            let image = try await tab.screenshot()
+            let image = try await tab.snapshot()
             guard let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
                 throw Failure("could not encode screenshot")
             }
@@ -351,6 +350,7 @@ final class Browser {
     // Controls that open native pickers (select menus, date and colour panels) would pop up on the person's
     // screen if clicked natively, so they go through fill instead.
     private static let pickerKinds: Set = ["select", "date", "time", "datetime-local", "month", "week", "color"]
+    private static let pickerKeys: Set = ["space", " ", "enter", "arrowup", "arrowdown", "arrowleft", "arrowright"]
 
     private func click(_ tab: Tab, target: String, js: Bool, forUpload: Bool, instant: Bool) async throws {
         if js {
@@ -358,8 +358,9 @@ final class Browser {
             return
         }
         let spot = try await locate(tab, target)
-        if Self.pickerKinds.contains(spot.kind) {
-            throw Failure("\(spot.kind) opens a native picker; use: agweb fill \(target) <value>")
+        // The element under the point counts too: a see-through select over styled text is common.
+        if let picker = [spot.kind, spot.hitKind].first(where: Self.pickerKinds.contains) {
+            throw Failure("\(picker) opens a native picker; use: agweb fill \(target) <value>")
         }
         // Hidden file inputs styled away to nothing have no point to click; a script click still counts as
         // a user gesture in WKWebView.
@@ -422,6 +423,7 @@ final class Browser {
         var size: CGSize
         var viewport: CGSize
         var kind = ""
+        var hitKind = ""
         var covered: String?
     }
 
@@ -431,7 +433,7 @@ final class Browser {
         func number(_ key: String) -> Double { spot[key] as? Double ?? 0 }
         return Spot(center: CGPoint(x: number("x"), y: number("y")), size: CGSize(width: number("width"), height: number("height")),
                     viewport: CGSize(width: number("viewportWidth"), height: number("viewportHeight")),
-                    kind: spot["kind"] as? String ?? "", covered: spot["covered"] as? String)
+                    kind: spot["kind"] as? String ?? "", hitKind: spot["hitKind"] as? String ?? "", covered: spot["covered"] as? String)
     }
 
     // MARK: Output
@@ -454,23 +456,5 @@ final class Browser {
             let current = tab.id == session.currentID ? " (current)" : ""
             return "- \(index):\(current) [\(tab.webView.title ?? "")](\(tab.webView.url?.absoluteString ?? "about:blank"))"
         }.joined(separator: "\n")
-    }
-
-    /// Accepts what people type: full URLs, absolute paths, `localhost:3000/x`, `192.168.1.5:8080`,
-    /// `example.com`. Local hosts get http, everything else https.
-    static func url(_ text: String) throws -> URL {
-        let text = text.trimmingCharacters(in: .whitespaces)
-        if text.hasPrefix("/") { return URL(fileURLWithPath: text) }
-        let hostPort = text.range(of: "^[^:/?#\\s]+:\\d+([/?#]|$)", options: .regularExpression) != nil
-        let hasScheme = !hostPort && text.range(of: "^[a-zA-Z][a-zA-Z0-9+.-]*:", options: .regularExpression) != nil
-        if hasScheme {
-            guard let url = URL(string: text) else { throw Failure("bad url \(text)") }
-            return url
-        }
-        let host = text.prefix { !":/?#".contains($0) }.lowercased()
-        let local = host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local") || host == "[::1]"
-            || host.range(of: "^\\d+\\.\\d+\\.\\d+\\.\\d+$", options: .regularExpression) != nil
-        guard !host.isEmpty, let url = URL(string: (local ? "http://" : "https://") + text) else { throw Failure("bad url \(text)") }
-        return url
     }
 }

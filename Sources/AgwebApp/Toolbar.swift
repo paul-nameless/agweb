@@ -1,3 +1,4 @@
+import AgwebCore
 import AppKit
 import Observation
 
@@ -77,12 +78,8 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            guard let tab = model.displayedTab, let url = try? Browser.url(urlField.stringValue) else { return true }
-            if url.isFileURL {
-                tab.webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-            } else {
-                tab.webView.load(URLRequest(url: url))
-            }
+            guard let tab = model.displayedTab, let url = try? Address.url(urlField.stringValue) else { return true }
+            tab.load(url)
             window.makeFirstResponder(tab.webView)
             return true
         case #selector(NSResponder.cancelOperation(_:)):

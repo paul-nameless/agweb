@@ -19,7 +19,7 @@ agweb -s claude open example.com     # starts the app with open -g if needed
 agweb -s claude snapshot
 agweb -s claude click e2
 agweb quit
-./scripts/selftest.sh              # 58 checks in a separate instance on its own socket
+./scripts/selftest.sh              # every verb, in a separate instance on its own socket
 ```
 
 `agweb help` lists the verbs. `AGWEB_SOCKET=/path` runs a separate instance next to the default one.
