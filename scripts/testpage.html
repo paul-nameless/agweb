@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>wkb test</title>
+<h1>wkb test</h1>
+<button id="b">Press me</button>
+<form id="f" onsubmit="event.preventDefault(); log.push('submit:' + q.value)"><input id="q" placeholder="Search"><select id="s"><option value="1">One</option><option value="2">Two</option></select></form>
+<input type="file" id="file">
+<button id="pop" onclick="window.open('/index.html?popup')">Open popup</button>
+<button id="al" onclick="alert('hi')">Alert</button>
+<a href="/index.html?next">Next page</a>
+<script>
+window.log = [];
+b.addEventListener('click', e => log.push('click trusted=' + e.isTrusted));
+q.addEventListener('keydown', e => log.push('keydown ' + e.key + ' trusted=' + e.isTrusted));
+file.addEventListener('change', () => log.push('file:' + file.files[0]?.name));
+console.log('loaded', location.search);
+</script>
