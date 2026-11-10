@@ -100,6 +100,16 @@ public struct Motion {
     /// The pause between the pointer stopping and the button going down: usually short, now and then a long look.
     public mutating func dwell() -> Double { min(max(logNormal(median: 0.16, sigma: 0.6), 0.04), 1) }
 
+    /// Where a pointer first appears: just inside an edge, as if the hand came in from outside the window.
+    public mutating func entry(viewport: CGSize) -> CGPoint {
+        let along = 0.15 + 0.7 * random()
+        switch Int(random() * 3) {
+        case 0: return CGPoint(x: viewport.width * along, y: viewport.height - 2)
+        case 1: return CGPoint(x: viewport.width - 2, y: viewport.height * along)
+        default: return CGPoint(x: 2, y: viewport.height * along)
+        }
+    }
+
     /// How long a key stays down: about 116 ms, rarely under 80 or over 150.
     public mutating func keyHold() -> Double { min(max(0.116 + 0.024 * gaussian(), 0.06), 0.2) }
 

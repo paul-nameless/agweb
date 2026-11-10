@@ -977,7 +977,8 @@ final class Browser {
 
     /// Glides the pointer to `point` through native mouse moves, so hover states follow it; `instant` jumps.
     private func movePointer(_ tab: Tab, to point: CGPoint, targetSize: Double, viewport: CGSize, instant: Bool) async throws {
-        let start = tab.pointer ?? CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+        // A pointer seen for the first time comes in from an edge; one that always starts in the middle is a bot tell.
+        let start = tab.pointer ?? (instant ? point : tab.motion.entry(viewport: viewport))
         let path = instant ? [(point, 0)] : tab.motion.path(from: start, to: point, targetSize: targetSize)
         for (step, pause) in path {
             try NativeInput.move(tab.webView, to: step, viewportHeight: viewport.height, held: tab.held)
