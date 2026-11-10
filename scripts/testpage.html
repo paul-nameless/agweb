@@ -15,6 +15,7 @@
 <button id="pr" onclick="log.push('prompt:' + prompt('Name?', 'def'))">Prompt</button>
 <a id="dl" href="/index.html" download="saved.html">Download</a>
 <button id="api" onclick="fetch('/index.html?api', { method: 'POST', body: 'x=1', headers: { 'x-req': 'yes' } }).then(r => r.text()).then(t => api = t)">Call API</button>
+<table id="tb"><tr><th>Fruit</th><th>Action</th></tr><tr><td>Apples</td><td><button onclick="bought = 'apples'">Buy</button></td></tr></table>
 <button id="slow" onclick="fetch('/index.html?delay=800').then(r => r.text()).then(() => slowDone = 1)">Slow call</button>
 <iframe id="fr" src="/frame.html" title="inner" style="width:300px;height:60px"></iframe>
 <span id="lbl">Shipping speed</span><div id="cbx" role="combobox" aria-labelledby="lbl" aria-expanded="true" tabindex="0">Express<div role="listbox"><div role="option" aria-selected="true">Express</div><div role="option">Standard</div></div></div>

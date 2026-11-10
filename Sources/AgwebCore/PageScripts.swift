@@ -25,13 +25,17 @@ public enum PageScripts {
       if (tag === 'img') return 'img';
       if (['nav', 'main', 'form', 'dialog', 'ul', 'ol', 'table'].includes(tag)) return { nav: 'navigation', ul: 'list', ol: 'list' }[tag] || tag;
       if (tag === 'li') return 'listitem';
+      if (tag === 'tr') return 'row';
+      if (tag === 'td') return 'cell';
+      if (tag === 'th') return el.getAttribute('scope') === 'row' ? 'rowheader' : 'columnheader';
       if (tag === 'iframe' || tag === 'frame') return 'iframe';
       if (el.isContentEditable && !el.parentElement?.isContentEditable) return 'textbox';
       return null;
     };
     // The accessible name, in the spec's order: aria-labelledby, aria-label, a native label or alt, the content for
     // roles named by it (a combobox or textbox is not: its text is the value), then title and placeholder.
-    const fromContent = new Set(['link', 'button', 'heading', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'option', 'listitem', 'cell', 'row']);
+    const fromContent = new Set(['link', 'button', 'heading', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'option', 'listitem', 'cell',
+      'gridcell', 'columnheader', 'rowheader', 'row']);
     const nameOf = (el, role = roleOf(el)) => {
       const root = el.getRootNode();
       const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\\s+/)
@@ -104,7 +108,8 @@ public enum PageScripts {
     const lines = [];
     let truncated = false;
     const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'svg', 'HEAD']);
-    const leaf = new Set(['link', 'button', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio', 'slider', 'heading', 'img', 'switch', 'tab', 'menuitem', 'option']);
+    const leaf = new Set(['link', 'button', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio', 'slider', 'heading', 'img', 'switch', 'tab', 'menuitem', 'option',
+      'cell', 'gridcell', 'columnheader', 'rowheader']);
     const emit = (line) => {
       if (lines.length >= \(maxSnapshotLines)) { truncated = true; return false; }
       lines.push(line);

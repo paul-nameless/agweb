@@ -294,6 +294,10 @@ echo "== frames, accessible names and controls inside controls"
 check 'combobox "Shipping speed" \[expanded\]' -w alpha snapshot
 check 'option "Standard"' -w alpha snapshot
 check 'link "Developers"' -w alpha snapshot
+check '^    - columnheader "Fruit"' -w alpha snapshot '#tb'
+check '^    - cell "Apples"' -w alpha snapshot '#tb'
+check '^      - button "Buy"' -w alpha snapshot '#tb'
+check '^#tb tr:nth-child(2)$' -w alpha --raw eval "(el) => el.matches('#tb tr:nth-child(2)') ? '#tb tr:nth-child(2)' : el.outerHTML" 'role=row[name="Apples"]'
 check '  - textbox "Find"' -w alpha snapshot
 check "Page" -w alpha fill 'role=textbox[name="Find"]' found
 check '"found"' -w alpha eval 'dq.value'
