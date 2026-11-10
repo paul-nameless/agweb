@@ -66,6 +66,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   close                         close the workspace; a named profile keeps its logins
   list                          workspaces
   close-all                     close every workspace
+  dashboard [--hide]            show (or hide) every tab at once in the window, as the person's ⌘D does;
+                                --filename=grid.png also saves a picture of it
   profile-list                  named profiles and the workspaces using them
   profile-delete <name>         delete a named profile and everything it stored
   quit                          stop agweb
@@ -171,7 +173,7 @@ case "screenshot":
 case "pdf":
     options["filename"] = writeAnswerTo ?? absolute(args.first ?? ".agweb/page-\(stamp).pdf")
     writeAnswerTo = nil
-case "download":
+case "download", "dashboard":
     if let path = writeAnswerTo { options["filename"] = path }
     writeAnswerTo = nil
 case "video-start":

@@ -10,7 +10,7 @@ extension Browser {
     static let awakeAfterCommand: Double = 30
 
     func needsVisible(_ tab: Tab) -> Bool {
-        if model.displayedTabID == tab.id { return true }
+        if model.displayedTabID == tab.id, !model.dashboardOpen { return true }
         let workspace = tab.workspace
         guard workspace.currentID == tab.id else { return false }
         // A drag or a held Shift spans commands; a page seeing hidden mid-drag cancels it.
@@ -26,6 +26,7 @@ extension Browser {
     /// page shown again refetches on visibilitychange (SWR, React Query), so the command waits for that first.
     func wake(_ tab: Tab) async {
         tab.workspace.actedOn = tab
+        tab.lastActivity = Date()
         guard mainWindow.isHidden(tab.webView) else { return }
         setHidden(tab, false)
         guard tab.pendingURL == nil else { return }

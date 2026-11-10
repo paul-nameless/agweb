@@ -3,7 +3,8 @@
 A WebKit (WKWebView) browser for coding agents, driven by a playwright-cli-style CLI. It never activates or raises its window: agents work in the background while the window stays visible in the window list.
 
 - One window. The sidebar groups tabs by workspace, one per agent task; a green dot marks the tab each agent is driving. Click a tab to watch it, hover it to close it, right-click a workspace for a new tab.
-- Toolbar: back, forward, reload, a centered address field, new tab. ⌘T, ⌘W, ⌘L, ⌘R, ⌘[, ⌘] and the usual Edit shortcuts work.
+- Toolbar: the dashboard, back, forward, reload, a centered address field, new tab. ⌘T, ⌘W, ⌘L, ⌘R, ⌘[, ⌘] and the usual Edit shortcuts work.
+- Dashboard (⌘D, or `agweb dashboard`): every tab at once as a grid of thumbnails, most recently active first, each with its workspace, profile, the agent's last command and whether it is hidden or suspended. Click a tile or a sidebar tab to go to it. Thumbnails refresh about once a second for tabs an agent is working on; idle ones keep their last picture, so the dashboard wakes nothing. `agweb dashboard --filename=grid.png` saves a picture of it.
 - Workspaces and their tabs survive a quit or restart: they are saved as they change and reopen at launch, each page loading when it is first shown or driven. `close` and `close-all` end them for good. Fresh-profile workspaces come back logged out.
 - A workspace starts with a fresh profile that keeps nothing. `-p NAME` (or `AGWEB_PROFILE`) gives it a named, persistent profile instead, shared by every workspace naming it, in parallel, which Chrome can't do with one profile dir. `profile-list` and `profile-delete` manage them.
 - Clicks and key presses are native AppKit events delivered straight to the tab's web view, so pages see `isTrusted == true`, and they reach tabs nobody is looking at.

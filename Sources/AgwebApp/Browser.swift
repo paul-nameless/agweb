@@ -10,6 +10,7 @@ final class Browser {
     private var queues: [String: Task<Response, Never>] = [:]
     private var nextTabID = 1
     var saveTask: Task<Void, Never>?
+    var dashboardTask: Task<Void, Never>?
 
     /// Tabs a person opens from the window, when no agent tab is displayed, live in this workspace.
     static let userWorkspace = "user"
@@ -23,6 +24,7 @@ final class Browser {
             Task { try? await tab.loadIfPending() }
             self.scheduleSave()
         }
+        model.onDashboard = { [weak self] open in self?.dashboardChanged(open) }
         model.onCloseTab = { [weak self] tab in self?.closeTab(tab) }
         model.onCloseWorkspace = { [weak self] workspace in self?.closeWorkspace(workspace) }
         model.onNewTab = { [weak self] workspace in self?.newTabFromUser(in: workspace) }
@@ -205,6 +207,18 @@ final class Browser {
         }
 
         switch request.command {
+        case "dashboard":
+            model.dashboardOpen = options["hide"] == nil
+            guard model.dashboardOpen else { return "dashboard hidden" }
+            mainWindow.showQuietly()
+            guard let path = options["filename"] else { return "dashboard shown" }
+            // Long enough for the first round of thumbnails.
+            try await Task.sleep(for: .seconds(2))
+            guard let png = mainWindow.dashboardPNG() else { throw Failure("could not draw the dashboard") }
+            let url = URL(fileURLWithPath: path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try png.write(to: url)
+            return "dashboard shown\n### Screenshot\n\(path)"
         case "list":
             if options["json"] != nil {
                 let list = model.workspaces.map { workspace -> [String: Any] in
@@ -214,7 +228,8 @@ final class Browser {
                           "state": tab.state]
                      }]
                 }
-                return String(decoding: try JSONSerialization.data(withJSONObject: ["workspaces": list], options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
+                return String(decoding: try JSONSerialization.data(withJSONObject: ["workspaces": list, "dashboard": model.dashboardOpen],
+                                                                   options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
             }
             if model.workspaces.isEmpty { return "no workspaces" }
             return model.workspaces.map { "- \($0.name) (\(Self.describe(profile: $0.profile)), \($0.tabs.count) tabs)" }.joined(separator: "\n")
@@ -247,6 +262,8 @@ final class Browser {
         case "open":
             let workspace = try existingOrNewWorkspace(named: request.workspace, profile: options["profile"])
             workspace.downloadDir = options["download-dir"].map { URL(fileURLWithPath: $0) } ?? workspace.downloadDir
+            workspace.lastCommand = Self.summary(request)
+            workspace.lastCommandAt = Date()
             workspace.busy = true
             mainWindow.showQuietly()
             let tab = workspace.current ?? addTab(to: workspace)
@@ -263,6 +280,8 @@ final class Browser {
         }
         workspace.downloadDir = options["download-dir"].map { URL(fileURLWithPath: $0) } ?? workspace.downloadDir
         workspace.rawReply = options["raw"] != nil
+        workspace.lastCommand = Self.summary(request)
+        workspace.lastCommandAt = Date()
         workspace.busy = true
 
         switch request.command {

@@ -90,6 +90,8 @@ private func makeMainMenu(target: MainWindow) -> NSMenu {
         item("Select All", #selector(NSText.selectAll(_:)), "a"),
     ])
     submenu("View", [
+        item("Dashboard", #selector(MainWindow.toggleDashboard(_:)), "d", to: target),
+        .separator(),
         item("Reload Page", #selector(MainWindow.reloadPage(_:)), "r", to: target),
         item("Back", #selector(MainWindow.goBack(_:)), "[", to: target),
         item("Forward", #selector(MainWindow.goForward(_:)), "]", to: target),

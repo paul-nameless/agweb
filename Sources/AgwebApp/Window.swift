@@ -4,14 +4,16 @@ import SwiftUI
 import WebKit
 
 /// One window for every agent: a sidebar of workspaces and their tabs, and a content area where all web views
-/// sit stacked in the same frame. The displayed tab is simply the top one. Nothing is hidden, so WebKit keeps
-/// every tab "visible" and agents can render, snapshot and click in tabs nobody is looking at.
+/// sit stacked in the same frame, the displayed tab on top and the dashboard above them all. Which tabs are
+/// shown to WebKit is Visibility.swift's business.
 @MainActor
 final class MainWindow: NSObject, NSWindowDelegate {
     let window: NSWindow
     let model: BrowserModel
     let urlField = NSTextField()
     private let container = NSView()
+    private lazy var dashboard = NSHostingView(rootView: DashboardView(model: model))
+    let dashboardButton = NSButton()
     private let placeholder = NSTextField(labelWithString: "No tabs yet.\nAgents: agweb -w <task> open <url>    You: ⌘T")
 
     init(model: BrowserModel) {
@@ -86,6 +88,26 @@ final class MainWindow: NSObject, NSWindowDelegate {
         container.addSubview(host, positioned: .above, relativeTo: placeholder)
     }
 
+    /// Over every tab; the tabs underneath are hidden while it shows.
+    func showDashboard(_ open: Bool) {
+        dashboardButton.state = open ? .on : .off
+        if dashboard.superview == nil {
+            dashboard.frame = container.bounds
+            dashboard.autoresizingMask = [.width, .height]
+            container.addSubview(dashboard, positioned: .above, relativeTo: nil)
+        }
+        dashboard.isHidden = !open
+    }
+
+    @objc func toggleDashboard(_ sender: Any?) { model.dashboardOpen.toggle() }
+
+    /// The dashboard as PNG, drawn by AppKit, so it needs no screen recording permission.
+    func dashboardPNG() -> Data? {
+        guard let rep = dashboard.bitmapImageRepForCachingDisplay(in: dashboard.bounds) else { return nil }
+        dashboard.cacheDisplay(in: dashboard.bounds, to: rep)
+        return rep.representation(using: .png, properties: [:])
+    }
+
     /// On the host: WebKit sees a hidden ancestor as a hidden page.
     func setHidden(_ webView: WKWebView, _ hidden: Bool) {
         if let host = webView.superview, host.isHidden != hidden { host.isHidden = hidden }
@@ -99,9 +121,14 @@ final class MainWindow: NSObject, NSWindowDelegate {
     }
 
     func bringToTop(_ webView: WKWebView) {
-        guard let host = webView.superview, container.subviews.last !== host else { return }
+        guard let host = webView.superview else { return }
         let responder = window.firstResponder
-        container.addSubview(host, positioned: .above, relativeTo: nil)
+        // The dashboard stays above every tab.
+        if dashboard.superview != nil {
+            container.addSubview(host, positioned: .below, relativeTo: dashboard)
+        } else if container.subviews.last !== host {
+            container.addSubview(host, positioned: .above, relativeTo: nil)
+        }
         if responder === webView { window.makeFirstResponder(webView) }
     }
 
@@ -152,12 +179,14 @@ struct SidebarView: View {
     let model: BrowserModel
 
     var body: some View {
-        List(selection: Binding(get: { model.displayedTabID }, set: { if let id = $0 { model.display(id) } })) {
+        List(selection: Binding(get: { model.displayedTabID }, set: { if let id = $0 { model.dashboardOpen = false; model.display(id) } })) {
             ForEach(model.workspaces) { workspace in
                 Section {
                     ForEach(workspace.tabs) { tab in
                         TabRow(tab: tab, driven: tab.id == workspace.currentID) { model.onCloseTab?(tab) }
                             .tag(tab.id)
+                            // The displayed tab is already selected, so selecting it again sets nothing.
+                            .simultaneousGesture(TapGesture().onEnded { model.dashboardOpen = false })
                             .contextMenu {
                                 Button("Close Tab") { model.onCloseTab?(tab) }
                                 Button("New Tab in \(workspace.name)") { model.onNewTab?(workspace) }

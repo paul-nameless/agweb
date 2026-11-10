@@ -98,6 +98,7 @@ agweb -w t state-save s.json | state-load s.json     # cookies + localStorage, P
 agweb -w t console [error]                           # console since the page loaded
 agweb -w t resize 390 844 | emulate --color-scheme dark
 agweb -w t video-start demo.mp4 | video-chapter "Step 2" | video-stop
+agweb dashboard --filename=grid.png | dashboard --hide # every agent's tabs at once, e.g. to check on parallel work
 ```
 
 - `requests` and `route` cover fetch and XHR calls (plus documents in `requests`); images and scripts aren't intercepted.

@@ -10,6 +10,7 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
     private static let reload = NSToolbarItem.Identifier("reload")
     private static let address = NSToolbarItem.Identifier("address")
     private static let newTabItem = NSToolbarItem.Identifier("newTab")
+    private static let dashboardItem = NSToolbarItem.Identifier("dashboard")
 
     func installToolbar() {
         urlField.placeholderString = "Enter address"
@@ -29,7 +30,7 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, Self.back, Self.forward, Self.reload,
+        [.toggleSidebar, Self.dashboardItem, .sidebarTrackingSeparator, Self.back, Self.forward, Self.reload,
          .flexibleSpace, Self.address, .flexibleSpace, Self.newTabItem]
     }
 
@@ -50,6 +51,16 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
         case Self.forward: configure(item, "Forward", "chevron.right", #selector(goForward(_:)))
         case Self.reload: configure(item, "Reload", "arrow.clockwise", #selector(reloadPage(_:)))
         case Self.newTabItem: configure(item, "New Tab", "plus", #selector(newTab(_:)))
+        case Self.dashboardItem:
+            // A push-on/push-off button shows the dashboard's state; a plain toolbar item can't.
+            dashboardButton.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Dashboard")
+            dashboardButton.bezelStyle = .toolbar
+            dashboardButton.setButtonType(.pushOnPushOff)
+            dashboardButton.target = self
+            dashboardButton.action = #selector(toggleDashboard(_:))
+            dashboardButton.toolTip = "Dashboard (⌘D)"
+            item.view = dashboardButton
+            item.label = "Dashboard"
         default: return nil
         }
         return item
@@ -66,7 +77,7 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
     }
 
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
-        if item.itemIdentifier == Self.newTabItem { return true }
+        if item.itemIdentifier == Self.newTabItem || item.itemIdentifier == Self.dashboardItem { return true }
         guard let webView = model.displayedTab?.webView else { return false }
         switch item.itemIdentifier {
         case Self.back: return webView.canGoBack

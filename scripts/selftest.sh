@@ -336,6 +336,14 @@ check '\["hidden","visible"\]' -w vis eval 'vis'
 check '^30$' -w vis --raw eval "() => new Promise(r => { let n = 0; const f = () => ++n < 30 ? requestAnimationFrame(f) : r(n); requestAnimationFrame(f) })"
 check "workspace vis closed" -w vis close
 
+echo "== the dashboard shows every tab"
+check "dashboard shown" dashboard --filename="$dir/dash.png"
+[ "$(sips -g pixelWidth "$dir/dash.png" 2>/dev/null | awk '/pixelWidth/ {print $2}')" -gt 400 ] || fail "dashboard --filename wrote no picture"
+check '"dashboard":true' list --json
+check '"state":"hidden"' list --json
+check "dashboard hidden" dashboard --hide
+check '"dashboard":false' list --json
+
 echo "== workspaces run in parallel"
 start=$(now)
 "$agweb" -w alpha eval '() => new Promise(r => setTimeout(r, 2000))' >/dev/null & a=$!

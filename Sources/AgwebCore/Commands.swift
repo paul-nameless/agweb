@@ -6,7 +6,7 @@ public enum Commands {
         "console", "requests", "request", "request-headers", "request-body", "response-headers", "response-body", "route",
         "route-list", "unroute", "cookie-list", "cookie-get", "cookie-set", "cookie-delete", "cookie-clear", "state-save",
         "state-load", "dialog-accept", "dialog-dismiss", "tab-list", "tab-new", "tab-select", "tab-close", "show", "close",
-        "list", "close-all", "profile-list", "profile-delete", "quit",
+        "list", "close-all", "profile-list", "profile-delete", "dashboard", "quit",
     ]
 
     /// Names agents reach for that mean something agweb spells differently.

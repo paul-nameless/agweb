@@ -8,6 +8,12 @@ import AgwebCore
 final class BrowserModel {
     var workspaces: [Workspace] = []
     var displayedTabID: Int?
+    var dashboardOpen = false {
+        didSet { if dashboardOpen != oldValue { onDashboard?(dashboardOpen) } }
+    }
+    /// Tab ids in the order the dashboard shows them, most recently active first when it opened.
+    var dashboardOrder: [Int] = []
+    @ObservationIgnored var onDashboard: ((Bool) -> Void)?
     @ObservationIgnored var onDisplay: ((Int) -> Void)?
     @ObservationIgnored var onCloseTab: ((Tab) -> Void)?
     @ObservationIgnored var onCloseWorkspace: ((Workspace) -> Void)?
@@ -33,6 +39,9 @@ final class Workspace: Identifiable {
     var currentID: Int?
     /// True while an agent command runs. Commands on one workspace are serialized, so this is exact.
     var busy = false
+    /// What the agent last ran here and when, for the dashboard.
+    var lastCommand: String?
+    var lastCommandAt: Date?
     @ObservationIgnored var acceptDialogs = false
     /// Where downloads nobody named go: the last command's `--download-dir`, by default its caller's `.agweb/`.
     @ObservationIgnored var downloadDir: URL?
@@ -269,6 +278,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
 
     nonisolated let id: Int
     var title = ""
+    /// The dashboard's picture of the tab, and when an agent last acted on it (its place there).
+    var thumbnail: NSImage?
+    var lastActivity = Date()
     var url = ""
     /// Strong on purpose: a closed tab can still get page callbacks, and closeTab breaks the cycle.
     @ObservationIgnored let workspace: Workspace
