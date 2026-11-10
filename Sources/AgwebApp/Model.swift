@@ -11,6 +11,8 @@ final class BrowserModel {
     var dashboardOpen = false {
         didSet { if dashboardOpen != oldValue { onDashboard?(dashboardOpen) } }
     }
+    /// agweb's processes and their usage, sampled while the dashboard is open with Settings ▸ CPU and memory on.
+    var processes: [pid_t: (name: String, usage: Usage)] = [:]
     @ObservationIgnored var onDashboard: ((Bool) -> Void)?
     @ObservationIgnored var onDisplay: ((Int) -> Void)?
     @ObservationIgnored var onCloseTab: ((Tab) -> Void)?
@@ -492,6 +494,13 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     @ObservationIgnored var awakeUntil = Date.distantPast
 
     /// What the tab costs: "visible", "hidden" (throttled), "suspended" (process frozen by WebKit) or "not loaded".
+    /// The page's web content process; 0 before it has one. Popups opened by script can share their opener's.
+    var processID: pid_t {
+        let selector = NSSelectorFromString("_webProcessIdentifier")
+        typealias Get = @convention(c) (AnyObject, Selector) -> pid_t
+        return webView.responds(to: selector) ? unsafeBitCast(webView.method(for: selector), to: Get.self)(webView, selector) : 0
+    }
+
     var state: String {
         if pendingURL != nil || webView.url == nil { return "not loaded" }
         let selector = NSSelectorFromString("_webProcessState")

@@ -4,6 +4,7 @@ import AgwebCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let browser = Browser()
+    let settings = SettingsWindow()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let path = Agweb.socketPath
@@ -21,7 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FileHandle.standardError.write(Data("cannot listen on \(path): \(error)\n".utf8))
             exit(1)
         }
-        NSApp.mainMenu = makeMainMenu(target: browser.mainWindow)
+        NSApp.mainMenu = makeMainMenu(target: browser.mainWindow, settings: settings)
         browser.mainWindow.showQuietly()
     }
 
@@ -50,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @MainActor
-private func makeMainMenu(target: MainWindow) -> NSMenu {
+private func makeMainMenu(target: MainWindow, settings: SettingsWindow) -> NSMenu {
     let main = NSMenu()
     func submenu(_ title: String, _ items: [NSMenuItem]) {
         let menu = NSMenu(title: title)
@@ -68,6 +69,8 @@ private func makeMainMenu(target: MainWindow) -> NSMenu {
     }
 
     submenu("Agweb", [
+        item("Settings…", #selector(SettingsWindow.show(_:)), ",", to: settings),
+        .separator(),
         item("Hide Agweb", #selector(NSApplication.hide(_:)), "h"),
         item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
         .separator(),

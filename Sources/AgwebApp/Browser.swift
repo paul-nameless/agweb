@@ -14,6 +14,7 @@ final class Browser {
     private var nextTabID = 1
     var saveTask: Task<Void, Never>?
     var dashboardTask: Task<Void, Never>?
+    let usageSampler = UsageSampler()
 
     /// Tabs a person opens from the window, when no agent tab is displayed, live in this workspace.
     static let userWorkspace = "user"
