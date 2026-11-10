@@ -39,8 +39,8 @@ agweb -w fix-login close # when done; otherwise the workspace reopens after a re
 agweb profile-list # existing profiles; the project's notes may name one
 agweb -w task open -p work https://app.example.com # lands logged in if the profile has been used before
 agweb -w task snapshot # a login form? credentials come from the project (pass, env), never from you
-agweb -w task fill 'role=textbox[name="Email"]' "$EMAIL" --instant
-agweb -w task fill 'role=textbox[name="Password"]' "$(pass show site)" --instant
+agweb -w task fill 'role=textbox[name="Email"]' "$EMAIL"
+agweb -w task fill 'role=textbox[name="Password"]' "$(pass show site)"
 agweb -w task click 'role=button[name="Sign in"]' && agweb -w task wait --url=/dashboard --timeout=60000
 agweb -w task show && agweb -w task wait --url=/dashboard --timeout=600000 # no credentials: ask the person, wait up to 10 min
 ```
@@ -51,7 +51,7 @@ A profile can't change on an open workspace: `close` it, then `open -p`. Snapsho
 
 ```sh
 agweb -w t snapshot # find the fields
-agweb -w t fill e3 "Paul" # replaces the field's text; --instant for long text
+agweb -w t fill e3 "Paul" # replaces the field's text at once
 agweb -w t select e4 "Green" # <select>: label or value; never click one
 agweb -w t check e5
 agweb -w t click 'role=button[name="Save"]' # the reply waits for the fetch/XHR the click started (up to 5 s)
