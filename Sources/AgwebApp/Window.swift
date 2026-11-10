@@ -179,14 +179,15 @@ struct SidebarView: View {
     let model: BrowserModel
 
     var body: some View {
-        List(selection: Binding(get: { model.displayedTabID }, set: { if let id = $0 { model.dashboardOpen = false; model.display(id) } })) {
+        // Nothing is selected while the dashboard shows, so clicking even the displayed tab goes back to it. A tap
+        // gesture on the rows for that would stop List selecting them.
+        List(selection: Binding(get: { model.dashboardOpen ? nil : model.displayedTabID },
+                                set: { if let id = $0 { model.dashboardOpen = false; model.display(id) } })) {
             ForEach(model.workspaces) { workspace in
                 Section {
                     ForEach(workspace.tabs) { tab in
                         TabRow(tab: tab, driven: tab.id == workspace.currentID) { model.onCloseTab?(tab) }
                             .tag(tab.id)
-                            // The displayed tab is already selected, so selecting it again sets nothing.
-                            .simultaneousGesture(TapGesture().onEnded { model.dashboardOpen = false })
                             .contextMenu {
                                 Button("Close Tab") { model.onCloseTab?(tab) }
                                 Button("New Tab in \(workspace.name)") { model.onNewTab?(workspace) }
