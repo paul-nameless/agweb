@@ -409,6 +409,20 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         try await withCheckedThrowingContinuation { loadWaiter = $0 }
     }
 
+    /// The tab stays visible until then after its agent's last command; see Visibility.swift.
+    @ObservationIgnored var awakeUntil = Date.distantPast
+
+    /// Waits until the web process has applied a visibility change, so the next script sees the page visible.
+    func activityStateApplied() async {
+        let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
+        guard webView.responds(to: selector) else { return }
+        typealias Call = @convention(c) (AnyObject, Selector, @escaping @convention(block) () -> Void) -> Void
+        let call = unsafeBitCast(webView.method(for: selector), to: Call.self)
+        _ = try? await withTimeout(1, "waking the tab") { [webView] in
+            await withCheckedContinuation { continuation in call(webView, selector) { continuation.resume() } }
+        }
+    }
+
     /// When the running command started, in ms since 1970, the clock the page's network hook stamps calls with.
     @ObservationIgnored var commandStart = 0.0
 

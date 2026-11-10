@@ -86,6 +86,13 @@ final class MainWindow: NSObject, NSWindowDelegate {
         container.addSubview(host, positioned: .above, relativeTo: placeholder)
     }
 
+    /// On the host: WebKit sees a hidden ancestor as a hidden page.
+    func setHidden(_ webView: WKWebView, _ hidden: Bool) {
+        if let host = webView.superview, host.isHidden != hidden { host.isHidden = hidden }
+    }
+
+    func isHidden(_ webView: WKWebView) -> Bool { webView.superview?.isHidden ?? false }
+
     func remove(_ webView: WKWebView) {
         webView.superview?.removeFromSuperview()
         webView.removeFromSuperview()

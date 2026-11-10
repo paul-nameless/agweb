@@ -19,6 +19,7 @@ final class Browser {
         model.onDisplay = { [weak self] id in
             guard let self, let tab = self.model.displayedTab, tab.id == id else { return }
             self.mainWindow.bringToTop(tab.webView)
+            self.updateVisibility()
             Task { try? await tab.loadIfPending() }
             self.scheduleSave()
         }
@@ -57,6 +58,7 @@ final class Browser {
             workspace.tabs.append(tab)
         }
         mainWindow.add(tab.webView)
+        updateVisibility()
         scheduleSave()
         return tab
     }
@@ -95,6 +97,7 @@ final class Browser {
         let watching = model.displayedTab.map { $0.workspace === tab.workspace } ?? true
         tab.workspace.currentID = tab.id
         if watching { model.display(tab.id) }
+        updateVisibility()
     }
 
     func closeTab(_ tab: Tab) {
@@ -118,6 +121,7 @@ final class Browser {
                 model.displayedTabID = nil
             }
         }
+        updateVisibility()
         scheduleSave()
     }
 
@@ -175,7 +179,11 @@ final class Browser {
 
     private func execute(_ request: Request) async -> Response {
         defer {
-            model.workspaces.first { $0.name == request.workspace }?.busy = false
+            if let workspace = model.workspaces.first(where: { $0.name == request.workspace }) {
+                workspace.busy = false
+                if let tab = workspace.current { keepAwakeAfterCommand(tab) }
+                updateVisibility()
+            }
             scheduleSave()
         }
         do {
@@ -238,6 +246,7 @@ final class Browser {
             workspace.busy = true
             mainWindow.showQuietly()
             let tab = workspace.current ?? addTab(to: workspace)
+            await wake(tab)
             if let url = args.first { try await tab.goto(try Address.url(url)) } else { try await tab.loadIfPending() }
             return describe(tab)
         default:
@@ -341,6 +350,7 @@ final class Browser {
             throw Failure("workspace has no tabs; run tab-new")
         }
         tab.commandStart = Date().timeIntervalSince1970 * 1000
+        await wake(tab)
         // A tab reopened at launch loads on first use.
         if request.command != "goto" { try await tab.loadIfPending() }
         let webView = tab.webView
