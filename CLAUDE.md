@@ -1,6 +1,6 @@
 # agweb
 
-A WKWebView browser for coding agents, driven by the `agweb` CLI over a Unix socket. `README.md` is the user-facing reference; `skill/SKILL.md` is the agent skill, symlinked from `~/.claude/skills/agweb`, so an edit reaches every new Claude session at once. `todo.org` (untracked) holds the backlog.
+A WKWebView browser for coding agents, driven by the `agweb` CLI over a Unix socket. `README.md` is the short pitch and `docs/internals.md` the user-facing detail (storage, how tabs are hidden, limits); `skill/SKILL.md` is the agent skill, symlinked from `~/.claude/skills/agweb`, so an edit reaches every new Claude session at once. `todo.org` (untracked) holds the backlog.
 
 ## The rule everything serves
 
