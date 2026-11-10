@@ -97,6 +97,10 @@ check "$dir/el.png" -w alpha screenshot '#b' --path="$dir/el.png"
 [ "$(sips -g pixelWidth "$dir/el.png" | awk '/pixelWidth/ {print $2}')" -lt 400 ] || fail "screenshot '#b' is not just the button"
 check "Screenshot" -w alpha screenshot --full-page --filename="$dir/full.jpg"
 [ "$(sips -g pixelHeight "$dir/full.jpg" | awk '/pixelHeight/ {print $2}')" -gt 3000 ] || fail "screenshot --full-page is not the whole page"
+check '^\[Next page\](/index.html?next)$' -w alpha --raw text 'a'
+check "$dir/page.md" -w alpha text --filename="$dir/page.md"
+grep -q 'Press me' "$dir/page.md" || fail "text --filename did not write the page"
+check '"undefined"' -w alpha eval 'typeof Defuddle'
 check "Page" -w alpha fill '#q' again --submit
 check '"submit:again"' -w alpha eval 'log'
 check "Page" -w alpha click '#b' --js

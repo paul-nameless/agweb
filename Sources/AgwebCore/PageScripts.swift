@@ -180,6 +180,15 @@ public enum PageScripts {
     return lines.join('\\n');
     """
 
+    /// Markdown through Defuddle (loaded into this world first): one element converted whole, or the page's main
+    /// content. A page with little article in it (a web app) is converted whole instead.
+    public static let text = find + """
+    if (target) return Defuddle.createMarkdownContent(find(target).outerHTML, location.href);
+    const page = new Defuddle(document, { markdown: true, url: location.href }).parse();
+    if (page.wordCount < 50) return Defuddle.createMarkdownContent(document.body.innerHTML, location.href);
+    return (page.title ? `# ${page.title}\\n\\n` : '') + page.content;
+    """
+
     // Returns the element's center in CSS pixels after scrolling it into view, what actually sits there, and
     // what kind of control it is (some controls open native popups when clicked).
     public static let locate = find + """

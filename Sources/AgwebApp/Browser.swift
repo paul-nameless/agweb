@@ -349,6 +349,8 @@ final class Browser {
         case "snapshot":
             let tree = try await tab.call(PageScripts.snapshot, ["target": args.first ?? ""])
             return describe(tab) + "\n### Snapshot\n" + tree
+        case "text":
+            return "### Result\n" + (try await pageText(tab, target: args.first)) + "\n" + describe(tab)
         case "click", "dblclick":
             try await click(tab, target: try arg(0, "target"), button: try MouseButton(args.count > 1 ? args[1] : nil), js: options["js"] != nil,
                             forUpload: false, instant: instant, clicks: request.command == "dblclick" ? 2 : 1)

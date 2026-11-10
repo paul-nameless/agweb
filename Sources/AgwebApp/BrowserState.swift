@@ -52,6 +52,19 @@ extension Browser {
         }
     }
 
+    /// Defuddle is 770 KB, so it loads into a page's agent world only when `text` first runs there.
+    func pageText(_ tab: Tab, target: String?) async throws -> String {
+        if try await tab.call("return typeof Defuddle") != "function" {
+            guard let url = Bundle.main.url(forResource: "defuddle", withExtension: "js"), let source = try? String(contentsOf: url, encoding: .utf8) else {
+                throw Failure("defuddle.js is missing from the app bundle; rebuild with scripts/build.sh")
+            }
+            _ = try await withTimeout(10, "loading defuddle") { [webView = tab.webView] in
+                try await webView.evaluateJavaScript(source + ";0", in: nil, contentWorld: Tab.agentWorld)
+            }
+        }
+        return try await tab.call(PageScripts.text, ["target": target ?? ""])
+    }
+
     func routeList(_ workspace: Workspace) -> String {
         workspace.routes.isEmpty ? "no routes" : "### Routes\n" + workspace.routes.map { route in
             "- \(route.pattern) => \(route.status ?? 200)" + (route.contentType.map { " \($0)" } ?? "") + (route.body.map { ", \($0.count) characters" } ?? "")

@@ -45,6 +45,7 @@ Role and text targets must match exactly one visible element, so add more of the
 
 ```sh
 agweb -w t snapshot [target]                         # whole page or one element's subtree
+agweb -w t --raw text [target]                       # an article's main content (or one element) as markdown
 agweb -w t --raw eval "document.body.innerText"      # text; --raw prints just the value, strings unquoted
 agweb -w t eval "() => [...document.querySelectorAll('tr')].map(r => r.innerText)"
 agweb -w t eval "(el) => el.value" e5                # a function gets the target element

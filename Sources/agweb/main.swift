@@ -15,6 +15,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   open [url]                    start the workspace (-p to reuse a named profile's logins)
   goto <url> | reload | go-back | go-forward
   snapshot [target]             page (or one element) as a tree with [ref=eN] handles; same-origin iframes included
+  text [target]                 the page's main content (an article) or one element as markdown
   click <target> [right|middle] native trusted click: the pointer glides there like a person's (--js: element.click())
   dblclick <target>             native double click
   check | uncheck <target>      tick or clear a checkbox, radio or switch (no-op when already so)
@@ -70,7 +71,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   quit                          stop agweb
 
 --instant                       pointer verbs, upload and type act at once instead of at human speed
---filename=PATH                 snapshot, eval, request and response-body: write the answer to a file instead
+--filename=PATH                 snapshot, text, eval, request and response-body: write the answer to a file instead
 --download-dir=DIR              where downloads nobody named go (default $AGWEB_DOWNLOAD_DIR, else .agweb/)
 --raw                           print only the answer (eval's value, a snapshot), strings unquoted
 --json                          print the reply as one JSON object
