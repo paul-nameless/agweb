@@ -207,7 +207,8 @@ final class Browser {
                 let list = model.workspaces.map { workspace -> [String: Any] in
                     ["name": workspace.name, "profile": workspace.profile ?? NSNull(), "busy": workspace.busy,
                      "tabs": workspace.tabs.enumerated().map { index, tab in
-                         ["index": index, "url": tab.currentURL, "title": tab.currentTitle, "current": tab.id == workspace.currentID]
+                         ["index": index, "url": tab.currentURL, "title": tab.currentTitle, "current": tab.id == workspace.currentID,
+                          "state": tab.state]
                      }]
                 }
                 return String(decoding: try JSONSerialization.data(withJSONObject: ["workspaces": list], options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
@@ -881,7 +882,7 @@ final class Browser {
         workspace.tabsShown = tabsSeen(workspace)
         return "### Tabs\n" + workspace.tabs.enumerated().map { index, tab in
             let current = tab.id == workspace.currentID ? " (current)" : ""
-            return "- \(index):\(current) [\(tab.currentTitle)](\(tab.currentURL))" + (tab.pendingURL != nil ? " (not loaded yet)" : "")
+            return "- \(index):\(current) [\(tab.currentTitle)](\(tab.currentURL))" + (tab.state == "visible" ? "" : " (\(tab.state))")
         }.joined(separator: "\n")
     }
 }

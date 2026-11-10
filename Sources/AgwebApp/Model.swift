@@ -420,6 +420,17 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     /// The tab stays visible until then after its agent's last command; see Visibility.swift.
     @ObservationIgnored var awakeUntil = Date.distantPast
 
+    /// What the tab costs: "visible", "hidden" (throttled), "suspended" (process frozen by WebKit) or "not loaded".
+    var state: String {
+        if pendingURL != nil { return "not loaded" }
+        guard webView.superview?.isHidden == true else { return "visible" }
+        let selector = NSSelectorFromString("_webProcessState")
+        guard webView.responds(to: selector) else { return "hidden" }
+        typealias Get = @convention(c) (AnyObject, Selector) -> Int
+        // 0 not running, 1 foreground, 2 background, 3 suspended.
+        return unsafeBitCast(webView.method(for: selector), to: Get.self)(webView, selector) == 3 ? "suspended" : "hidden"
+    }
+
     func setMuted(_ muted: Bool) {
         // _WKMediaAudioMuted is 1; 0 unmutes.
         let selector = NSSelectorFromString("_setPageMuted:")
