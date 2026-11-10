@@ -10,6 +10,12 @@
 <input type="range" id="rng" min="0" max="100" value="0" style="width:300px">
 <div id="card" draggable="true" style="display:inline-block;padding:8px;background:#ddd">card</div>
 <div id="lane" style="display:inline-block;width:120px;height:40px;background:#eef">lane</div>
+<label><input type="checkbox" id="cb"> Remember me</label>
+<input type="radio" name="r" id="r1" value="a"><input type="radio" name="r" id="r2" value="b">
+<button id="pr" onclick="log.push('prompt:' + prompt('Name?', 'def'))">Prompt</button>
+<a id="dl" href="/index.html" download="saved.html">Download</a>
+<button id="api" onclick="fetch('/index.html?api', { method: 'POST', body: 'x=1' }).then(r => r.text()).then(t => api = t)">Call API</button>
+<iframe id="fr" src="/frame.html" title="inner" style="width:300px;height:60px"></iframe>
 <div style="height:3000px"></div>
 <script>
 window.log = [];
@@ -17,6 +23,10 @@ window.moves = 0;
 window.inputs = 0;
 window.dbl = 0;
 window.dropped = '';
+window.api = '';
+window.downs = [];
+addEventListener('mousedown', e => downs.push(e.button + (e.shiftKey ? '+shift' : '')));
+b.addEventListener('contextmenu', () => log.push('contextmenu'));
 b.addEventListener('dblclick', () => dbl++);
 card.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', 'card'));
 lane.addEventListener('dragover', e => e.preventDefault());

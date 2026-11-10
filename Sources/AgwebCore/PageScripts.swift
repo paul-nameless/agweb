@@ -1,29 +1,12 @@
 // Function bodies for callAsyncJavaScript. They run in the isolated "agweb" content world, which shares the DOM
 // with the page but not its globals, so the page cannot see or clobber window.__agweb.
 public enum PageScripts {
+    /// Targets: a snapshot ref (`e12`), `role=button[name="Save"]` (name: case-insensitive substring), `text=Save`
+    /// (substring) or `text="Save"` (exact), else a CSS selector. Role and text targets must match exactly one
+    /// visible element, so a click never lands on the wrong one of several.
     public static let find = """
     const W = window.__agweb || (window.__agweb = { refs: new Map() });
-    const find = (target) => {
-      if (/^e\\d+$/.test(target)) {
-        const el = W.refs.get(target);
-        if (!el || !el.isConnected) throw new Error(`ref ${target} not found; take a new snapshot`);
-        return el;
-      }
-      const el = document.querySelector(target);
-      if (!el) throw new Error(`no element matches ${target}`);
-      return el;
-    };
-    """
-
-    public static let maxSnapshotLines = 2000
-
-    public static let snapshot = find + """
-    W.refs = new Map();
-    let n = 0;
-    const lines = [];
-    let truncated = false;
-    const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'svg', 'HEAD']);
-    const leaf = new Set(['link', 'button', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio', 'slider', 'heading', 'img', 'switch', 'tab', 'menuitem', 'option']);
+    const clean = (s) => (s || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
     const roleOf = (el) => {
       const explicit = el.getAttribute('role');
       if (explicit === 'presentation' || explicit === 'none') return null;
@@ -46,12 +29,72 @@ public enum PageScripts {
       if (el.isContentEditable && !el.parentElement?.isContentEditable) return 'textbox';
       return null;
     };
-    const clean = (s) => (s || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
     const nameOf = (el) => clean(
       el.getAttribute('aria-label') || el.labels?.[0]?.innerText || el.getAttribute('alt') || el.getAttribute('title') ||
       el.getAttribute('placeholder') || (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) ? '' : el.innerText) ||
       el.querySelector?.('img[alt]')?.getAttribute('alt') || (el.type === 'password' ? '' : el.value)
     );
+    const visible = (el) => el.getClientRects().length > 0 && el.ownerDocument.defaultView.getComputedStyle(el).visibility !== 'hidden';
+    // Every element, through open shadow roots and same-origin iframes.
+    const all = function* (root) {
+      for (const el of root.querySelectorAll('*')) {
+        yield el;
+        if (el.shadowRoot) yield* all(el.shadowRoot);
+        if (el.tagName === 'IFRAME') { let doc = null; try { doc = el.contentDocument; } catch {} if (doc) yield* all(doc); }
+      }
+    };
+    const find = (target) => {
+      if (/^e\\d+$/.test(target)) {
+        const el = W.refs.get(target);
+        if (!el || !el.isConnected) throw new Error(`ref ${target} not found; take a new snapshot`);
+        return el;
+      }
+      let matches, m;
+      if ((m = /^role=([\\w-]+)(?:\\[name=(?:"([^"]*)"|'([^']*)'|([^\\]]*))\\])?$/.exec(target))) {
+        const role = m[1], name = (m[2] ?? m[3] ?? m[4])?.toLowerCase();
+        matches = [...all(document)].filter(el => roleOf(el) === role && visible(el) && (name === undefined || nameOf(el).toLowerCase().includes(name)));
+      } else if (target.startsWith('text=')) {
+        const raw = target.slice(5), exact = /^".*"$/.test(raw), text = exact ? clean(raw.slice(1, -1)) : clean(raw).toLowerCase();
+        const has = (el) => {
+          if (!(el.textContent || '').toLowerCase().includes(exact ? text.toLowerCase() : text)) return false;
+          const t = clean(el.innerText);
+          return exact ? t === text : t.toLowerCase().includes(text);
+        };
+        // The innermost elements holding the text, not every ancestor of them.
+        matches = [...all(document)].filter(el => !['SCRIPT', 'STYLE', 'HEAD', 'TITLE'].includes(el.tagName) && has(el) && visible(el) && ![...el.children].some(has));
+      } else {
+        const el = document.querySelector(target);
+        if (!el) throw new Error(`no element matches ${target}`);
+        return el;
+      }
+      if (matches.length === 0) throw new Error(`no visible element matches ${target}`);
+      if (matches.length > 1) throw new Error(`${target} matches ${matches.length} elements; be more specific or use a ref from snapshot`);
+      return matches[0];
+    };
+    // The element's rect in the top page's viewport, through same-origin iframes.
+    const rectOf = (el) => {
+      const r = el.getBoundingClientRect();
+      let x = r.left, y = r.top;
+      for (let w = el.ownerDocument.defaultView; w && w.frameElement; w = w.parent) {
+        const f = w.frameElement.getBoundingClientRect();
+        x += f.left + w.frameElement.clientLeft;
+        y += f.top + w.frameElement.clientTop;
+      }
+      return { x, y, width: r.width, height: r.height, local: r };
+    };
+    """
+
+    public static let maxSnapshotLines = 2000
+
+    /// The whole page, or with `target` only that element and what is inside it.
+    public static let snapshot = find + """
+    const root = target ? find(target) : null;
+    W.refs = new Map();
+    let n = 0;
+    const lines = [];
+    let truncated = false;
+    const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'svg', 'HEAD']);
+    const leaf = new Set(['link', 'button', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio', 'slider', 'heading', 'img', 'switch', 'tab', 'menuitem', 'option']);
     const emit = (line) => {
       if (lines.length >= \(maxSnapshotLines)) { truncated = true; return false; }
       lines.push(line);
@@ -64,47 +107,55 @@ public enum PageScripts {
         const assigned = node.assignedNodes({ flatten: true });
         return assigned.length ? assigned : node.childNodes;
       }
+      if (node.tagName === 'IFRAME') {
+        let body = null;
+        try { body = node.contentDocument?.body; } catch {}
+        return body ? [body] : [];
+      }
       return node.childNodes;
     };
-    const walk = (root, depth) => {
-      for (const node of childrenOf(root)) {
-        if (truncated) return;
-        if (node.nodeType === Node.TEXT_NODE) {
-          const text = clean(node.textContent);
-          if (text) emit(`${'  '.repeat(depth)}- text: ${JSON.stringify(text)}`);
-          continue;
+    const visit = (node, depth) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = clean(node.textContent);
+        if (text) emit(`${'  '.repeat(depth)}- text: ${JSON.stringify(text)}`);
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE || skip.has(node.tagName) || node.getAttribute('aria-hidden') === 'true') return;
+      const style = node.ownerDocument.defaultView.getComputedStyle(node);
+      // display:contents boxes (every <slot> by default) have no rects but their children do.
+      if (style.display === 'contents' || node.tagName === 'BODY') { walk(node, depth); return; }
+      if (node.getClientRects().length === 0 || style.visibility === 'hidden') return;
+      const role = roleOf(node);
+      if (!role) { walk(node, depth); return; }
+      const ref = `e${++n}`;
+      W.refs.set(ref, node);
+      let line = `${'  '.repeat(depth)}- ${role}`;
+      const name = leaf.has(role) ? nameOf(node) : clean(node.getAttribute('aria-label') || (role === 'iframe' ? node.getAttribute('title') : ''));
+      if (name) line += ` ${JSON.stringify(name)}`;
+      if (role === 'heading') line += ` [level=${/^H[1-6]$/.test(node.tagName) ? node.tagName[1] : node.getAttribute('aria-level') || 2}]`;
+      if (node.checked || node.getAttribute('aria-checked') === 'true') line += ' [checked]';
+      if (node.disabled) line += ' [disabled]';
+      // A password someone typed by hand must not reach an agent's transcript.
+      if (node.type === 'password') { if (node.value) line += ' [value=<hidden>]'; }
+      else if (['textbox', 'searchbox', 'combobox'].includes(role) && node.tagName !== 'SELECT' && node.value) line += ` [value=${JSON.stringify(clean(node.value))}]`;
+      line += ` [ref=${ref}]`;
+      if (node === document.activeElement) line += ' [focused]';
+      if (!emit(line)) return;
+      if (node.tagName === 'SELECT') {
+        for (const option of node.options) {
+          emit(`${'  '.repeat(depth + 1)}- option ${JSON.stringify(clean(option.label))}${option.selected ? ' [selected]' : ''}`);
         }
-        if (node.nodeType !== Node.ELEMENT_NODE || skip.has(node.tagName) || node.getAttribute('aria-hidden') === 'true') continue;
-        const style = getComputedStyle(node);
-        // display:contents boxes (every <slot> by default) have no rects but their children do.
-        if (style.display === 'contents') { walk(node, depth); continue; }
-        if (node.getClientRects().length === 0 || style.visibility === 'hidden') continue;
-        const role = roleOf(node);
-        if (!role) { walk(node, depth); continue; }
-        const ref = `e${++n}`;
-        W.refs.set(ref, node);
-        let line = `${'  '.repeat(depth)}- ${role}`;
-        const name = leaf.has(role) ? nameOf(node) : clean(node.getAttribute('aria-label'));
-        if (name) line += ` ${JSON.stringify(name)}`;
-        if (role === 'heading') line += ` [level=${/^H[1-6]$/.test(node.tagName) ? node.tagName[1] : node.getAttribute('aria-level') || 2}]`;
-        if (node.checked) line += ' [checked]';
-        if (node.disabled) line += ' [disabled]';
-        // A password someone typed by hand must not reach an agent's transcript.
-        if (node.type === 'password') { if (node.value) line += ' [value=<hidden>]'; }
-        else if (['textbox', 'searchbox', 'combobox'].includes(role) && node.tagName !== 'SELECT' && node.value) line += ` [value=${JSON.stringify(clean(node.value))}]`;
-        line += ` [ref=${ref}]`;
-        if (node === document.activeElement) line += ' [focused]';
-        if (!emit(line)) return;
-        if (node.tagName === 'SELECT') {
-          for (const option of node.options) {
-            emit(`${'  '.repeat(depth + 1)}- option ${JSON.stringify(clean(option.label))}${option.selected ? ' [selected]' : ''}`);
-          }
-        } else if (!leaf.has(role)) {
-          walk(node, depth + 1);
-        }
+      } else if (!leaf.has(role)) {
+        walk(node, depth + 1);
       }
     };
-    walk(document.body || document.documentElement, 0);
+    const walk = (parent, depth) => {
+      for (const node of childrenOf(parent)) {
+        if (truncated) return;
+        visit(node, depth);
+      }
+    };
+    if (root) visit(root, 0); else walk(document.body || document.documentElement, 0);
     if (truncated) lines.push(`- (truncated at \(maxSnapshotLines) lines; use eval to read the rest)`);
     return lines.join('\\n');
     """
@@ -114,13 +165,59 @@ public enum PageScripts {
     public static let locate = find + """
     const el = find(target);
     if (scroll) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-    const r = el.getBoundingClientRect();
-    const x = r.left + r.width / 2, y = r.top + r.height / 2;
-    const hit = el.getRootNode().elementFromPoint?.(x, y) ?? document.elementFromPoint(x, y);
+    const r = rectOf(el);
+    const lx = r.local.left + r.width / 2, ly = r.local.top + r.height / 2;
+    const hit = el.getRootNode().elementFromPoint?.(lx, ly) ?? el.ownerDocument.elementFromPoint(lx, ly);
     const covered = hit && hit !== el && !el.contains(hit) && !hit.contains(el) ? hit.tagName.toLowerCase() : null;
     const kindOf = (e) => !e ? '' : e.tagName === 'SELECT' ? 'select' : e.tagName === 'INPUT' ? (e.getAttribute('type') || 'text').toLowerCase() : e.tagName.toLowerCase();
     const kind = kindOf(el), hitKind = kindOf(hit);
-    return JSON.stringify({ x, y, covered, kind, hitKind, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
+    return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2, covered, kind, hitKind, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
+    """
+
+    /// The element's box in the top viewport, after scrolling it into view, for element screenshots.
+    public static let box = find + """
+    const el = find(target);
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    const r = rectOf(el);
+    return JSON.stringify({ x: r.x, y: r.y, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
+    """
+
+    /// Whether a checkbox, radio or ARIA switch is checked, or why it can't be.
+    public static let checkedState = find + """
+    const el = find(target);
+    if (el.tagName === 'INPUT' && ['checkbox', 'radio'].includes(el.type)) return el.checked ? 'checked' : 'unchecked';
+    if (['checkbox', 'radio', 'switch', 'menuitemcheckbox', 'menuitemradio'].includes(el.getAttribute('role'))) {
+      return el.getAttribute('aria-checked') === 'true' ? 'checked' : 'unchecked';
+    }
+    const inner = el.querySelector?.('input[type=checkbox], input[type=radio]');
+    if (inner) return inner.checked ? 'checked' : 'unchecked';
+    return 'none';
+    """
+
+    /// Tags the element so a page-world script can find it; JS objects don't cross content worlds, DOM state does.
+    public static let mark = find + """
+    const el = find(target);
+    const id = Math.random().toString(36).slice(2);
+    el.setAttribute('data-agweb-target', id);
+    return id;
+    """
+
+    public static let highlight = find + """
+    const H = W.highlights || (W.highlights = new Map());
+    const remove = (el) => { H.get(el)?.remove(); H.delete(el); };
+    if (hide) {
+      if (target) remove(find(target)); else { for (const box of H.values()) box.remove(); H.clear(); }
+      return 'ok';
+    }
+    const el = find(target);
+    remove(el);
+    const r = rectOf(el);
+    const box = document.createElement('div');
+    box.style.cssText = `position:absolute;left:${r.x + scrollX - 2}px;top:${r.y + scrollY - 2}px;width:${r.width + 4}px;height:${r.height + 4}px;` +
+      'box-sizing:border-box;border:2px solid #e0f;background:rgba(224,0,255,.12);pointer-events:none;z-index:2147483647;' + style;
+    document.documentElement.appendChild(box);
+    H.set(el, box);
+    return 'ok';
     """
 
     public static let focusedKind = """
@@ -136,7 +233,7 @@ public enum PageScripts {
     public static let isDraggable = find + """
     const el = find(target);
     const r = el.getBoundingClientRect();
-    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const hit = el.ownerDocument.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     const draggable = (e) => !!e && (e.draggable || !!e.closest('[draggable="true"]'));
     return String(draggable(el) || (el.contains(hit) && draggable(hit)));
     """
@@ -159,11 +256,13 @@ public enum PageScripts {
     return 'ok';
     """
 
+    /// `select` passes `onlySelect`, so it fails on anything but a <select> instead of typing into it.
     public static let fill = find + """
     const el = find(target);
     const type = (el.getAttribute('type') || '').toLowerCase();
+    if (onlySelect && el.tagName !== 'SELECT') throw new Error(`${el.tagName.toLowerCase()} is not a <select>; use fill or click`);
     if (el.tagName === 'INPUT' && ['checkbox', 'radio', 'file', 'submit', 'button', 'reset', 'image'].includes(type)) {
-      throw new Error(type === 'file' ? 'use upload for file inputs' : `use click for ${type} inputs`);
+      throw new Error(type === 'file' ? 'use upload for file inputs' : ['checkbox', 'radio'].includes(type) ? `use check or uncheck for ${type} inputs` : `use click for ${type} inputs`);
     }
     if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) && !el.isContentEditable) {
       throw new Error(`${el.tagName.toLowerCase()} is not a field; snapshot again and target the input inside it`);
@@ -181,8 +280,8 @@ public enum PageScripts {
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.blur();
     } else {
-      if (el.select) el.select(); else document.execCommand('selectAll');
-      if (!(text ? document.execCommand('insertText', false, text) : document.execCommand('delete'))) {
+      if (el.select) el.select(); else el.ownerDocument.execCommand('selectAll');
+      if (!(text ? el.ownerDocument.execCommand('insertText', false, text) : el.ownerDocument.execCommand('delete'))) {
         const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
         Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, text);
         el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -193,21 +292,129 @@ public enum PageScripts {
     """
 
     public static let insertText = """
-    if (!document.execCommand('insertText', false, text)) throw new Error('no editable element is focused');
+    const focusedDocument = (doc) => { const a = doc.activeElement; try { if (a?.tagName === 'IFRAME' && a.contentDocument) return focusedDocument(a.contentDocument); } catch {} return doc; };
+    if (!focusedDocument(document).execCommand('insertText', false, text)) throw new Error('no editable element is focused');
     return 'ok';
     """
 
-    // Page world: arbitrary expression or function, result as JSON text. The newline keeps a trailing
-    // line comment in `code` from swallowing the closing parenthesis.
-    public static func evaluate(_ code: String) -> String {
-        """
+    // Page world: arbitrary expression or function, result as JSON text. A function gets the element tagged by
+    // `mark` (in the page or a same-origin iframe). The newline keeps a trailing line comment in `code` from
+    // swallowing the closing parenthesis.
+    public static func evaluate(_ code: String, mark: String? = nil) -> String {
+        let element = mark.map { """
+            const __sel = '[data-agweb-target="\($0)"]';
+            const __el = document.querySelector(__sel) ?? [...document.querySelectorAll('iframe')].map(f => { try { return f.contentDocument.querySelector(__sel); } catch {} }).find(Boolean);
+            __el?.removeAttribute('data-agweb-target');
+            """ } ?? "const __el = undefined;"
+        return """
+        \(element)
         const __value = (\(code)
         );
-        const __result = typeof __value === 'function' ? await __value() : await __value;
+        const __result = typeof __value === 'function' ? await __value(__el) : await __value;
         if (__result === undefined) return 'undefined';
         return JSON.stringify(__result) ?? String(__result);
         """
     }
+
+    // Page world, document start, every frame: reports fetch and XHR calls with their headers and text bodies (WebKit
+    // has no network API), and answers the ones matching window.__agwebRoutes ({pattern, status, body, contentType,
+    // headers}) itself. Routes are a page global so the app can change them on a live page.
+    public static let networkHook = """
+    (() => {
+      if (window.__agwebNetwork) return;
+      window.__agwebNetwork = true;
+      const post = (m) => { try { window.webkit.messageHandlers.agwebPage.postMessage(m); } catch {} };
+      const max = 65536;
+      const cut = (s) => s == null ? null : s.length > max ? s.slice(0, max) + `… (${s.length} characters)` : s;
+      const textual = (type) => !type || /json|text|xml|javascript|urlencoded|graphql/i.test(type);
+      const bodyText = (b) => b == null ? null : typeof b === 'string' ? cut(b) : b instanceof URLSearchParams ? cut(b.toString())
+        : b instanceof FormData ? cut([...b].map(([k, v]) => `${k}=${typeof v === 'string' ? v : `<file ${v.name}>`}`).join('&'))
+        : `<${b.constructor?.name || typeof b}>`;
+      const absolute = (u) => { try { return new URL(u, location.href).href; } catch { return String(u); } };
+      // Playwright globs: ** crosses slashes, * does not, ? is literal.
+      const glob = (p) => new RegExp('^' + p.replace(/[.+?^${}()|[\\]\\\\]/g, '\\\\$&').replace(/\\*\\*/g, '\\u0000').replace(/\\*/g, '[^/]*').replace(/\\u0000/g, '.*') + '$');
+      const route = (url) => (window.__agwebRoutes || []).find(r => glob(r.pattern).test(url));
+      const routedHeaders = (r) => { const h = new Headers(r.headers || {}); if (r.contentType) h.set('content-type', r.contentType); return h; };
+      const nullBody = [101, 204, 205, 304];
+
+      const fetch0 = window.fetch;
+      window.fetch = async function (input, init = {}) {
+        const req = input instanceof Request ? input : null;
+        const entry = { kind: 'fetch', method: (init.method || req?.method || 'GET').toUpperCase(), url: absolute(req ? req.url : input),
+                        requestHeaders: Object.fromEntries(new Headers(init.headers || req?.headers || {})), requestBody: bodyText(init.body), start: Date.now() };
+        const r = route(entry.url);
+        if (r) {
+          const status = r.status || 200, headers = routedHeaders(r);
+          post({ ...entry, status, statusText: 'routed', responseHeaders: Object.fromEntries(headers), responseBody: cut(r.body ?? ''), routed: true });
+          return new Response(nullBody.includes(status) ? null : r.body ?? '', { status, headers });
+        }
+        try {
+          const res = await fetch0.apply(this, arguments);
+          const type = res.headers.get('content-type') || '';
+          const done = (body) => post({ ...entry, status: res.status, statusText: res.statusText, responseHeaders: Object.fromEntries(res.headers), responseBody: body, duration: Date.now() - entry.start });
+          if (textual(type)) res.clone().text().then(t => done(cut(t)), () => done(null)); else done(`<binary ${type}>`);
+          return res;
+        } catch (e) {
+          post({ ...entry, failure: String(e) });
+          throw e;
+        }
+      };
+
+      const X = XMLHttpRequest.prototype, open0 = X.open, send0 = X.send, header0 = X.setRequestHeader;
+      X.open = function (method, url, ...rest) {
+        this.__agweb = { kind: 'xhr', method: String(method).toUpperCase(), url: absolute(url), requestHeaders: {} };
+        const r = route(this.__agweb.url);
+        if (!r) return open0.call(this, method, url, ...rest);
+        // A data: URL answers without the network; status and headers are overridden on this object.
+        this.__agweb.route = r;
+        const status = r.status || 200, headers = routedHeaders(r), list = [...headers].map(([k, v]) => `${k}: ${v}`).join('\\r\\n');
+        Object.defineProperties(this, {
+          status: { get: () => status }, statusText: { get: () => 'routed' },
+          getResponseHeader: { value: (k) => headers.get(k) }, getAllResponseHeaders: { value: () => list },
+        });
+        return open0.call(this, 'GET', `data:${r.contentType || 'text/plain'};charset=utf-8,${encodeURIComponent(r.body ?? '')}`, ...rest);
+      };
+      X.setRequestHeader = function (k, v) { if (this.__agweb) this.__agweb.requestHeaders[k] = v; return header0.call(this, k, v); };
+      X.send = function (body) {
+        const entry = this.__agweb;
+        if (entry) {
+          entry.requestBody = bodyText(body);
+          entry.start = Date.now();
+          this.addEventListener('loadend', () => {
+            const { route: r, ...rest } = entry;
+            const headers = Object.fromEntries(this.getAllResponseHeaders().trim().split(/[\\r\\n]+/).filter(Boolean).map(l => [l.slice(0, l.indexOf(':')).trim().toLowerCase(), l.slice(l.indexOf(':') + 1).trim()]));
+            const type = this.responseType;
+            const body = type === '' || type === 'text' ? cut(this.responseText) : type === 'json' ? cut(JSON.stringify(this.response)) : `<${type}>`;
+            post({ ...rest, status: this.status, statusText: this.statusText, responseHeaders: headers, responseBody: body, duration: Date.now() - entry.start,
+                   ...(r ? { routed: true } : {}), ...(this.status === 0 ? { failure: 'network error' } : {}) });
+          });
+        }
+        return send0.call(this, body);
+      };
+    })();
+    """
+
+    /// Page world, main frame, document start: localStorage from `state-load` for origins that weren't open then.
+    /// The app drops an origin once it reports it stored.
+    public static func pendingStorage(_ json: String) -> String {
+        """
+        (() => {
+          const items = (\(json))[location.origin];
+          if (!items) return;
+          for (const [k, v] of items) { try { localStorage.setItem(k, v); } catch {} }
+          try { window.webkit.messageHandlers.agwebPage.postMessage({ stored: location.origin }); } catch {}
+        })();
+        """
+    }
+
+    public static let readStorage = """
+    return JSON.stringify({ origin: location.origin, items: Object.keys(localStorage).map(k => [k, localStorage.getItem(k)]) });
+    """
+
+    public static let writeStorage = """
+    for (const [k, v] of items) localStorage.setItem(k, v);
+    return 'ok';
+    """
 
     // Page world, document start: forwards console output and uncaught errors to the app.
     public static let consoleHook = """

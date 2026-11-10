@@ -19,6 +19,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         placeholder.alignment = .center
         placeholder.textColor = .secondaryLabelColor
         placeholder.translatesAutoresizingMaskIntoConstraints = false
+        container.clipsToBounds = true
         container.addSubview(placeholder)
         NSLayoutConstraint.activate([
             placeholder.centerXAnchor.constraint(equalTo: container.centerXAnchor),
@@ -65,17 +66,47 @@ final class MainWindow: NSObject, NSWindowDelegate {
         if !window.isVisible { window.orderBack(nil) }
     }
 
+    /// Each web view sits in an opaque host filling the content area, so a tab resized smaller doesn't show the
+    /// tabs stacked under it.
     func add(_ webView: WKWebView) {
-        webView.frame = container.bounds
+        let host = NSView(frame: container.bounds)
+        host.autoresizingMask = [.width, .height]
+        host.wantsLayer = true
+        host.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        host.clipsToBounds = true
+        webView.frame = host.bounds
         webView.autoresizingMask = [.width, .height]
-        container.addSubview(webView, positioned: .above, relativeTo: placeholder)
+        host.addSubview(webView)
+        container.addSubview(host, positioned: .above, relativeTo: placeholder)
+    }
+
+    func remove(_ webView: WKWebView) {
+        webView.superview?.removeFromSuperview()
+        webView.removeFromSuperview()
     }
 
     func bringToTop(_ webView: WKWebView) {
-        guard container.subviews.last !== webView else { return }
+        guard let host = webView.superview, container.subviews.last !== host else { return }
         let responder = window.firstResponder
-        container.addSubview(webView, positioned: .above, relativeTo: nil)
+        container.addSubview(host, positioned: .above, relativeTo: nil)
         if responder === webView { window.makeFirstResponder(webView) }
+    }
+
+    /// The toolbar band a full-size content view lays over the top of the content area; WebKit insets pages below it.
+    var topInset: CGFloat { max(0, container.convert(container.bounds, to: nil).maxY - window.contentLayoutRect.maxY) }
+
+    /// A web view `size` points across and that tall below the toolbar band, pinned to the top left; nil fills the
+    /// content area again. Larger than the window is clipped on screen, not in snapshots.
+    func setSize(_ webView: WKWebView, _ size: CGSize?) {
+        guard let host = webView.superview else { return }
+        guard let size else {
+            webView.frame = host.bounds
+            webView.autoresizingMask = [.width, .height]
+            return
+        }
+        webView.autoresizingMask = [.maxXMargin, .minYMargin]
+        let height = size.height + topInset
+        webView.frame = NSRect(x: 0, y: host.bounds.height - height, width: size.width, height: height)
     }
 
     func focusAddress() {

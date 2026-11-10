@@ -9,6 +9,7 @@ export AGWEB_SOCKET="$dir/s.sock"
 unset AGWEB_PROFILE AGWEB_WORKSPACE
 agweb="$PWD/../bin/agweb"
 cp testpage.html "$dir/index.html"
+cp frame.html "$dir/"
 domain=dev.playground.agweb
 person_frame=$(defaults read $domain "NSWindow Frame agwebMain" 2>/dev/null)
 defaults write $domain "NSWindow Frame agwebTest" "200 200 900 600 0 0 1440 900"
@@ -16,7 +17,7 @@ defaults write $domain "NSWindow Frame agwebTest" "200 200 900 600 0 0 1440 900"
 port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 (cd "$dir" && exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1 >"$dir/server.log" 2>&1) &
 server=$!
-trap '"$agweb" quit >/dev/null 2>&1; kill $server 2>/dev/null; defaults delete $domain "NSWindow Frame agwebTest" 2>/dev/null; rm -r "$dir"' EXIT
+trap '"$agweb" quit >/dev/null 2>&1; kill $server 2>/dev/null; wait $server 2>/dev/null; defaults delete $domain "NSWindow Frame agwebTest" 2>/dev/null; rm -r "$dir"' EXIT
 for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 0.3; done
 u="http://127.0.0.1:$port/index.html"
 
@@ -80,6 +81,93 @@ check "Page" -w alpha type ' world'
 check "Page" -w alpha type '!' --instant
 check '\["hello world!",7\]' -w alpha eval '[q.value, inputs]'
 
+echo "== output modes and files"
+check '^hello world!$' -w alpha --raw eval 'q.value'
+check '"ok":true' -w alpha --json eval '1'
+check '"workspaces":\[{' list --json
+check "$dir/snap.md" -w alpha snapshot --filename="$dir/snap.md"
+grep -q 'button "Press me"' "$dir/snap.md" || fail "snapshot --filename did not write the tree"
+check "Screenshot" -w alpha screenshot '#b' --filename="$dir/el.png"
+[ "$(sips -g pixelWidth "$dir/el.png" | awk '/pixelWidth/ {print $2}')" -lt 400 ] || fail "screenshot '#b' is not just the button"
+check "Screenshot" -w alpha screenshot --full-page --filename="$dir/full.jpg"
+[ "$(sips -g pixelHeight "$dir/full.jpg" | awk '/pixelHeight/ {print $2}')" -gt 3000 ] || fail "screenshot --full-page is not the whole page"
+
+echo "== locators, iframes, checkboxes, buttons and keys"
+check '  - button "Inner button"' -w alpha snapshot
+check "Page" -w alpha click 'role=button[name="inner"]'
+check "Page" -w alpha click 'text=Inner button'
+fails "matches .* elements" -w alpha click 'role=button'
+check '^- form' -w alpha snapshot '#f'
+lacks 'Press me' -w alpha snapshot '#f'
+check '^inner$' -w alpha --raw eval '(el) => el.id' 'role=button[name="inner"]'
+check "Page" -w alpha check '#cb'
+check "Page" -w alpha check 'text=Remember me'
+check "Page" -w alpha check '#r2'
+check '\[true,true\]' -w alpha eval '[cb.checked, r2.checked]'
+check "Page" -w alpha uncheck '#cb'
+check 'false' -w alpha eval 'cb.checked'
+fails "not a checkbox" -w alpha check '#b'
+check "Page" -w alpha select '#s' One
+fails "not a <select>" -w alpha select '#q' x
+check "context menu suppressed" -w alpha click '#b' right
+check "Page" -w alpha keydown Shift
+check "Page" -w alpha mousemove 5 5 --instant
+check "Page" -w alpha mousedown
+check "Page" -w alpha mouseup
+check "Page" -w alpha keyup Shift
+check "Page" -w alpha click '#b' middle
+check '\["2","0+shift","1"\]' -w alpha eval 'downs.slice(-3)'
+check '"contextmenu"' -w alpha eval 'log'
+check "Page" -w alpha highlight '#b'
+check '^1$' -w alpha --raw eval "document.querySelectorAll('div[style*=\"2147483647\"]').length"
+check "Page" -w alpha highlight --hide
+check '^0$' -w alpha --raw eval "document.querySelectorAll('div[style*=\"2147483647\"]').length"
+fails "did you mean tab-list" -w alpha tabs
+
+echo "== network, routes, downloads and prompts"
+check "Page" -w alpha click '#api'
+sleep 0.5
+check 'POST\] http.*index.html?api => 501 \[fetch\]' -w alpha requests --filter 'api$'
+n=$("$agweb" -w alpha requests --filter 'api$' | sed -n 's/^\([0-9]*\)\. .*/\1/p' | tail -1)
+check '^x=1$' -w alpha request-body "${n:-0}"
+check 'content-type: text/html' -w alpha response-headers "${n:-0}"
+check "get 418" -w alpha route '**/index.html?api' --status 418 --body '{"mocked":true}' --content-type application/json --header 'x-test: 1'
+check "Page" -w alpha click '#api'
+sleep 0.5
+check '^{"mocked":true}$' -w alpha --raw eval 'api'
+check '=> 418 (routed)' -w alpha requests --filter 'api$'
+check '\[418,"{\\"mocked\\":true}","1"\]' -w alpha eval "() => new Promise(r => { const x = new XMLHttpRequest(); x.open('GET', '/index.html?api'); x.onload = () => r([x.status, x.responseText, x.getResponseHeader('x-test')]); x.send() })"
+check "removed 1 routes" -w alpha unroute
+check "$dir/dl/saved.html" -w alpha download '#dl' --filename="$dir/dl/saved.html"
+[ -s "$dir/dl/saved.html" ] || fail "download did not save the file"
+check 'prompt() gets "Paul"' -w alpha dialog-accept Paul
+check 'answered with "Paul"' -w alpha click '#pr'
+check "will be dismissed" -w alpha dialog-dismiss
+
+echo "== cookies, storage state and resize"
+check "Title" -w st open "$u"
+check "set - token=abc" -w st cookie-set token abc --httpOnly
+check "token=abc; domain=127.0.0.1" -w st cookie-list
+check '^""$' -w st eval 'document.cookie'
+check "Page" -w st eval "() => { localStorage.setItem('k', 'v1'); document.cookie = 'c1=one' }"
+check "$dir/state.json" -w st state-save "$dir/state.json"
+grep -q '"name":"k","value":"v1"' "$dir/state.json" || fail "state-save left out localStorage"
+check "deleted 2 cookies" -w st cookie-clear
+check "no cookies" -w st cookie-list
+check "Title" -w st2 open
+check "localStorage waits for" -w st2 state-load "$dir/state.json"
+check "Title" -w st2 goto "$u"
+check '\["v1",.*c1=one' -w st2 eval '[localStorage.getItem("k"), document.cookie]'
+check "viewport is 400x300" -w st2 resize 400 300
+check '\[400,300\]' -w st2 eval '[innerWidth, innerHeight]'
+check "Page" -w st2 click '#b'
+check "Screenshot" -w st2 screenshot --filename="$dir/small.png"
+[ "$(sips -g pixelHeight "$dir/small.png" | awk '/pixelHeight/ {print $2}')" -le 600 ] || fail "a 400x300 viewport's screenshot is taller than the viewport"
+check "Page" -w st2 resize 1600 1200
+check '\[1600,1200\]' -w st2 eval '[innerWidth, innerHeight]'
+check "workspace st closed" -w st close
+check "workspace st2 closed" -w st2 close
+
 echo "== double click, drag and wheel"
 check "Page" -w alpha dblclick '#b'
 check '^1$' -w alpha eval 'dbl'
@@ -97,10 +185,13 @@ fails "positive dy" -w alpha mousewheel 0 down
 echo "== recording"
 fails "must end in .mp4" -w alpha video-start "$dir"
 fails "max-idle takes seconds" -w alpha video-start "$dir/v.mp4" --max-idle=soon
+fails "size is WIDTHxHEIGHT" -w alpha video-start "$dir/v.mp4" --size=big
+fails "not recording" -w alpha video-chapter x
 check "recording alpha" -w alpha video-start "$dir/v.mp4"
 check "Page" -w alpha hover '#al'
 check "Page" -w alpha eval "async () => { for (const c of ['#fee', '#efe', '#eef']) { document.body.style.background = c; await new Promise(r => setTimeout(r, 150)) } }"
 fails "already recording" -w alpha video-start "$dir/w.mp4"
+check 'chapter "Step one"' -w alpha video-chapter "Step one" --duration 300
 check "frames, " -w alpha video-stop
 LC_ALL=C grep -qa moov "$dir/v.mp4" || fail "the video has no index (moov)"
 fails "not recording" -w alpha video-stop
@@ -132,7 +223,7 @@ check '() => 1' -w alpha eval '() => () => 1'
 check '42' -w alpha eval '40 + 2 // trailing comment'
 fails "already uses profile selftest-alpha" -w alpha open -p other
 fails "unknown command" -w alpha frobnicate
-fails "missing <ref>" -w alpha click
+fails "missing <target>" -w alpha click
 fails "navigation failed" -w alpha goto http://127.0.0.1:1/
 fails "boom" -w alpha eval '() => { throw new Error("boom") }'
 fails "is not a field" -w alpha fill '#b' x
@@ -168,6 +259,12 @@ check "Page" -w beta eval "() => { document.body.style.background = '#c00' }"
 check "Screenshot" -w beta screenshot "$dir/beta2.png"
 cmp -s "$dir/beta1.png" "$dir/beta2.png" && fail "a hidden tab's screenshot did not change with the page"
 check "loaded ?parallel-b\|loaded ?beta" -w beta console
+check "Page" -w beta eval "() => { console.warn('careful'); console.error('bad') }"
+check "1 new errors" -w beta eval 1
+check "error: bad" -w beta console error
+lacks "careful" -w beta console error
+lacks "new errors" -w beta eval 1
+check "warn: careful" -w beta console warning
 check "Title" -w beta show
 check "beta (profile selftest-shared" list
 check "eph1 (fresh profile" list

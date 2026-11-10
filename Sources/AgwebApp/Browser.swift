@@ -88,7 +88,7 @@ final class Browser {
         tab.webView.stopLoading()
         tab.webView.navigationDelegate = nil
         tab.webView.uiDelegate = nil
-        tab.webView.removeFromSuperview()
+        mainWindow.remove(tab.webView)
         workspace.tabs.remove(at: index)
         if workspace.currentID == tab.id {
             let opener = tab.opener.flatMap { opener in workspace.tabs.contains { $0 === opener } ? opener : nil }
@@ -126,7 +126,7 @@ final class Browser {
         // From the sidebar, outside the workspace's queue; an agent's close has already stopped it.
         if workspace.recorder != nil { Task { _ = await describeStop(workspace) } }
         for tab in workspace.tabs { closeTab(tab) }
-        workspace.contentController.removeScriptMessageHandler(forName: "agwebConsole")
+        for handler in Workspace.handlers { workspace.contentController.removeScriptMessageHandler(forName: handler) }
         model.workspaces.removeAll { $0 === workspace }
     }
 
@@ -163,6 +163,7 @@ final class Browser {
 
     private func run(_ request: Request) async throws -> String {
         let args = request.args
+        let options = request.options
         func arg(_ i: Int, _ name: String) throws -> String {
             guard args.indices.contains(i) else { throw Failure("missing <\(name)>") }
             return args[i]
@@ -170,6 +171,15 @@ final class Browser {
 
         switch request.command {
         case "list":
+            if options["json"] != nil {
+                let list = model.workspaces.map { workspace -> [String: Any] in
+                    ["name": workspace.name, "profile": workspace.profile ?? NSNull(), "busy": workspace.busy,
+                     "tabs": workspace.tabs.enumerated().map { index, tab in
+                         ["index": index, "url": tab.webView.url?.absoluteString ?? "about:blank", "title": tab.webView.title ?? "", "current": tab.id == workspace.currentID]
+                     }]
+                }
+                return String(decoding: try JSONSerialization.data(withJSONObject: ["workspaces": list], options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
+            }
             if model.workspaces.isEmpty { return "no workspaces" }
             return model.workspaces.map { "- \($0.name) (\(Self.describe(profile: $0.profile)), \($0.tabs.count) tabs)" }.joined(separator: "\n")
         case "close-all":
@@ -199,7 +209,7 @@ final class Browser {
             NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0.2)
             return (["bye"] + videos).joined(separator: "\n")
         case "open":
-            let workspace = try existingOrNewWorkspace(named: request.workspace, profile: request.options["profile"])
+            let workspace = try existingOrNewWorkspace(named: request.workspace, profile: options["profile"])
             workspace.busy = true
             mainWindow.showQuietly()
             let tab = workspace.current ?? addTab(to: workspace)
@@ -213,6 +223,7 @@ final class Browser {
         }
 
         guard let workspace = model.workspaces.first(where: { $0.name == request.workspace }) else {
+            guard Commands.all.contains(request.command) else { throw Failure(Commands.unknown(request.command)) }
             throw Failure("no workspace '\(request.workspace)'; start it with: agweb -w \(request.workspace) open [url]")
         }
         workspace.busy = true
@@ -224,7 +235,9 @@ final class Browser {
             return (["workspace \(workspace.name) closed"] + video).joined(separator: "\n")
         case "dialog-accept", "dialog-dismiss":
             workspace.acceptDialogs = request.command == "dialog-accept"
+            workspace.promptText = workspace.acceptDialogs ? args.first : nil
             return "confirm() and prompt() will be \(workspace.acceptDialogs ? "accepted" : "dismissed")"
+                + (workspace.promptText.map { "; prompt() gets \($0.debugDescription)" } ?? "")
         case "tab-list":
             return tabList(workspace)
         case "tab-new":
@@ -242,13 +255,28 @@ final class Browser {
             return tabList(workspace)
         case "video-start":
             if let recorder = workspace.recorder { throw Failure("already recording to \(recorder.url.path); run video-stop first") }
-            let maxIdle = try request.options["max-idle"].map { text -> Double in
+            let maxIdle = try options["max-idle"].map { text -> Double in
                 guard let value = Double(text), value >= 0, value.isFinite else { throw Failure("--max-idle takes seconds, 0 for none") }
                 return value
             } ?? 1.5
-            let recorder = try Recorder(workspace: workspace, url: URL(fileURLWithPath: try arg(0, "path")), maxIdle: maxIdle)
+            let size = try options["size"].map { text -> CGSize in
+                let parts = text.lowercased().split(separator: "x").compactMap { Int($0) }
+                guard parts.count == 2, (16...4096).contains(parts[0]), (16...4096).contains(parts[1]) else { throw Failure("--size is WIDTHxHEIGHT, like 1280x720") }
+                return CGSize(width: parts[0], height: parts[1])
+            }
+            let recorder = try Recorder(workspace: workspace, url: URL(fileURLWithPath: try arg(0, "path")), maxIdle: maxIdle, frameSize: size)
             workspace.recorder = recorder
             return "recording \(workspace.name) to \(recorder.url.path)"
+        case "video-chapter":
+            guard let recorder = workspace.recorder else { throw Failure("not recording; run video-start") }
+            let seconds = try options["duration"].map { text -> Double in
+                guard let ms = Double(text), (0...60_000).contains(ms) else { throw Failure("--duration is milliseconds, up to 60000") }
+                return ms / 1000
+            } ?? 2
+            recorder.showChapter(try arg(0, "title"), description: options["description"], seconds: seconds)
+            // The card stays in the video only while the workspace is busy; idle time is cut.
+            try await Task.sleep(for: .seconds(seconds))
+            return "chapter \(args[0].debugDescription)"
         case "video-stop":
             guard let video = try await workspace.stopRecording() else { throw Failure("not recording; run video-start") }
             return video
@@ -258,13 +286,38 @@ final class Browser {
             model.display(tab.id)
             mainWindow.showQuietly()
             return describe(tab)
+        case "route":
+            var route = Workspace.Route(pattern: try arg(0, "pattern"))
+            route.status = try options["status"].map { text in
+                guard let status = Int(text), (100...599).contains(status) else { throw Failure("--status is an HTTP status code") }
+                return status
+            }
+            route.body = options["body"]
+            route.contentType = options["content-type"]
+            for line in (options["header"] ?? "").split(separator: "\n") {
+                guard let colon = line.firstIndex(of: ":") else { throw Failure("--header is \"name: value\"") }
+                route.headers[line[..<colon].trimmingCharacters(in: .whitespaces)] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            }
+            workspace.routes = workspace.routes.filter { $0.pattern != route.pattern } + [route]
+            return "fetch and XHR calls matching \(route.pattern) get \(route.status ?? 200)\n" + routeList(workspace)
+        case "route-list":
+            return routeList(workspace)
+        case "unroute":
+            let before = workspace.routes.count
+            workspace.routes = args.first.map { pattern in workspace.routes.filter { $0.pattern != pattern } } ?? []
+            return "removed \(before - workspace.routes.count) routes\n" + routeList(workspace)
+        case "cookie-list", "cookie-get", "cookie-set", "cookie-delete", "cookie-clear":
+            return try await cookies(request, in: workspace)
         default:
             break
         }
 
-        guard let tab = workspace.current else { throw Failure("workspace has no tabs; run tab-new") }
+        guard let tab = workspace.current else {
+            guard Commands.all.contains(request.command) else { throw Failure(Commands.unknown(request.command)) }
+            throw Failure("workspace has no tabs; run tab-new")
+        }
         let webView = tab.webView
-        let instant = request.options["instant"] != nil
+        let instant = options["instant"] != nil
 
         switch request.command {
         case "goto":
@@ -279,12 +332,22 @@ final class Browser {
             webView.goForward()
             await tab.settle()
         case "snapshot":
-            let tree = try await tab.call(PageScripts.snapshot)
+            let tree = try await tab.call(PageScripts.snapshot, ["target": args.first ?? ""])
             return describe(tab) + "\n### Snapshot\n" + tree
         case "click", "dblclick":
-            try await click(tab, target: try arg(0, "ref"), js: request.options["js"] != nil, forUpload: false, instant: instant,
-                            clicks: request.command == "dblclick" ? 2 : 1)
+            try await click(tab, target: try arg(0, "target"), button: try MouseButton(args.count > 1 ? args[1] : nil), js: options["js"] != nil,
+                            forUpload: false, instant: instant, clicks: request.command == "dblclick" ? 2 : 1)
             await tab.settle()
+        case "check", "uncheck":
+            let target = try arg(0, "target")
+            let want = request.command == "check" ? "checked" : "unchecked"
+            let state = try await tab.call(PageScripts.checkedState, ["target": target])
+            if state == "none" { throw Failure("\(target) is not a checkbox, radio or switch") }
+            if state != want {
+                try await click(tab, target: target, button: .left, js: options["js"] != nil, forUpload: false, instant: instant)
+                await tab.settle()
+                if try await tab.call(PageScripts.checkedState, ["target": target]) != want { throw Failure("clicked \(target) but it is still \(state)") }
+            }
         case "drag":
             try await drag(tab, from: try arg(0, "from"), to: try arg(1, "to"), instant: instant)
             await tab.settle()
@@ -294,28 +357,44 @@ final class Browser {
             }
             try await wheel(tab, dx: dx, dy: dy, instant: instant)
         case "hover":
-            try await hover(tab, target: try arg(0, "ref"), instant: instant)
+            try await hover(tab, target: try arg(0, "target"), instant: instant)
         case "mousemove":
             let viewport = try await viewportSize(tab)
             guard let x = Double(try arg(0, "x")), let y = Double(try arg(1, "y")), (0...viewport.width).contains(x), (0...viewport.height).contains(y) else {
                 throw Failure("use: agweb mousemove <x> <y> with a point inside the \(Int(viewport.width))x\(Int(viewport.height)) viewport")
             }
             try await movePointer(tab, to: CGPoint(x: x, y: y), targetSize: 44, viewport: viewport, instant: instant)
+        case "mousedown", "mouseup":
+            let button = try MouseButton(args.first)
+            let down = request.command == "mousedown"
+            if down, let held = tab.held.button { throw Failure("the \(held) button is already down; mouseup first") }
+            if !down, tab.held.button != button { throw Failure("the \(button) button is not down") }
+            let viewport = try await viewportSize(tab)
+            let at = tab.pointer ?? CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+            if button == .right { suppressMenus(tab) }
+            try NativeInput.button(webView, button, down: down, at: at, viewportHeight: viewport.height, held: tab.held)
+            tab.held.button = down ? button : nil
+            if down { tab.lastClick = (at, ProcessInfo.processInfo.systemUptime) }
+            if !down { await tab.settle() }
         case "upload":
-            let target = try arg(0, "ref")
+            let target = try arg(0, "target")
             guard args.count > 1 else { throw Failure("missing <file>") }
             tab.pendingUpload = args.dropFirst().map { URL(fileURLWithPath: $0) }
             tab.chooserOpened = false
             // Whatever happens, the files must not linger for the next chooser on this tab.
             defer { tab.pendingUpload = nil }
-            try await click(tab, target: target, js: request.options["js"] != nil, forUpload: true, instant: instant)
+            try await click(tab, target: target, button: .left, js: options["js"] != nil, forUpload: true, instant: instant)
             for _ in 0..<30 where !tab.chooserOpened { try await Task.sleep(for: .milliseconds(100)) }
             guard tab.chooserOpened else {
                 throw Failure("no file chooser opened; target the <input type=file> or the button that opens it")
             }
             await tab.settle()
-        case "fill":
-            _ = try await tab.call(PageScripts.fill, ["target": try arg(0, "ref"), "text": try arg(1, "text")])
+        case "download":
+            return "### Download\n" + (try await download(tab, target: try arg(0, "target"), to: options["filename"], js: options["js"] != nil, instant: instant)) + "\n" + describe(tab)
+        case "fill", "select":
+            _ = try await tab.call(PageScripts.fill, ["target": try arg(0, "target"), "text": try arg(1, request.command == "select" ? "value" : "text"),
+                                                      "onlySelect": request.command == "select"])
+            if options["submit"] != nil { try await pressKey(tab, "Enter") }
         case "type":
             let text = try arg(0, "text")
             if instant || text.isEmpty {
@@ -332,43 +411,148 @@ final class Browser {
                     if i < text.count - 1 { try await Task.sleep(for: .seconds(tab.motion.keyDelay(after: char))) }
                 }
             }
+            if options["submit"] != nil { try await pressKey(tab, "Enter") }
         case "press":
-            let combo = try arg(0, "key")
-            let focused = try await tab.call(PageScripts.focusedKind)
-            if Self.pickerKinds.contains(focused), Self.pickerKeys.contains(combo.lowercased().components(separatedBy: "+").last ?? "") {
-                throw Failure("\(combo) would open the focused \(focused)'s native picker; use: agweb fill <ref> <value>")
-            }
-            let window = mainWindow.window
-            var previous = window.firstResponder
-            if let editor = previous as? NSTextView, editor.isFieldEditor { previous = editor.delegate as? NSResponder }
-            // Another agent's press may have left its hidden tab first responder; the person types in the displayed one.
-            if previous is WKWebView { previous = model.displayedTab?.webView }
-            try NativeInput.press(webView, combo: combo)
-            // Give the keyboard back right away, not after the page settles: the person may be typing.
-            try? await Task.sleep(for: .milliseconds(50))
-            if let previous, previous !== webView, window.firstResponder === webView { window.makeFirstResponder(previous) }
-            await tab.settle()
+            try await pressKey(tab, try arg(0, "key"))
+        case "keydown", "keyup":
+            try await pressKey(tab, try arg(0, "key"), phases: [request.command == "keydown" ? .keyDown : .keyUp])
         case "eval":
-            let result = try await tab.call(PageScripts.evaluate(try arg(0, "code")), world: .page)
+            let mark = try await args.count > 1 ? tab.call(PageScripts.mark, ["target": args[1]]) : nil
+            let result = try await tab.call(PageScripts.evaluate(try arg(0, "code"), mark: mark), world: .page)
             return "### Result\n\(result)\n" + describe(tab)
+        case "highlight":
+            guard options["hide"] != nil || !args.isEmpty else { throw Failure("missing <target>") }
+            _ = try await tab.call(PageScripts.highlight, ["target": args.first ?? "", "hide": options["hide"] != nil, "style": options["style"] ?? ""])
         case "screenshot":
-            if windowHidden { throw Failure(MainWindow.notRendering) }
-            let path = try arg(0, "path")
-            let image = try await tab.snapshot()
-            guard let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
+            let path = try options["filename"] ?? { throw Failure("missing --filename") }()
+            let image = try await screenshot(tab, target: args.first, fullPage: options["full-page"] != nil)
+            let jpeg = ["jpg", "jpeg"].contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+            guard let tiff = image.tiffRepresentation,
+                  let data = NSBitmapImageRep(data: tiff)?.representation(using: jpeg ? .jpeg : .png, properties: jpeg ? [.compressionFactor: 0.85] : [:]) else {
                 throw Failure("could not encode screenshot")
             }
             try FileManager.default.createDirectory(at: URL(fileURLWithPath: path).deletingLastPathComponent(), withIntermediateDirectories: true)
-            try png.write(to: URL(fileURLWithPath: path))
+            try data.write(to: URL(fileURLWithPath: path))
             return "### Screenshot\n\(path)\n" + describe(tab)
+        case "resize":
+            guard let width = Int(try arg(0, "w")), let height = Int(try arg(1, "h")), (100...8192).contains(width), (100...8192).contains(height) else {
+                throw Failure("use: agweb resize <w> <h>, each 100 to 8192 CSS pixels")
+            }
+            try await resize(tab, to: CGSize(width: width, height: height))
         case "console":
-            let lines = tab.console
-            tab.console.removeAll()
+            let levels = ["debug": 0, "info": 1, "warning": 2, "error": 3]
+            let minimum = try args.first.map { name -> Int in
+                guard let level = levels[name.lowercased()] else { throw Failure("level is error, warning, info or debug") }
+                return level
+            } ?? 1
+            let rank = ["debug": 0, "log": 1, "info": 1, "warn": 2, "error": 3, "pageerror": 3]
+            let lines = tab.console.filter { rank[String($0.prefix { $0 != ":" })] ?? 1 >= minimum }
+            tab.unreadErrors = 0
+            if options["clear"] != nil { tab.console.removeAll() }
             return lines.isEmpty ? "no console messages" : lines.joined(separator: "\n")
+        case "requests":
+            return try await requestList(tab, filter: options["filter"], includeStatic: options["static"] != nil, clear: options["clear"] != nil)
+        case "request", "request-headers", "request-body", "response-headers", "response-body":
+            return try requestDetail(tab, try arg(0, "n"), part: request.command)
+        case "state-save":
+            return "### Result\n" + (try await stateSave(workspace)) + "\n" + describe(tab)
+        case "state-load":
+            return try await stateLoad(workspace, json: try arg(0, "state"))
         default:
-            throw Failure("unknown command '\(request.command)'; run agweb help")
+            throw Failure(Commands.unknown(request.command))
         }
         return describe(tab)
+    }
+
+    /// A native key press (or only its down or up half) on the tab, giving the keyboard back to whoever had it.
+    private func pressKey(_ tab: Tab, _ combo: String, phases: [NSEvent.EventType] = [.keyDown, .keyUp]) async throws {
+        let focused = try await tab.call(PageScripts.focusedKind)
+        if Self.pickerKinds.contains(focused), Self.pickerKeys.contains(combo.lowercased().components(separatedBy: "+").last ?? "") {
+            throw Failure("\(combo) would open the focused \(focused)'s native picker; use: agweb fill <target> <value>")
+        }
+        let window = mainWindow.window
+        var previous = window.firstResponder
+        if let editor = previous as? NSTextView, editor.isFieldEditor { previous = editor.delegate as? NSResponder }
+        // Another agent's press may have left its hidden tab first responder; the person types in the displayed one.
+        if previous is WKWebView { previous = model.displayedTab?.webView }
+        try NativeInput.press(tab.webView, combo: combo, phases: phases, held: &tab.held)
+        // Give the keyboard back right away, not after the page settles: the person may be typing.
+        try? await Task.sleep(for: .milliseconds(50))
+        if let previous, previous !== tab.webView, window.firstResponder === tab.webView { window.makeFirstResponder(previous) }
+        if phases.contains(.keyUp) { await tab.settle() }
+    }
+
+    /// A right click asks WebKit for a context menu, which would pop up on the person's screen.
+    private func suppressMenus(_ tab: Tab) {
+        tab.suppressMenus = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            tab.suppressMenus = false
+        }
+    }
+
+    /// Clicks and waits for the download the click starts; returns the saved path.
+    private func download(_ tab: Tab, target: String, to path: String?, js: Bool, instant: Bool) async throws -> String {
+        tab.downloadPath = path.map { URL(fileURLWithPath: $0) }
+        defer { tab.downloadPath = nil }
+        let started = tab.downloadsStarted, ended = tab.downloadsEnded.count
+        try await click(tab, target: target, button: .left, js: js, forUpload: false, instant: instant)
+        for _ in 0..<100 where tab.downloadsStarted == started { try await Task.sleep(for: .milliseconds(100)) }
+        guard tab.downloadsStarted > started else { throw Failure("no download started within 10 s of clicking \(target)") }
+        for _ in 0..<1200 where tab.downloadsEnded.count == ended { try await Task.sleep(for: .milliseconds(100)) }
+        guard let result = tab.downloadsEnded.dropFirst(ended).first else { throw Failure("the download did not finish within 2 minutes") }
+        return try result.get()
+    }
+
+    private func screenshot(_ tab: Tab, target: String?, fullPage: Bool) async throws -> NSImage {
+        if windowHidden { throw Failure(MainWindow.notRendering) }
+        let scale = tab.webView.pageZoom * tab.webView.magnification
+        if let target {
+            let json = try await tab.call(PageScripts.box, ["target": target])
+            let box = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] ?? [:]
+            let rect = CGRect(x: box["x"] ?? 0, y: box["y"] ?? 0, width: box["width"] ?? 0, height: box["height"] ?? 0)
+                .intersection(CGRect(x: 0, y: 0, width: box["viewportWidth"] ?? 0, height: box["viewportHeight"] ?? 0))
+            guard !rect.isEmpty else { throw Failure("\(target) has no visible area") }
+            let config = WKSnapshotConfiguration()
+            // Snapshot rects are in view points from the top of the page, below the toolbar band.
+            config.rect = CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale)
+            return try await tab.snapshot(config)
+        }
+        let viewport = try await viewportSize(tab)
+        guard fullPage else {
+            // The view's bounds include the toolbar band; the page is the viewport.
+            let config = WKSnapshotConfiguration()
+            config.rect = CGRect(x: 0, y: 0, width: viewport.width * scale, height: viewport.height * scale)
+            return try await tab.snapshot(config)
+        }
+        // takeSnapshot renders only the view's bounds, so the view grows to the page's height for the shot.
+        let height = try await tab.call("return String(Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0))", world: .page)
+        let full = CGSize(width: viewport.width, height: min(Double(height) ?? viewport.height, 16_384))
+        let previous = tab.viewportSize
+        defer { mainWindow.setSize(tab.webView, previous) }
+        mainWindow.setSize(tab.webView, CGSize(width: full.width * scale, height: full.height * scale))
+        _ = try await tab.call("await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); return 'ok'")
+        let config = WKSnapshotConfiguration()
+        config.rect = CGRect(x: 0, y: 0, width: full.width * scale, height: full.height * scale)
+        return try await tab.snapshot(config)
+    }
+
+    /// Sizes the tab's web view so the page sees `size` CSS pixels, correcting once for whatever WebKit insets.
+    private func resize(_ tab: Tab, to size: CGSize) async throws {
+        let scale = tab.webView.pageZoom * tab.webView.magnification
+        var points = CGSize(width: size.width * scale, height: size.height * scale)
+        tab.viewportSize = points
+        mainWindow.setSize(tab.webView, points)
+        try await Task.sleep(for: .milliseconds(100))
+        let got = try await viewportSize(tab)
+        if got != size {
+            points = CGSize(width: points.width + (size.width - got.width) * scale, height: points.height + (size.height - got.height) * scale)
+            tab.viewportSize = points
+            mainWindow.setSize(tab.webView, points)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        tab.pointer = nil
+        tab.events.append("viewport is \(Int(size.width))x\(Int(size.height))")
     }
 
     private func tabAt(_ text: String, in workspace: Workspace) throws -> Tab {
@@ -383,7 +567,7 @@ final class Browser {
     private static let pickerKinds: Set = ["select", "date", "time", "datetime-local", "month", "week", "color"]
     private static let pickerKeys: Set = ["space", " ", "enter", "arrowup", "arrowdown", "arrowleft", "arrowright"]
 
-    private func click(_ tab: Tab, target: String, js: Bool, forUpload: Bool, instant: Bool, clicks: Int = 1) async throws {
+    private func click(_ tab: Tab, target: String, button: MouseButton, js: Bool, forUpload: Bool, instant: Bool, clicks: Int = 1) async throws {
         if js {
             _ = try await tab.call(PageScripts.jsClick, ["target": target])
             return
@@ -391,7 +575,7 @@ final class Browser {
         let spot = try await locate(tab, target)
         // The element under the point counts too: a see-through select over styled text is common.
         if let picker = [spot.kind, spot.hitKind].first(where: Self.pickerKinds.contains) {
-            throw Failure("\(picker) opens a native picker; use: agweb fill \(target) <value>")
+            throw Failure("\(picker) opens a native picker; use: agweb \(picker == "select" ? "select" : "fill") \(target) <value>")
         }
         // Hidden file inputs styled away to nothing have no point to click; a script click still counts as
         // a user gesture in WKWebView.
@@ -405,14 +589,15 @@ final class Browser {
         let (point, landed) = try await glide(tab, onto: target, from: spot, instant: instant)
         if let covered = landed.covered { tab.events.append("click target was covered by <\(covered)>") }
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.04))) }
+        if button == .right { suppressMenus(tab) }
         for count in 1...clicks {
             if count > 1, !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.09, 0.02))) }
-            try NativeInput.button(tab.webView, down: true, at: point, viewportHeight: landed.viewport.height, clickCount: count)
+            try NativeInput.button(tab.webView, button, down: true, at: point, viewportHeight: landed.viewport.height, clickCount: count, held: tab.held)
             tab.lastClick = (point, ProcessInfo.processInfo.systemUptime)
             // A short timeout: the press waits on this frame.
             if !instant { await tab.workspace.recorder?.capture(timeout: 0.3) }
             if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.095, 0.015))) }
-            try NativeInput.button(tab.webView, down: false, at: point, viewportHeight: landed.viewport.height, clickCount: count)
+            try NativeInput.button(tab.webView, button, down: false, at: point, viewportHeight: landed.viewport.height, clickCount: count, held: tab.held)
         }
     }
 
@@ -431,7 +616,7 @@ final class Browser {
         guard (0...end.viewport.width).contains(end.center.x), (0...end.viewport.height).contains(end.center.y) else {
             throw Failure("\(target) is off screen while \(source) is on it; drag in steps")
         }
-        try NativeInput.button(tab.webView, down: true, at: from, viewportHeight: landed.viewport.height)
+        try NativeInput.button(tab.webView, down: true, at: from, viewportHeight: landed.viewport.height, held: tab.held)
         tab.lastClick = (from, ProcessInfo.processInfo.systemUptime)
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.03))) }
         let to = instant ? end.center : tab.motion.aim(center: end.center, size: end.size)
@@ -439,12 +624,12 @@ final class Browser {
         let path = instant ? (1...6).map { i in (CGPoint(x: from.x + (to.x - from.x) * Double(i) / 6, y: from.y + (to.y - from.y) * Double(i) / 6), 0.0) }
                            : tab.motion.path(from: from, to: to, targetSize: min(end.size.width, end.size.height))
         for (step, pause) in path {
-            try NativeInput.drag(tab.webView, to: step, viewportHeight: end.viewport.height)
+            try NativeInput.move(tab.webView, to: step, viewportHeight: end.viewport.height, held: NativeInput.Held(modifiers: tab.held.modifiers, button: .left))
             tab.pointer = step
             if pause > 0 { try await Task.sleep(for: .seconds(pause)) }
         }
         if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.1, 0.03))) }
-        try NativeInput.button(tab.webView, down: false, at: to, viewportHeight: end.viewport.height)
+        try NativeInput.button(tab.webView, down: false, at: to, viewportHeight: end.viewport.height, held: tab.held)
     }
 
     /// Scroll events at the pointer, in a person's wheel ticks of about 60 px unless `instant`.
@@ -499,7 +684,7 @@ final class Browser {
         let start = tab.pointer ?? CGPoint(x: viewport.width / 2, y: viewport.height / 2)
         let path = instant ? [(point, 0)] : tab.motion.path(from: start, to: point, targetSize: targetSize)
         for (step, pause) in path {
-            try NativeInput.move(tab.webView, to: step, viewportHeight: viewport.height)
+            try NativeInput.move(tab.webView, to: step, viewportHeight: viewport.height, held: tab.held)
             tab.pointer = step
             if pause > 0 { try await Task.sleep(for: .seconds(pause)) }
         }
@@ -533,8 +718,7 @@ final class Browser {
             out += "\n### Events\n" + tab.events.map { "- \($0)" }.joined(separator: "\n")
             tab.events.removeAll()
         }
-        let errors = tab.console.filter { $0.hasPrefix("error") || $0.hasPrefix("pageerror") }.count
-        if errors > 0 { out += "\n- \(errors) console errors (agweb console)" }
+        if tab.unreadErrors > 0 { out += "\n- Console: \(tab.unreadErrors) new errors (agweb console error)" }
         return out
     }
 

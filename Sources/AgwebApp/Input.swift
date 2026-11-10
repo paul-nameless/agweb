@@ -2,27 +2,62 @@ import AgwebCore
 import AppKit
 import WebKit
 
+enum MouseButton: String {
+    case left, right, middle
+
+    init(_ name: String?) throws {
+        guard let button = MouseButton(rawValue: (name ?? "left").lowercased()) else { throw Failure("button is left, right or middle, not \(name ?? "")") }
+        self = button
+    }
+}
+
 /// Synthesized AppKit events handed straight to one web view. WebKit turns them into trusted DOM events
 /// (isTrusted == true), and because they skip NSWindow.sendEvent they neither hit-test against the tab
-/// stacked on top nor activate the app.
+/// stacked on top nor activate the app. `held` is what the agent is holding down: modifiers from keydown, a
+/// button from mousedown.
 @MainActor
 enum NativeInput {
     /// WKWebView has no mouseMoved: of its own (real moves come through its tracking area), so this uses the
     /// testing SPI that feeds a move into the same path. Pages only see it because AgentWindow reports key.
-    static func move(_ webView: WKWebView, to cssPoint: CGPoint, viewportHeight: CGFloat) throws {
+    /// With a button held it is a drag instead.
+    static func move(_ webView: WKWebView, to cssPoint: CGPoint, viewportHeight: CGFloat, held: Held = Held()) throws {
+        if let button = held.button {
+            let event = try mouse([.left: .leftMouseDragged, .right: .rightMouseDragged, .middle: .otherMouseDragged][button]!, webView, cssPoint, viewportHeight, held: held)
+            switch button {
+            case .left: webView.mouseDragged(with: event)
+            case .right: webView.rightMouseDragged(with: event)
+            case .middle: webView.otherMouseDragged(with: event)
+            }
+            return
+        }
         let simulate = NSSelectorFromString("_simulateMouseMove:")
         guard webView.responds(to: simulate) else { throw Failure("this WebKit has no way to move the pointer; use --instant or click") }
         typealias Send = @convention(c) (AnyObject, Selector, NSEvent) -> Void
-        unsafeBitCast(webView.method(for: simulate), to: Send.self)(webView, simulate, try mouse(.mouseMoved, webView, cssPoint, viewportHeight))
+        unsafeBitCast(webView.method(for: simulate), to: Send.self)(webView, simulate, try mouse(.mouseMoved, webView, cssPoint, viewportHeight, held: held))
     }
 
-    static func button(_ webView: WKWebView, down: Bool, at cssPoint: CGPoint, viewportHeight: CGFloat, clickCount: Int = 1) throws {
-        let event = try mouse(down ? .leftMouseDown : .leftMouseUp, webView, cssPoint, viewportHeight, clickCount: clickCount)
-        if down { webView.mouseDown(with: event) } else { webView.mouseUp(with: event) }
-    }
-
-    static func drag(_ webView: WKWebView, to cssPoint: CGPoint, viewportHeight: CGFloat) throws {
-        webView.mouseDragged(with: try mouse(.leftMouseDragged, webView, cssPoint, viewportHeight))
+    static func button(_ webView: WKWebView, _ button: MouseButton = .left, down: Bool, at cssPoint: CGPoint, viewportHeight: CGFloat,
+                       clickCount: Int = 1, held: Held = Held()) throws {
+        switch button {
+        case .left:
+            let event = try mouse(down ? .leftMouseDown : .leftMouseUp, webView, cssPoint, viewportHeight, clickCount: clickCount, held: held)
+            if down { webView.mouseDown(with: event) } else { webView.mouseUp(with: event) }
+        case .right:
+            let event = try mouse(down ? .rightMouseDown : .rightMouseUp, webView, cssPoint, viewportHeight, clickCount: clickCount, held: held)
+            if down { webView.rightMouseDown(with: event) } else { webView.rightMouseUp(with: event) }
+        case .middle:
+            // NSEvent can't set buttonNumber; a CGEvent can, given a screen location.
+            guard let window = webView.window else { throw Failure("tab has no window to receive input") }
+            let screen = screenPoint(window, try mouse(.mouseMoved, webView, cssPoint, viewportHeight).locationInWindow)
+            guard let cg = CGEvent(mouseEventSource: nil, mouseType: down ? .otherMouseDown : .otherMouseUp, mouseCursorPosition: screen, mouseButton: .center) else {
+                throw Failure("could not make a middle-button event")
+            }
+            cg.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
+            cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+            cg.flags = CGEventFlags(rawValue: UInt64(held.modifiers.rawValue))
+            guard let event = NSEvent(cgEvent: cg) else { throw Failure("could not make a middle-button event") }
+            if down { webView.otherMouseDown(with: event) } else { webView.otherMouseUp(with: event) }
+        }
     }
 
     /// AppKit has no constructor for scroll events; a CGEvent converts, given the window and a screen location.
@@ -31,42 +66,69 @@ enum NativeInput {
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -dy, wheel2: -dx, wheel3: 0) else {
             throw Failure("tab has no window to receive input")
         }
-        let inScreen = window.convertPoint(toScreen: try mouse(.mouseMoved, webView, cssPoint, viewportHeight).locationInWindow)
-        event.location = CGPoint(x: inScreen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - inScreen.y)
+        event.location = screenPoint(window, try mouse(.mouseMoved, webView, cssPoint, viewportHeight).locationInWindow)
         event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
         event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
         guard let scroll = NSEvent(cgEvent: event) else { throw Failure("could not make a scroll event") }
         webView.scrollWheel(with: scroll)
     }
 
+    /// Quartz screen coordinates (top-left origin) of a window point.
+    private static func screenPoint(_ window: NSWindow, _ inWindow: CGPoint) -> CGPoint {
+        let inScreen = window.convertPoint(toScreen: inWindow)
+        return CGPoint(x: inScreen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - inScreen.y)
+    }
+
     private static func mouse(_ type: NSEvent.EventType, _ webView: WKWebView, _ cssPoint: CGPoint, _ viewportHeight: CGFloat,
-                              clickCount: Int = 1) throws -> NSEvent {
+                              clickCount: Int = 1, held: Held = Held()) throws -> NSEvent {
         guard let window = webView.window else { throw Failure("tab has no window to receive input") }
         let scale = webView.pageZoom * webView.magnification
         // Under a full-size content view WebKit insets the page below the toolbar; the viewport starts there.
         let topInset = max(0, webView.bounds.height - viewportHeight * scale)
         var point = CGPoint(x: cssPoint.x * scale, y: cssPoint.y * scale + topInset)
         if !webView.isFlipped { point.y = webView.bounds.height - point.y }
-        return NSEvent.mouseEvent(with: type, location: webView.convert(point, to: nil), modifierFlags: [],
+        let pressed: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseDragged, .rightMouseDown, .rightMouseDragged]
+        return NSEvent.mouseEvent(with: type, location: webView.convert(point, to: nil), modifierFlags: held.modifiers,
                                   timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
                                   eventNumber: 0, clickCount: type == .mouseMoved ? 0 : clickCount,
-                                  pressure: type == .leftMouseDown || type == .leftMouseDragged ? 1 : 0)!
+                                  pressure: pressed.contains(type) ? 1 : 0)!
+    }
+
+    struct Held {
+        var modifiers: NSEvent.ModifierFlags = []
+        var button: MouseButton?
     }
 
     /// Key events go to the first responder's text input path, so the tab must be first responder while
-    /// they are processed. The caller restores the previous responder afterwards.
-    static func press(_ webView: WKWebView, combo: String) throws {
+    /// they are processed. The caller restores the previous responder afterwards. `phases` picks keydown,
+    /// keyup or both; a lone modifier (`keydown Shift`) changes `held` instead of typing.
+    static func press(_ webView: WKWebView, combo: String, phases: [NSEvent.EventType] = [.keyDown, .keyUp], held: inout Held) throws {
         guard let window = webView.window else { throw Failure("tab has no window to receive input") }
-        let key = try parse(combo)
         window.makeFirstResponder(webView)
-        for type in [NSEvent.EventType.keyDown, .keyUp] {
-            let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: key.modifiers,
+        if let (modifier, code) = modifierKeys[combo.lowercased()] {
+            for phase in phases {
+                if phase == .keyDown { held.modifiers.insert(modifier) } else { held.modifiers.remove(modifier) }
+                guard let cg = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: phase == .keyDown) else { continue }
+                cg.type = .flagsChanged
+                cg.flags = CGEventFlags(rawValue: UInt64(held.modifiers.rawValue))
+                if let event = NSEvent(cgEvent: cg) { webView.flagsChanged(with: event) }
+            }
+            return
+        }
+        let key = try parse(combo)
+        for type in phases {
+            let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: key.modifiers.union(held.modifiers),
                                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                          context: nil, characters: key.characters, charactersIgnoringModifiers: key.unmodified,
                                          isARepeat: false, keyCode: key.code)!
             if type == .keyDown { webView.keyDown(with: event) } else { webView.keyUp(with: event) }
         }
     }
+
+    private static let modifierKeys: [String: (NSEvent.ModifierFlags, CGKeyCode)] = [
+        "shift": (.shift, 56), "control": (.control, 59), "ctrl": (.control, 59), "alt": (.option, 58), "option": (.option, 58),
+        "meta": (.command, 55), "command": (.command, 55), "cmd": (.command, 55),
+    ]
 
     private static func function(_ key: Int) -> String { String(UnicodeScalar(UInt32(key))!) }
 

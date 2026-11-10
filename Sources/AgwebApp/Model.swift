@@ -34,12 +34,25 @@ final class Workspace: Identifiable {
     /// True while an agent command runs. Commands on one workspace are serialized, so this is exact.
     var busy = false
     @ObservationIgnored var acceptDialogs = false
+    /// What `dialog-accept <text>` answers prompt() with; nil answers with the prompt's default.
+    @ObservationIgnored var promptText: String?
     @ObservationIgnored var recorder: Recorder?
     @ObservationIgnored let dataStore: WKWebsiteDataStore
     @ObservationIgnored let contentController = WKUserContentController()
+    @ObservationIgnored var routes: [Route] = [] { didSet { installScripts() } }
+    /// localStorage from `state-load` by origin, set when the origin next loads.
+    @ObservationIgnored var pendingStorage: [String: [[String]]] = [:] { didSet { installScripts() } }
 
     nonisolated var id: String { name }
     var current: Tab? { tabs.first { $0.id == currentID } }
+
+    struct Route: Codable {
+        var pattern: String
+        var status: Int?
+        var body: String?
+        var contentType: String?
+        var headers: [String: String] = [:]
+    }
 
     /// Finishes the recording, if any, and describes the file.
     func stopRecording() async throws -> String? {
@@ -54,8 +67,24 @@ final class Workspace: Identifiable {
         dataStore = Profiles.store(profile)
         // One controller per workspace: popups get a copy of the opener's configuration, and registering
         // a message handler twice on a shared controller throws.
+        for handler in Self.handlers { contentController.add(console, name: handler) }
+        installScripts()
+    }
+
+    static let handlers = ["agwebConsole", "agwebPage"]
+
+    /// User scripts apply to the next load; live pages get the new routes directly.
+    private func installScripts() {
+        contentController.removeAllUserScripts()
+        let routesJSON = String(decoding: (try? JSONEncoder().encode(routes)) ?? Data("[]".utf8), as: UTF8.self)
+        let setRoutes = "window.__agwebRoutes = \(routesJSON);"
         contentController.addUserScript(WKUserScript(source: PageScripts.consoleHook, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        contentController.add(console, name: "agwebConsole")
+        contentController.addUserScript(WKUserScript(source: setRoutes + PageScripts.networkHook, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        if !pendingStorage.isEmpty, let json = try? JSONEncoder().encode(pendingStorage) {
+            contentController.addUserScript(WKUserScript(source: PageScripts.pendingStorage(String(decoding: json, as: UTF8.self)),
+                                                         injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        for tab in tabs { tab.webView.evaluateJavaScript(setRoutes) }
     }
 
     func makeConfiguration() -> WKWebViewConfiguration {
@@ -153,7 +182,7 @@ enum Profiles {
 }
 
 @Observable @MainActor
-final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
+final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     static let agentWorld = WKContentWorld.world(name: "agweb")
 
     nonisolated let id: Int
@@ -165,7 +194,23 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     @ObservationIgnored weak var browser: Browser?
     @ObservationIgnored weak var opener: Tab?
     @ObservationIgnored var console: [String] = []
+    /// Console errors since the agent last read the console, for the hint under ### Page.
+    @ObservationIgnored var unreadErrors = 0
+    /// Documents, fetch and XHR calls since the page loaded: the hook's messages, as dictionaries.
+    @ObservationIgnored var requests: [[String: Any]] = []
     @ObservationIgnored var events: [String] = []
+    /// Keys and a button the agent is holding down (keydown, mousedown).
+    @ObservationIgnored var held = NativeInput.Held()
+    /// A fixed viewport from `resize`, in CSS pixels; nil fills the window.
+    @ObservationIgnored var viewportSize: CGSize?
+    /// While true, a context menu the page asks for is dropped: it would pop up on the person's screen.
+    @ObservationIgnored var suppressMenus = false
+    /// Where the next download goes; nil is ~/Downloads.
+    @ObservationIgnored var downloadPath: URL?
+    @ObservationIgnored var downloadsStarted = 0
+    /// Saved paths, or why a download failed, in the order they ended.
+    @ObservationIgnored var downloadsEnded: [Result<String, Failure>] = []
+    @ObservationIgnored private var downloads: [ObjectIdentifier: URL] = [:]
     @ObservationIgnored var pendingUpload: [URL]?
     @ObservationIgnored var chooserOpened = false
     /// Where the agent's pointer last went, in CSS pixels of the viewport; nil until the first move.
@@ -282,6 +327,63 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         finishLoad(Failure("navigation failed: \(error.localizedDescription)"))
     }
 
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
+        let http = navigationResponse.response as? HTTPURLResponse
+        let attachment = http?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased().hasPrefix("attachment") ?? false
+        let download = attachment || !navigationResponse.canShowMIMEType
+        if navigationResponse.isForMainFrame, !download { requests.removeAll() }
+        if let http {
+            requests.append(["kind": navigationResponse.isForMainFrame ? "document" : "frame", "method": "GET", "url": http.url?.absoluteString ?? "",
+                             "status": http.statusCode, "statusText": HTTPURLResponse.localizedString(forStatusCode: http.statusCode),
+                             "responseHeaders": http.allHeaderFields.reduce(into: [String: String]()) { $0["\($1.key)".lowercased()] = "\($1.value)" }])
+        }
+        decisionHandler(download ? .download : .allow)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    // MARK: Downloads: saved without a panel, to `download --filename` or ~/Downloads.
+
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String,
+                  completionHandler: @escaping @MainActor (URL?) -> Void) {
+        var url = downloadPath ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads/\(suggestedFilename)")
+        downloadPath = nil
+        let base = url.deletingPathExtension().lastPathComponent, ext = url.pathExtension
+        var n = 1
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = url.deletingLastPathComponent().appendingPathComponent("\(base) (\(n))" + (ext.isEmpty ? "" : ".\(ext)"))
+            n += 1
+        }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        downloads[ObjectIdentifier(download)] = url
+        downloadsStarted += 1
+        completionHandler(url)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let url = downloads.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        events.append("downloaded \(url.path)")
+        downloadsEnded.append(.success(url.path))
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        let url = downloads.removeValue(forKey: ObjectIdentifier(download))
+        events.append("download of \(url?.lastPathComponent ?? "a file") failed: \(error.localizedDescription)")
+        downloadsEnded.append(.failure(Failure("download failed: \(error.localizedDescription)")))
+    }
+
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         finishLoad(Failure("page crashed while loading"))
         // A page that crashes as it loads would otherwise reload forever in a tab nobody watches.
@@ -326,8 +428,21 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
         let accept = workspace.acceptDialogs
-        events.append("prompt \(accept ? "answered with default" : "dismissed"): \(prompt)")
-        completionHandler(accept ? defaultText ?? "" : nil)
+        let answer = workspace.promptText ?? defaultText ?? ""
+        events.append("prompt \(accept ? "answered with \(answer.debugDescription)" : "dismissed"): \(prompt)")
+        completionHandler(accept ? answer : nil)
+    }
+
+    /// WebKit's private UI delegate hook for context menus; a nil menu shows nothing.
+    @objc(_webView:getContextMenuFromProposedMenu:forElement:userInfo:completionHandler:)
+    func contextMenu(_ webView: WKWebView, proposedMenu menu: NSMenu, forElement element: AnyObject?, userInfo: AnyObject?,
+                     completionHandler: @escaping (NSMenu?) -> Void) {
+        if suppressMenus || workspace.busy {
+            events.append("context menu suppressed")
+            completionHandler(nil)
+        } else {
+            completionHandler(menu)
+        }
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
@@ -421,11 +536,20 @@ final class ConsoleSink: NSObject, WKScriptMessageHandler {
     weak var browser: Browser?
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let text = message.body as? String else { return }
         MainActor.assumeIsolated {
             guard let tab = browser?.tab(for: message.webView) else { return }
-            tab.console.append(text)
-            if tab.console.count > 500 { tab.console.removeFirst(tab.console.count - 500) }
+            if let text = message.body as? String {
+                tab.console.append(text)
+                if tab.console.count > 500 { tab.console.removeFirst(tab.console.count - 500) }
+                if text.hasPrefix("error") || text.hasPrefix("pageerror") { tab.unreadErrors += 1 }
+            } else if let body = message.body as? [String: Any] {
+                if let origin = body["stored"] as? String {
+                    tab.workspace.pendingStorage[origin] = nil
+                } else {
+                    tab.requests.append(body)
+                    if tab.requests.count > 500 { tab.requests.removeFirst(tab.requests.count - 500) }
+                }
+            }
         }
     }
 }

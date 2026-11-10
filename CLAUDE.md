@@ -9,7 +9,7 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 ## Layout
 
 - `Sources/AgwebCore`: host-free code with unit tests: socket protocol, page scripts, address parsing, the human pointer and typing rhythm (`Motion.swift`).
-- `Sources/AgwebApp`: the app. `Browser.swift` dispatches commands (one at a time per workspace, workspaces in parallel), `Model.swift` holds workspaces, tabs and named profiles, `Input.swift` synthesizes native events, `Recorder.swift` records video, `Window.swift`/`Toolbar.swift` the UI.
+- `Sources/AgwebApp`: the app. `Browser.swift` dispatches commands (one at a time per workspace, workspaces in parallel) and `BrowserState.swift` holds requests, routes, cookies and storage state, `Model.swift` holds workspaces, tabs and named profiles, `Input.swift` synthesizes native events, `Recorder.swift` records video, `Window.swift`/`Toolbar.swift` the UI.
 - `Sources/agweb`: the CLI. It launches the app with `open -g` when nobody holds the socket's lock.
 
 ## Build and test
