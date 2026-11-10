@@ -481,6 +481,9 @@ final class Browser {
         case "eval":
             let mark = try await args.count > 1 ? tab.call(PageScripts.mark, ["target": args[1]]) : nil
             let result = try await tab.call(PageScripts.evaluate(try arg(0, "code"), mark: mark), world: .page)
+            // `location.href = …` returns before the page goes; the next command must see the new one, not the old.
+            try? await Task.sleep(for: .milliseconds(50))
+            if tab.webView.isLoading { await tab.settle() }
             return "### Result\n\(result)\n" + describe(tab)
         case "highlight":
             guard options["hide"] != nil || !args.isEmpty else { throw Failure("missing <target>") }
@@ -619,11 +622,11 @@ final class Browser {
     /// or with --load the page has loaded and no fetch/XHR has been in flight for half a second.
     private func wait(_ tab: Tab, _ arg: String?, _ options: [String: String]) async throws -> String {
         let timeout = try options["timeout"].map { text -> Double in
-            guard let ms = Double(text), (0...110_000).contains(ms) else { throw Failure("--timeout is milliseconds, up to 110000") }
+            guard let ms = Double(text), (0...600_000).contains(ms) else { throw Failure("--timeout is milliseconds, up to 600000") }
             return ms / 1000
         } ?? 30
         if let arg, let ms = Double(arg) {
-            guard (0...110_000).contains(ms) else { throw Failure("wait takes up to 110000 ms") }
+            guard (0...600_000).contains(ms) else { throw Failure("wait takes up to 600000 ms") }
             try await Task.sleep(for: .milliseconds(ms))
             return "### Result\nwaited \(Int(ms)) ms"
         }

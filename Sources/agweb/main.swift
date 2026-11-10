@@ -236,7 +236,9 @@ if !isServing(socket) {
 
 // Commands time out inside the app (pages 30 s, scripts 30 s, downloads 120 s); this only catches a wedged app.
 // Typing at a person's pace averages about 0.25 s a key, so long text gets longer.
-let timeout = (["download", "wait"].contains(command) ? 200 : 120) + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
+// A wait gets its own timeout, or its fixed pause, plus room for the reply.
+let waitSeconds = command == "wait" ? max(Int(options["timeout"] ?? "") ?? 30_000, Int(args.first ?? "") ?? 0) / 1000 + 30 : 0
+let timeout = max(command == "download" ? 200 : 120, waitSeconds) + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
 guard let response = sendRequest(Request(workspace: workspace, command: command, args: args, options: options), path: socket, timeout: timeout) else {
     fail("no response from agweb on \(socket)")
 }
