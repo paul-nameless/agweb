@@ -42,7 +42,6 @@ agweb -w task close
 
 - WebKit only. There is no Chrome DevTools Protocol, so Playwright and Chrome extensions can't attach, and Chrome-only sites may misbehave.
 - The network log and API mocking cover fetch and XHR, not images, scripts or page loads.
-- Not tried yet against passkeys or bot checks such as Cloudflare.
 
 More in [docs/internals.md](docs/internals.md): where data is stored, how tabs are hidden and suspended, and the remaining gaps.
 
