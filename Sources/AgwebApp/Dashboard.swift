@@ -54,7 +54,7 @@ struct DashboardView: View {
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260, maximum: 520), spacing: 16, alignment: .top)], spacing: 18) {
                 ForEach(tabs) { tab in
-                    TabTile(tab: tab, displayed: model.displayedTabID == tab.id)
+                    TabTile(tab: tab, displayed: model.displayedTabID == tab.id) { model.onCloseTab?(tab) }
                         .contentShape(Rectangle())
                         .onTapGesture {
                             model.dashboardOpen = false
@@ -71,6 +71,7 @@ struct DashboardView: View {
 private struct TabTile: View {
     let tab: Tab
     let displayed: Bool
+    let close: () -> Void
 
     var body: some View {
         let workspace = tab.workspace
@@ -88,11 +89,20 @@ private struct TabTile: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(displayed ? Color.accentColor : Color(nsColor: .separatorColor),
                                                                         lineWidth: displayed ? 2 : 1))
-                .overlay(alignment: .topTrailing) {
+                .overlay(alignment: .topLeading) {
                     if tab.state != "visible" {
                         Text(tab.state).font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
                             .background(.regularMaterial, in: Capsule()).padding(6)
                     }
+                }
+                .overlay(alignment: .topTrailing) {
+                    Button(action: close) {
+                        Image(systemName: "xmark").font(.caption.weight(.semibold)).frame(width: 22, height: 22)
+                            .background(.regularMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close tab")
+                    .padding(6)
                 }
             HStack(spacing: 6) {
                 Circle().fill(driven ? Color.green : Color.clear).frame(width: 6, height: 6)
