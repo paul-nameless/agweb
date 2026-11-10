@@ -17,7 +17,7 @@ extension Browser {
             var tick = 0
             while !Task.isCancelled, let self {
                 await self.refreshThumbnails()
-                if UserDefaults.standard.bool(forKey: Settings.showUsage) {
+                if Settings.store.bool(forKey: Settings.showUsage) {
                     if tick % 5 == 0 { self.model.processes = self.usageSampler.sample() }
                 } else if !self.model.processes.isEmpty {
                     self.model.processes = [:]
@@ -52,9 +52,9 @@ struct DashboardView: View {
     let model: BrowserModel
     /// The order while the pointer is over the grid, so a tile doesn't move away just as it is clicked.
     @State private var frozen: [Int]?
-    @AppStorage(Settings.showUsage) private var showUsage = false
-    @AppStorage(Settings.columns) private var columns = 0
-    @AppStorage(Settings.textSize) private var textSize = TextSize.medium
+    @AppStorage(Settings.showUsage, store: Settings.store) private var showUsage = false
+    @AppStorage(Settings.columns, store: Settings.store) private var columns = 0
+    @AppStorage(Settings.textSize, store: Settings.store) private var textSize = TextSize.medium
 
     var body: some View {
         let recent = model.workspaces.flatMap(\.tabs).sorted { ($0.lastActivity, $1.id) > ($1.lastActivity, $0.id) }
@@ -66,9 +66,6 @@ struct DashboardView: View {
         ScrollView {
             if tabs.isEmpty {
                 Text("No tabs yet").foregroundStyle(.secondary).padding(40)
-            }
-            if !usage.isEmpty {
-                total(usage).padding([.horizontal, .top], 16)
             }
             LazyVGrid(columns: grid, spacing: 18) {
                 ForEach(tabs) { tab in
@@ -85,7 +82,12 @@ struct DashboardView: View {
                 }
             }
             .padding(16)
+            // Room to scroll the last row out from under the total.
+            .padding(.bottom, usage.isEmpty ? 0 : 32)
             .animation(.default, value: tabs.map(\.id))
+        }
+        .overlay(alignment: .bottomLeading) {
+            if !usage.isEmpty { total(usage).padding(12) }
         }
         .onHover { inside in frozen = inside ? tabs.map(\.id) : nil }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -109,12 +111,11 @@ struct DashboardView: View {
             left.removeAll { matches($0.name) }
             return "\(kind): \(sum(mine).label)"
         }
-        return HStack {
-            Label("Total " + sum(usage.values).label, systemImage: "gauge.with.dots.needle.33percent")
-            Spacer()
-        }
-        .font(.system(size: 12 * textSize.scale)).foregroundStyle(.secondary)
-        .help(parts.joined(separator: "\n"))
+        return Label("Total " + sum(usage.values).label, systemImage: "gauge.with.dots.needle.33percent")
+            .font(.system(size: 11 * textSize.scale)).monospacedDigit().foregroundStyle(.secondary)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(.regularMaterial, in: Capsule())
+            .help(parts.joined(separator: "\n"))
     }
 }
 

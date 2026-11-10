@@ -1,8 +1,12 @@
+import AgwebCore
 import AppKit
 import SwiftUI
 
 /// UserDefaults keys behind Settings (⌘,).
 enum Settings {
+    /// An instance on its own socket (the selftest, a test build) keeps its own settings, so a test never
+    /// changes or deletes the person's.
+    static let store = Agweb.customSocket ? UserDefaults(suiteName: Agweb.bundleIdentifier + ".test")! : .standard
     static let showUsage = "dashboardShowsUsage"
     /// 0 fits as many as the width allows.
     static let columns = "dashboardColumns"
@@ -20,9 +24,9 @@ enum TextSize: Int, CaseIterable {
 }
 
 struct SettingsView: View {
-    @AppStorage(Settings.showUsage) private var showUsage = false
-    @AppStorage(Settings.columns) private var columns = 0
-    @AppStorage(Settings.textSize) private var textSize = TextSize.medium
+    @AppStorage(Settings.showUsage, store: Settings.store) private var showUsage = false
+    @AppStorage(Settings.columns, store: Settings.store) private var columns = 0
+    @AppStorage(Settings.textSize, store: Settings.store) private var textSize = TextSize.medium
     @State private var skill: [String] = []
 
     var body: some View {

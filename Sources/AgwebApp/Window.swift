@@ -201,7 +201,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
 
 struct SidebarView: View {
     let model: BrowserModel
-    @AppStorage(Settings.textSize) private var textSize = TextSize.medium
+    @AppStorage(Settings.textSize, store: Settings.store) private var textSize = TextSize.medium
 
     var body: some View {
         // Nothing is selected while the dashboard shows, so clicking even the displayed tab goes back to it. A tap
