@@ -15,7 +15,7 @@ agweb -w fix-login open https://app.example.com    # start your workspace (fresh
 agweb -w fix-login snapshot                         # page tree with [ref=eN] handles
 agweb -w fix-login click e12                        # act on a ref
 agweb -w fix-login snapshot                         # refs reset on every snapshot: take a new one after changes
-agweb -w fix-login close                            # always, when done
+agweb -w fix-login close                            # always, when done: workspaces otherwise reopen after a restart
 ```
 
 - Name the workspace after your task and pass `-w` on every call. Never touch another agent's workspace (`agweb list` shows them).

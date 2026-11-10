@@ -25,7 +25,18 @@ agweb quit
 ./scripts/selftest.sh              # every verb, in a separate instance on its own socket
 ```
 
-`agweb help` lists the verbs. `AGWEB_SOCKET=/path` runs a separate instance next to the default one.
+`agweb help` lists the verbs. `AGWEB_SOCKET=/path` runs a separate instance next to the default one, with its own `<socket>.workspaces.json`. `swift scripts/make-icon.swift` redraws the icon.
+
+## Where things are stored
+
+- `~/Library/WebKit/dev.playground.agweb/WebsiteDataStore/<uuid>/`: each named profile's cookies, localStorage, IndexedDB and cache, owned by WebKit. The uuid is derived from the name.
+- `~/Library/Application Support/agweb/`:
+  - `profiles.json`: profile names, since WebKit only knows the uuids;
+  - `session-cookies/<uuid>.plist`: session cookies saved on quit;
+  - `workspaces.json`: open workspaces, their profile, tabs (URL, title), current tab and the displayed tab;
+  - `agweb.sock`: the CLI's socket.
+
+The `.plist` and `.json` files are 0600, since URLs and cookies can carry tokens. Fresh profiles live in memory only.
 
 ## How it stays quiet
 
@@ -38,6 +49,7 @@ The app is a regular app launched with `open -g`, never calls `activate`, and fi
 - No `run-code` (there is no Playwright engine), tracing, Chromium-only options (`--config`, `--browser`) or cross-origin iframe refs.
 - `fill` and `type` use `execCommand('insertText')`, not key events (`type` per character). Only pointer input and `press` are native.
 - Closing (red button) or minimizing the window pauses pages; `agweb show` puts it back, and screenshots refuse until then. Recordings get no frames meanwhile.
+- Workspaces and their tabs survive a quit or restart: they are saved as they change and reopen at launch, each page loading when it is first shown or driven. `close` and `close-all` end them for good. Fresh-profile workspaces come back logged out.
 - Named profiles keep their logins across relaunches, session cookies included: agweb saves those on quit (0600, under `~/Library/Application Support/agweb/session-cookies/`) and restores them when the profile next opens, so SSO logins survive. A crash or `kill -9` loses the session cookies of that run.
 - HTML5-draggable sources (`draggable`, links, images) are dropped with DOM drag events rather than the pointer: a native drag would start an AppKit drag session that follows your real mouse.
 - `document.hasFocus()` is false in pages, since the window is never key while agents work. It only reports key to WebKit while the app is in the background, because WebKit drops mouse moves otherwise; pages therefore also react to your own pointer over the background window, as in Chrome, and a tab you clicked into yourself keeps `document.hasFocus()` true after you switch away.

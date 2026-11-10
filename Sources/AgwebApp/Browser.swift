@@ -9,6 +9,7 @@ final class Browser {
     private let console = ConsoleSink()
     private var queues: [String: Task<Response, Never>] = [:]
     private var nextTabID = 1
+    var saveTask: Task<Void, Never>?
 
     /// Tabs a person opens from the window, when no agent tab is displayed, live in this workspace.
     static let userWorkspace = "user"
@@ -18,6 +19,8 @@ final class Browser {
         model.onDisplay = { [weak self] id in
             guard let self, let tab = self.model.displayedTab, tab.id == id else { return }
             self.mainWindow.bringToTop(tab.webView)
+            Task { try? await tab.loadIfPending() }
+            self.scheduleSave()
         }
         model.onCloseTab = { [weak self] tab in self?.closeTab(tab) }
         model.onCloseWorkspace = { [weak self] workspace in self?.closeWorkspace(workspace) }
@@ -30,7 +33,7 @@ final class Browser {
         model.workspaces.lazy.flatMap(\.tabs).first { $0.webView === webView }
     }
 
-    private func existingOrNewWorkspace(named name: String, profile: String?) throws -> Workspace {
+    func existingOrNewWorkspace(named name: String, profile: String?) throws -> Workspace {
         if let workspace = model.workspaces.first(where: { $0.name == name }) {
             if let profile, profile != workspace.profile {
                 throw Failure("workspace \(name) already uses \(Self.describe(profile: workspace.profile)); close it first to switch")
@@ -51,13 +54,15 @@ final class Browser {
             workspace.tabs.append(tab)
         }
         mainWindow.add(tab.webView)
+        scheduleSave()
         return tab
     }
 
+    /// `display: false` only adds it, for tabs reopened at launch.
     @discardableResult
-    func addTab(to workspace: Workspace) -> Tab {
+    func addTab(to workspace: Workspace, display: Bool = true) -> Tab {
         let tab = makeTab(in: workspace, configuration: nil, opener: nil)
-        drive(tab)
+        if display { drive(tab) }
         return tab
     }
 
@@ -101,6 +106,7 @@ final class Browser {
                 model.displayedTabID = nil
             }
         }
+        scheduleSave()
     }
 
     private(set) var preparedToQuit = false
@@ -110,6 +116,7 @@ final class Browser {
         var videos: [String] = []
         for workspace in model.workspaces { videos += await describeStop(workspace) }
         await Profiles.saveSessionCookies()
+        saveWorkspaces()
         preparedToQuit = true
         return videos
     }
@@ -128,6 +135,7 @@ final class Browser {
         for tab in workspace.tabs { closeTab(tab) }
         for handler in Workspace.handlers { workspace.contentController.removeScriptMessageHandler(forName: handler) }
         model.workspaces.removeAll { $0 === workspace }
+        scheduleSave()
     }
 
     private func newTabFromUser(in workspace: Workspace?) {
@@ -153,7 +161,10 @@ final class Browser {
     }
 
     private func execute(_ request: Request) async -> Response {
-        defer { model.workspaces.first { $0.name == request.workspace }?.busy = false }
+        defer {
+            model.workspaces.first { $0.name == request.workspace }?.busy = false
+            scheduleSave()
+        }
         do {
             return Response(ok: true, output: try await run(request))
         } catch {
@@ -175,7 +186,7 @@ final class Browser {
                 let list = model.workspaces.map { workspace -> [String: Any] in
                     ["name": workspace.name, "profile": workspace.profile ?? NSNull(), "busy": workspace.busy,
                      "tabs": workspace.tabs.enumerated().map { index, tab in
-                         ["index": index, "url": tab.webView.url?.absoluteString ?? "about:blank", "title": tab.webView.title ?? "", "current": tab.id == workspace.currentID]
+                         ["index": index, "url": tab.currentURL, "title": tab.currentTitle, "current": tab.id == workspace.currentID]
                      }]
                 }
                 return String(decoding: try JSONSerialization.data(withJSONObject: ["workspaces": list], options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
@@ -216,7 +227,7 @@ final class Browser {
             // Once per profile per run, before its first page loads. After the tab exists: WebKit never answers a
             // cookie store in a process that has no web view yet.
             if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
-            if let url = args.first { try await tab.goto(try Address.url(url)) }
+            if let url = args.first { try await tab.goto(try Address.url(url)) } else { try await tab.loadIfPending() }
             return describe(tab)
         default:
             break
@@ -316,6 +327,8 @@ final class Browser {
             guard Commands.all.contains(request.command) else { throw Failure(Commands.unknown(request.command)) }
             throw Failure("workspace has no tabs; run tab-new")
         }
+        // A tab reopened at launch loads on first use.
+        if request.command != "goto" { try await tab.loadIfPending() }
         let webView = tab.webView
         let instant = options["instant"] != nil
 
@@ -807,7 +820,7 @@ final class Browser {
     // MARK: Output
 
     private func describe(_ tab: Tab) -> String {
-        var out = "### Page\n- URL: \(tab.webView.url?.absoluteString ?? "about:blank")\n- Title: \(tab.webView.title ?? "")"
+        var out = "### Page\n- URL: \(tab.currentURL)\n- Title: \(tab.currentTitle)"
         if windowHidden { out += "\n- Note: the window is closed or minimized; pages may pause (agweb show)" }
         if tab.workspace.tabs.count > 1 { out += "\n" + tabList(tab.workspace) }
         if !tab.events.isEmpty {
@@ -832,7 +845,7 @@ final class Browser {
     private func tabList(_ workspace: Workspace) -> String {
         "### Tabs\n" + workspace.tabs.enumerated().map { index, tab in
             let current = tab.id == workspace.currentID ? " (current)" : ""
-            return "- \(index):\(current) [\(tab.webView.title ?? "")](\(tab.webView.url?.absoluteString ?? "about:blank"))"
+            return "- \(index):\(current) [\(tab.currentTitle)](\(tab.currentURL))" + (tab.pendingURL != nil ? " (not loaded yet)" : "")
         }.joined(separator: "\n")
     }
 }

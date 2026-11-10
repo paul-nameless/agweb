@@ -36,6 +36,11 @@ public enum Agweb {
     /// A separate instance (tests, experiments), which must leave the person's window frame alone.
     public static let customSocket = socketPath != defaultSocket
 
+    /// Open workspaces and tabs, reopened at launch. A separate instance keeps its own next to its socket.
+    public static let workspacesFile = customSocket
+        ? URL(fileURLWithPath: socketPath + ".workspaces.json")
+        : URL(fileURLWithPath: defaultSocket).deletingLastPathComponent().appendingPathComponent("workspaces.json")
+
     /// Held by the instance that owns a socket for as long as it runs. A free lock means nobody is serving or
     /// starting up there; a held one means wait. One `open` per socket, and test instances never block the default.
     public static func lockOwnership(of socket: String) -> Int32? {

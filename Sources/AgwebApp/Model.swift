@@ -206,6 +206,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     /// While true, a context menu the page asks for is dropped: it would pop up on the person's screen.
     @ObservationIgnored var suppressMenus = false
     /// Where the next download goes; nil is ~/Downloads.
+    /// A tab reopened at launch: where it was, loaded on first use.
+    @ObservationIgnored var pendingURL: URL?
     @ObservationIgnored var downloadPath: URL?
     @ObservationIgnored var downloadsStarted = 0
     /// Saved paths, or why a download failed, in the order they ended.
@@ -247,14 +249,30 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
                 Task { @MainActor in self?.title = webView.title ?? "" }
             },
             webView.observe(\.url) { [weak self] webView, _ in
-                Task { @MainActor in if let url = webView.url { self?.url = url.absoluteString } }
+                Task { @MainActor in
+                    guard let self, let url = webView.url else { return }
+                    self.url = url.absoluteString
+                    self.browser?.scheduleSave()
+                }
             },
         ]
     }
 
     // MARK: Loading
 
+    var currentURL: String { webView.url?.absoluteString ?? (url.isEmpty ? "about:blank" : url) }
+    var currentTitle: String { webView.title.flatMap { $0.isEmpty ? nil : $0 } ?? title }
+
+    func loadIfPending() async throws {
+        guard let url = pendingURL else { return }
+        pendingURL = nil
+        if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
+        load(url)
+        try await waitForLoad()
+    }
+
     func goto(_ url: URL) async throws {
+        pendingURL = nil
         // A fragment-only change is a same-document navigation; WebKit sends no didFinish for it.
         if let current = webView.url, Self.sameDocument(current, url) {
             webView.load(URLRequest(url: url))

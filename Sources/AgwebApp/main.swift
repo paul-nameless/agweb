@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
         let browser = browser
+        browser.restoreWorkspaces()
         do {
             try serve(path: path) { request in await browser.handle(request) }
         } catch {

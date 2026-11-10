@@ -290,7 +290,7 @@ fails "in use by beta, gamma" profile-delete selftest-shared
 check "confirm() and prompt() will be accepted" -w beta dialog-accept
 check "will be dismissed" -w beta dialog-dismiss
 
-echo "== close and quit finish a recording; a named profile, its session cookies and the window frame survive a relaunch"
+echo "== close and quit finish a recording; workspaces and tabs, a named profile, its session cookies and the window frame survive a relaunch"
 check "recording" -w eph2 video-start "$dir/close.mp4"
 check "### Video" -w eph2 close
 LC_ALL=C grep -qa moov "$dir/close.mp4" || fail "close left the video without its index"
@@ -301,6 +301,10 @@ LC_ALL=C grep -qa moov "$dir/quit.mp4" || fail "quit left the video without its 
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e "$AGWEB_SOCKET" ] || break; sleep 0.5; done
 sleep 1
 check "Title" -w delta open "$u" -p selftest-shared
+check "beta (profile selftest-shared" list
+check "eph1 (fresh profile" list
+check "index.html?beta" -w beta tab-list
+check 'button "Press me"' -w beta snapshot
 check 'kept=1' -w delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
 check 'sso=1' -w delta eval 'document.cookie'
 [ "$(defaults read $domain "NSWindow Frame agwebTest" | cut -d' ' -f3)" = 900 ] || fail "the test window's saved frame was not restored"
