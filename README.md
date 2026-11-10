@@ -14,7 +14,9 @@ A WebKit (WKWebView) browser for coding agents, driven by a playwright-cli-style
 - `video-start` records a tab to MP4 with the pointer and clicks drawn in, idle time cut and chapter cards.
 - Commands follow playwright-cli. Snapshots carry refs, targets take `role=` and `text=`, `text` returns an article as markdown, actions wait for the network, and API calls can be mocked.
 
-Coming: passwords filled from `pass`, 1Password or Bitwarden without the agent seeing them, and basic auth and permission prompts answered in code.
+- Secrets stay out of transcripts: `fill --secret-cmd 'pass show site'` (or `op read`, `bw get`, `--secret-file`) fills a field from a command the CLI runs, and replies show `<hidden>` wherever the value would appear. It keeps passwords out of an agent's context, but an agent that wants the value can still get it, from a screenshot for one.
+
+Coming: basic auth and permission prompts answered in code.
 
 ## Features
 

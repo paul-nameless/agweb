@@ -71,6 +71,33 @@ fails "native picker" -w alpha press ArrowDown
 check "Page" -w alpha fill '#pw' secret
 check 'textbox \[value=<hidden>\]' -w alpha snapshot
 lacks "secret" -w alpha snapshot
+printf 's3cr3t tok3n\n' > "$dir/secret.txt"
+check "Page" -w alpha fill '#q' --secret-cmd 'printf "s3cr3t tok3n\nsecond line"'
+check 'textbox "Search" \[value=<hidden>\]' -w alpha snapshot
+lacks "s3cr3t" -w alpha snapshot
+check '^12$' -w alpha --raw eval 'q.value.length'
+check '^<hidden>$' -w alpha --raw eval 'q.value'
+lacks "s3cr3t" -w alpha --json eval '[q.value, JSON.stringify(q.value)]'
+check '^<hidden>$' -w alpha --raw eval 'encodeURIComponent(q.value)'
+check "Page" -w alpha eval "async () => { await fetch('/index.html?sec', { method: 'POST', body: q.value }) }"
+sleep 0.3
+n=$("$agweb" -w alpha requests --filter 'sec$' | sed -n 's/^\([0-9]*\)\. .*/\1/p' | tail -1)
+check '^<hidden>$' -w alpha --raw request-body "${n:-0}"
+check "Page" -w alpha fill '#q' ''
+check "Page" -w alpha fill '#q' --secret-file "$dir/secret.txt"
+check '^12$' -w alpha --raw eval 'q.value.length'
+out=$("$agweb" -w alpha fill '#q' --secret-cmd 'echo leaked; exit 3' 2>&1) && fail "a failing --secret-cmd filled the field"
+printf '%s' "$out" | grep -q "exited with status 3" || fail "a failing --secret-cmd did not say so: $out"
+printf '%s' "$out" | grep -q leaked && fail "a failing --secret-cmd printed what the command printed"
+fails "cannot read" -w alpha fill '#q' --secret-file "$dir/nope.txt"
+fails "the secret is empty" -w alpha fill '#q' --secret-cmd true
+fails "over 4096 bytes" -w alpha fill '#q' --secret-cmd 'cat /dev/zero'
+fails "over 4096 bytes" -w alpha fill '#q' --secret-file /dev/zero
+check "Page" -w alpha fill '#q' --secret-cmd 'echo short; yes'
+check '^5$' -w alpha --raw eval 'q.value.length'
+fails "no text" -w alpha fill '#q' x --secret-cmd 'printf abcd'
+fails "work with fill" -w alpha type --secret-cmd 'printf abcd'
+check "Page" -w alpha fill '#q' hello
 check "file chooser got" -w alpha upload '#file' /etc/hosts
 fails "no file chooser opened" -w alpha upload e2 /etc/hosts
 check "alert: hi" -w alpha click '#al'

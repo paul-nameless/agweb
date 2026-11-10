@@ -54,6 +54,8 @@ final class Workspace: Identifiable {
     @ObservationIgnored var tabsShown: [Int] = []
     /// The running command's reply is printed --raw, without the tab list.
     @ObservationIgnored var rawReply = false
+    /// Values filled with --secret-cmd or --secret-file, kept in memory only, to hide them in replies.
+    @ObservationIgnored var secrets: Set<String> = []
     /// Set when the running command woke a tab, so its current tab is kept awake after it.
     @ObservationIgnored var actedOn: Tab?
     /// What `dialog-accept <text>` answers prompt() with; nil answers with the prompt's default.

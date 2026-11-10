@@ -205,10 +205,12 @@ final class Browser {
             }
             scheduleSave()
         }
+        let secrets = { self.model.workspaces.first(where: { $0.name == request.workspace })?.secrets ?? [] }
         do {
-            return Response(ok: true, output: try await run(request))
+            let output = try await run(request)
+            return Response(ok: true, output: Self.hide(secrets(), in: output))
         } catch {
-            return Response(ok: false, output: "Error: \(error)")
+            return Response(ok: false, output: Self.hide(secrets(), in: "Error: \(error)"))
         }
     }
 
@@ -472,8 +474,10 @@ final class Browser {
         case "download":
             return "### Download\n" + (try await download(tab, target: try arg(0, "target"), to: options["filename"], js: options["js"] != nil, instant: instant)) + "\n" + describe(tab)
         case "fill", "select":
+            let secret = options["secret"] != nil
+            if secret { tab.workspace.secrets.insert(try arg(1, "text")) }
             _ = try await tab.call(PageScripts.fill, ["target": try arg(0, "target"), "text": try arg(1, request.command == "select" ? "value" : "text"),
-                                                      "onlySelect": request.command == "select"])
+                                                      "onlySelect": request.command == "select", "secret": secret])
             if options["submit"] != nil { try await pressKey(tab, "Enter") }
         case "type":
             let text = try arg(0, "text")
@@ -917,6 +921,17 @@ final class Browser {
         @objc func printOperationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
             self.success = success
             finished = true
+        }
+    }
+
+    /// Secrets filled in the workspace, as written, JSON-escaped or URL-encoded, wherever a reply carries them
+    /// (eval, console, request-body, errors). Very short ones would mangle unrelated text.
+    static func hide(_ secrets: Set<String>, in output: String) -> String {
+        secrets.filter { $0.count >= 4 }.reduce(output) { output, secret in
+            let escaped = (try? JSONEncoder().encode(secret)).map { String(decoding: $0.dropFirst().dropLast(), as: UTF8.self) }
+            let encoded = secret.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
+            return Set([secret, escaped, encoded, encoded?.replacingOccurrences(of: "%20", with: "+")].compactMap { $0 })
+                .reduce(output) { $0.replacingOccurrences(of: $1, with: "<hidden>") }
         }
     }
 

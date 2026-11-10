@@ -168,7 +168,7 @@ public enum PageScripts {
       if (node.getAttribute('aria-expanded') === 'true') line += ' [expanded]';
       if (node.disabled) line += ' [disabled]';
       // A password someone typed by hand must not reach an agent's transcript.
-      if (node.type === 'password') { if (node.value) line += ' [value=<hidden>]'; }
+      if (node.type === 'password' || W.secrets?.has(node)) { if (node.value) line += ' [value=<hidden>]'; }
       else if (['textbox', 'searchbox', 'combobox'].includes(role) && node.tagName !== 'SELECT' && node.value) line += ` [value=${JSON.stringify(clean(node.value))}]`;
       // A custom select (mat-select, a div with role=combobox) shows its choice as its text, not a value.
       else if (role === 'combobox' && !('value' in node)) {
@@ -387,6 +387,7 @@ public enum PageScripts {
       }
     }
     el.dispatchEvent(new Event('change', { bubbles: true }));
+    if (secret) (W.secrets ||= new WeakSet()).add(el);
     return 'ok';
     """
 

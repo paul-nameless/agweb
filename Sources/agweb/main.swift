@@ -26,6 +26,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   mousedown | mouseup [button]  press or release a mouse button at the pointer
   mousewheel <dx> <dy>          scroll at the pointer; positive dy scrolls down
   fill <target> <text>          text fields, <select> options, date/colour/number inputs (--submit: Enter after)
+  fill <target> --secret-cmd CMD | --secret-file PATH
+                                a secret: the first line CMD prints (pass show site) or of the file, hidden in replies
   select <target> <value>       choose a <select> option by value or label
   type <text>                   insert text at the focused element a character at a time, at a person's pace
                                 (input events, not key events; --submit: Enter after)
@@ -99,7 +101,7 @@ let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw
                   "httpOnly", "secure", "gone", "load", "single-page"]
 let valued: Set = ["profile", "workspace", "max-idle", "filename", "size", "filter", "status", "body", "content-type",
                    "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser", "text", "url",
-                   "timeout", "color-scheme", "format", "download-dir"]
+                   "timeout", "color-scheme", "format", "download-dir", "secret-cmd", "secret-file"]
 let short = ["-w": "workspace", "-p": "profile"]
 func setOption(_ name: String, _ value: String) {
     // --header repeats; the app splits on newlines.
@@ -158,6 +160,50 @@ func finish(_ output: String, ok: Bool) -> Never {
 
 // Downloads nobody named land next to the agent's work, like screenshots, not in ~/Downloads.
 options["download-dir"] = absolute(options["download-dir"] ?? env["AGWEB_DOWNLOAD_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? ".agweb")
+
+/// A secret for `fill`, read here so the app never needs the caller's environment (pass's gpg agent, op and bw sessions).
+/// Only its first line is used, as `pass show` prints it; failures never echo what the command printed.
+func secret(command: String?, file: String?) -> String {
+    // Read only a little, so /dev/zero or a command like `yes` can't fill memory.
+    let limit = 4096
+    var data = Data()
+    if let file {
+        guard let handle = FileHandle(forReadingAtPath: absolute(file)) else { fail("cannot read \(file)") }
+        data = (try? handle.read(upToCount: limit + 1)) ?? Data()
+    } else if let command {
+        let process = Process(), out = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.standardOutput = out
+        do { try process.run() } catch { fail("cannot run --secret-cmd: \(error.localizedDescription)") }
+        let timer = DispatchWorkItem { process.terminate() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 60, execute: timer)
+        data = (try? out.fileHandleForReading.read(upToCount: limit + 1)) ?? Data()
+        // A long entry (pass with notes) is cut here; only its first line matters.
+        let cut = data.count > limit
+        if cut { process.terminate() }
+        process.waitUntilExit()
+        timer.cancel()
+        guard cut || process.terminationReason == .exit && process.terminationStatus == 0 else {
+            fail(process.terminationReason == .exit ? "--secret-cmd exited with status \(process.terminationStatus)" : "--secret-cmd timed out after 60 s")
+        }
+    }
+    guard data.prefix(limit).contains(UInt8(ascii: "\n")) || data.count <= limit else { fail("the secret is over \(limit) bytes") }
+    let value = String(decoding: data, as: UTF8.self).split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first.map {
+        String($0.hasSuffix("\r") ? $0.dropLast() : $0)
+    } ?? ""
+    guard !value.isEmpty else { fail("the secret is empty") }
+    return value
+}
+
+if options["secret-cmd"] != nil || options["secret-file"] != nil {
+    let command = options.removeValue(forKey: "secret-cmd"), file = options.removeValue(forKey: "secret-file")
+    guard positional.first == "fill" else { fail("--secret-cmd and --secret-file work with fill") }
+    guard command == nil || file == nil else { fail("use --secret-cmd or --secret-file, not both") }
+    guard positional.count == 2 else { fail("use: agweb fill <target> --secret-cmd CMD | --secret-file PATH (no text)") }
+    args.append(secret(command: command, file: file))
+    options["secret"] = ""
+}
 
 let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
 // The CLI writes the files it can, so the app never needs access to the caller's folders.

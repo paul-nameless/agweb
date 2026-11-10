@@ -1,6 +1,6 @@
 ---
 name: agweb
-description: Drive a real, visible web browser from the shell with the agweb CLI (WebKit; never steals focus; agents work in parallel, each in its own workspace). Use for any browser task: opening sites, logging in with a saved profile, clicking, filling and submitting forms, reading page text or tables, screenshots, PDFs, waiting for SPAs, checking network calls and console errors, mocking APIs, cookies, uploads and downloads, recording demo videos, and testing web apps. Use instead of playwright-cli.
+description: Drive a real, visible web browser from the shell with the agweb CLI (WebKit; never steals focus; agents work in parallel, each in its own workspace). Use for any browser task: opening sites, logging in with a saved profile or a password from pass, 1Password or Bitwarden kept out of the transcript, clicking, filling and submitting forms, reading page text or tables, screenshots, PDFs, waiting for SPAs, checking network calls and console errors, mocking APIs, cookies, uploads and downloads, recording demo videos, and testing web apps. Use instead of playwright-cli.
 allowed-tools: Bash(agweb:*)
 ---
 
@@ -40,12 +40,12 @@ agweb profile-list # existing profiles; the project's notes may name one
 agweb -w task open -p work https://app.example.com # lands logged in if the profile has been used before
 agweb -w task snapshot # a login form? credentials come from the project (pass, env), never from you
 agweb -w task fill 'role=textbox[name="Email"]' "$EMAIL"
-agweb -w task fill 'role=textbox[name="Password"]' "$(pass show site)"
+agweb -w task fill 'role=textbox[name="Password"]' --secret-cmd 'pass show site'   # never "$(pass show site)": that puts it in your transcript
 agweb -w task click 'role=button[name="Sign in"]' && agweb -w task wait --url=/dashboard --timeout=60000
 agweb -w task show && agweb -w task wait --url=/dashboard --timeout=600000 # no credentials: ask the person, wait up to 10 min
 ```
 
-A profile can't change on an open workspace: `close` it, then `open -p`. Snapshots show typed passwords as `[value=<hidden>]`; keep them out of your output too.
+A profile can't change on an open workspace: `close` it, then `open -p`. `--secret-cmd CMD` takes the first line CMD prints (`pass show site`, `op read op://vault/site/password`, `bw get password site`); `--secret-file PATH` the first line of a file. The value is never in a reply: the field shows `[value=<hidden>]` in snapshots, and `eval`, `console` and `request-body` print `<hidden>` wherever it appears. Use them for passwords, tokens and one-time codes.
 
 **Filling a form and verifying it.**
 
