@@ -7,14 +7,14 @@ macOS only. It is built on WebKit, the engine behind Safari.
 ## Why
 
 - **It never steals focus.** No window comes to the front, nothing pops up. Dialogs, file pickers and downloads are answered in code, so you keep typing while agents browse.
-- **You can always see it.** Headless browsers get blocked by some sites, and you can't see what went wrong. agweb is always a real window: glance at it, or click in and take over.
-- **Many agents at once.** Each agent works in its own workspace with its own tabs. The sidebar groups tabs by agent, and the dashboard (⌘D) shows every tab with the agent's last command.
+- **You can always see it.** The dashboard (⌘D) shows every tab of every agent at once, live, with each agent's last command; click one to jump in and take over. And it is always a real window: some sites block headless browsers, and headless leaves you guessing what went wrong.
+- **Many agents at once.** Each agent works in its own workspace with its own tabs, grouped by agent in the sidebar.
 - **Log in once.** A named profile (`-p work`) keeps its logins and is shared by every agent using it, at the same time. Chrome can't share one profile between processes. Logins and tabs survive a restart.
 - **Light on your Mac.** It uses less memory and CPU than Chrome-based tools: idle tabs are throttled and then suspended, so five idle pages take about 0% CPU and 560 MB.
 - **Acts like a person.** Clicks and keys are native macOS events, and the pointer moves like a hand, so hover menus and drag-and-drop work.
 - **Made for agents.** Snapshots give each element a ref that lasts while it is on the page. `snapshot --diff` and `find` show only what matters, and every action reports what it changed.
 - **Passwords stay out of the transcript.** `fill --secret-cmd 'pass show site'` types a secret the agent never sees in replies. 1Password and Bitwarden CLIs work too.
-- **Demo videos.** `video-start` records a tab to MP4, with the pointer, clicks and chapter cards drawn in.
+- **Demo videos.** `video-start` records a tab to MP4, with the pointer and clicks drawn in.
 
 ## Install
 
