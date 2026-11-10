@@ -18,7 +18,7 @@ extension Browser {
             while !Task.isCancelled, let self {
                 await self.refreshThumbnails()
                 if UserDefaults.standard.bool(forKey: Settings.showUsage) {
-                    if tick % 2 == 0 { self.model.processes = self.usageSampler.sample() }
+                    if tick % 5 == 0 { self.model.processes = self.usageSampler.sample() }
                 } else if !self.model.processes.isEmpty {
                     self.model.processes = [:]
                 }

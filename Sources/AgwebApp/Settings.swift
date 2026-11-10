@@ -23,7 +23,7 @@ struct SettingsView: View {
                     ForEach(1...6, id: \.self) { Text("\($0)").tag($0) }
                 }
                 Toggle("Show CPU and memory", isOn: $showUsage)
-                Text("Each page's process, and the total for agweb with its GPU and network processes, sampled every 2 s while the dashboard is open.")
+                Text("Each page's process, and the total for agweb with its GPU and network processes, sampled every 5 s while the dashboard is open.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Agent skill") {

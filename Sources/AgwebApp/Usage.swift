@@ -12,7 +12,7 @@ struct Usage: Equatable {
 }
 
 /// Samples agweb and every process macOS counts as its own: one page process per tab or so, the GPU and networking
-/// processes. One proc_pid_rusage call per process, only while the dashboard shows the numbers.
+/// processes. One proc_pid_rusage call per process, every 5 s, only while the dashboard shows the numbers.
 @MainActor
 final class UsageSampler {
     private var previous: [pid_t: (cpu: UInt64, at: UInt64)] = [:]
