@@ -498,13 +498,14 @@ public enum PageScripts {
     }
 
     /// Page world, document start, main frame: a reopened tab's sessionStorage, saved before a restart, put back
-    /// before the page's scripts run. Only into a tab that has none yet for the origin.
+    /// before the page's scripts run, unless the tab already has some for the origin. Either way the origin is done.
     public static func seedSession(_ json: String) -> String {
         """
         (() => {
           const items = (\(json))[location.origin];
-          if (!items || sessionStorage.length) return;
-          for (const [k, v] of Object.entries(items)) { try { sessionStorage.setItem(k, v); } catch {} }
+          if (!items) return;
+          if (!sessionStorage.length) for (const [k, v] of Object.entries(items)) { try { sessionStorage.setItem(k, v); } catch {} }
+          try { window.webkit.messageHandlers.agwebPage.postMessage({ seeded: location.origin }); } catch {}
         })();
         """
     }

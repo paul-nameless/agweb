@@ -59,8 +59,6 @@ final class Workspace: Identifiable {
     @ObservationIgnored var routes: [Route] = [] { didSet { installScripts() } }
     /// localStorage from `state-load` by origin, set when the origin next loads.
     @ObservationIgnored var pendingStorage: [String: [[String]]] = [:] { didSet { installScripts() } }
-    /// sessionStorage by origin for reopened tabs' first loads; see Tab.load.
-    @ObservationIgnored var sessionSeeds: [String: [String: String]] = [:] { didSet { installScripts() } }
 
     nonisolated var id: String { name }
     var current: Tab? { tabs.first { $0.id == currentID } }
@@ -80,9 +78,12 @@ final class Workspace: Identifiable {
         return try await recorder.stop()
     }
 
+    @ObservationIgnored let console: WKScriptMessageHandler
+
     init(name: String, profile: String?, console: WKScriptMessageHandler) {
         self.name = name
         self.profile = profile
+        self.console = console
         dataStore = Profiles.store(profile)
         // One controller per workspace: popups get a copy of the opener's configuration, and registering
         // a message handler twice on a shared controller throws.
@@ -92,20 +93,27 @@ final class Workspace: Identifiable {
 
     static let handlers = ["agwebConsole", "agwebPage"]
 
-    /// User scripts apply to the next load; live pages get the new routes directly.
-    private func installScripts() {
-        contentController.removeAllUserScripts()
+    /// User scripts apply to the next load; live pages get the new routes directly. A reopened tab with saved
+    /// sessionStorage has a controller of its own, carrying the same scripts plus its own values.
+    func installScripts() {
         let routesJSON = String(decoding: (try? JSONEncoder().encode(routes)) ?? Data("[]".utf8), as: UTF8.self)
         let setRoutes = "window.__agwebRoutes = \(routesJSON);"
-        contentController.addUserScript(WKUserScript(source: PageScripts.consoleHook, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        contentController.addUserScript(WKUserScript(source: setRoutes + PageScripts.networkHook, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        var scripts = [WKUserScript(source: PageScripts.consoleHook, injectionTime: .atDocumentStart, forMainFrameOnly: false),
+                       WKUserScript(source: setRoutes + PageScripts.networkHook, injectionTime: .atDocumentStart, forMainFrameOnly: false)]
         if !pendingStorage.isEmpty, let json = try? JSONEncoder().encode(pendingStorage) {
-            contentController.addUserScript(WKUserScript(source: PageScripts.pendingStorage(String(decoding: json, as: UTF8.self)),
-                                                         injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            scripts.append(WKUserScript(source: PageScripts.pendingStorage(String(decoding: json, as: UTF8.self)),
+                                        injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
-        if !sessionSeeds.isEmpty, let json = try? JSONEncoder().encode(sessionSeeds) {
-            contentController.addUserScript(WKUserScript(source: PageScripts.seedSession(String(decoding: json, as: UTF8.self)),
-                                                         injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        contentController.removeAllUserScripts()
+        scripts.forEach(contentController.addUserScript)
+        for tab in tabs {
+            guard let own = tab.ownController else { continue }
+            own.removeAllUserScripts()
+            scripts.forEach(own.addUserScript)
+            if !tab.pendingSeeds.isEmpty, let json = try? JSONEncoder().encode(tab.pendingSeeds) {
+                own.addUserScript(WKUserScript(source: PageScripts.seedSession(String(decoding: json, as: UTF8.self)),
+                                               injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            }
         }
         // A tab not loaded yet gets them from the user script; running a script would start its web process.
         for tab in tabs where tab.pendingURL == nil { tab.webView.evaluateJavaScript(setRoutes) }
@@ -113,7 +121,8 @@ final class Workspace: Identifiable {
 
     /// `lazy`: no web process until the first load, for a reopened tab whose page loads only when used. Not for a tab
     /// that may never load (a blank one), which scripts must still reach.
-    func makeConfiguration(lazy: Bool = false) -> WKWebViewConfiguration {
+    /// `ownController`: a controller of the tab's own, for a reopened tab whose saved sessionStorage only it may get.
+    func makeConfiguration(lazy: Bool = false, ownController: Bool = false) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         let delay = NSSelectorFromString("_setDelaysWebProcessLaunchUntilFirstLoad:")
         if lazy, config.responds(to: delay) {
@@ -121,7 +130,13 @@ final class Workspace: Identifiable {
             unsafeBitCast(config.method(for: delay), to: SetBool.self)(config, delay, true)
         }
         config.websiteDataStore = dataStore
-        config.userContentController = contentController
+        if ownController {
+            let own = WKUserContentController()
+            for handler in Self.handlers { own.add(console, name: handler) }
+            config.userContentController = own
+        } else {
+            config.userContentController = contentController
+        }
         // Off: only a click opens a window, so an ad's timer can't hand the agent a new tab.
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         // Only hidden tabs are affected (see Visibility.swift): after about 4 minutes hidden WebKit frees their memory
@@ -417,16 +432,6 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         let generation = loadGeneration
         if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
         guard generation == loadGeneration else { return false }
-        if let seeds = restoredSession, !seeds.isEmpty {
-            restoredSession = nil
-            seededOrigins = Array(seeds.keys)
-            workspace.sessionSeeds.merge(seeds) { _, new in new }
-            // Until the load ends, so other tabs of the workspace don't keep getting them.
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(30))
-                self?.unseed()
-            }
-        }
         expected = url.isFileURL
             ? webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
             : webView.load(URLRequest(url: url))
@@ -451,20 +456,30 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         try await withCheckedThrowingContinuation { loadWaiter = $0 }
     }
 
-    /// sessionStorage by origin, saved with the tab so a restart doesn't log out apps that keep their tokens there
-    /// (OAuth implicit flows), as Chrome and Safari restore it. `restoredSession` waits for the reopened tab's first load.
+    /// sessionStorage by origin, saved with the tab of a named profile so a restart doesn't log out apps that keep
+    /// their tokens there (OAuth implicit flows), as Chrome and Safari restore it. A fresh profile keeps nothing.
     @ObservationIgnored var session: [String: [String: String]] = [:]
-    @ObservationIgnored var restoredSession: [String: [String: String]]?
-    @ObservationIgnored private var seededOrigins: [String] = []
+    /// Saved origins not yet put back: until a page of that origin confirms it got them, a failed first load or a
+    /// detour through another origin (an SSO bounce) can't lose them. `ownController` carries the seed script.
+    @ObservationIgnored var pendingSeeds: [String: [String: String]] = [:]
+    @ObservationIgnored var ownController: WKUserContentController?
+
+    func seeded(_ origin: String) {
+        guard pendingSeeds.removeValue(forKey: origin) != nil else { return }
+        workspace.installScripts()
+    }
 
     func captureSession() async {
-        guard pendingURL == nil, let scheme = webView.url?.scheme, scheme.hasPrefix("http"),
+        guard workspace.profile != nil, pendingURL == nil, let scheme = webView.url?.scheme, scheme.hasPrefix("http"),
               // Short: quit reads every tab, and a hung page must not hold it up.
               let json = try? await withTimeout(2, "reading sessionStorage", { try await self.call(PageScripts.readSession) }),
               let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
-              let origin = object["origin"] as? String, let items = object["items"] as? [String: String] else { return }
-        // A page that fills it with megabytes of cache doesn't get it saved.
-        session[origin] = items.isEmpty || json.utf8.count > 1_000_000 ? nil : items
+              let origin = object["origin"] as? String, let items = object["items"] as? [String: String],
+              // Not yet put back: what the page holds now isn't what it had.
+              pendingSeeds[origin] == nil,
+              // Megabytes of cache: keep the last copy that fit, which holds the token.
+              json.utf8.count <= 1_000_000 else { return }
+        session[origin] = items.isEmpty ? nil : items
     }
 
     /// The tab stays visible until then after its agent's last command; see Visibility.swift.
@@ -525,14 +540,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         if waited { try? await Task.sleep(for: .milliseconds(50)) }
     }
 
-    private func unseed() {
-        guard !seededOrigins.isEmpty else { return }
-        for origin in seededOrigins { workspace.sessionSeeds[origin] = nil }
-        seededOrigins = []
-    }
-
     func finishLoad(_ error: Error?) {
-        unseed()
         expected = nil
         loadTimeout?.cancel()
         guard let waiter = loadWaiter else { return }
@@ -798,6 +806,8 @@ final class ConsoleSink: NSObject, WKScriptMessageHandler {
             } else if let body = message.body as? [String: Any] {
                 if let origin = body["stored"] as? String {
                     tab.workspace.pendingStorage[origin] = nil
+                } else if let origin = body["seeded"] as? String {
+                    tab.seeded(origin)
                 } else {
                     tab.requests.append(body)
                     if tab.requests.count > 500 { tab.requests.removeFirst(tab.requests.count - 500) }

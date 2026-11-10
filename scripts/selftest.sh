@@ -266,8 +266,8 @@ fails "no tab 9" -w alpha tab-close 9
 check "0: (current)" -w alpha tab-close 1
 check "index.html?tabnew" -w alpha tab-new "$u?tabnew"
 check "0: (current)" -w alpha tab-close 1
-check "Page" -w alpha eval "() => { setTimeout(() => open('/index.html?ad'), 200) }"
-sleep 1
+check "Page" -w alpha eval "() => { setTimeout(() => open('/index.html?ad'), 1000) }"
+sleep 2
 check "0: (current)" -w alpha tab-list
 check "opened in tab 1: .*index.html?next" -w alpha click 'text=Next page' middle
 check "0: (current)" -w alpha tab-close 1
@@ -405,31 +405,45 @@ check "recording" -w eph2 video-start "$dir/close.mp4"
 check "### Video" -w eph2 close
 LC_ALL=C grep -qa moov "$dir/close.mp4" || fail "close left the video without its index"
 check "Page" -w beta eval "() => { document.cookie = 'kept=1; max-age=600'; document.cookie = 'sso=1' }"
-check "Page" -w beta eval "() => { sessionStorage.setItem('access_token', 'tok1') }"
+# sessionStorage: a named profile's tab keeps it per origin, saved after commands and at quit; a fresh profile keeps none.
+check "localhost" -w beta goto "http://localhost:$port/index.html?b2"
+check "Page" -w beta eval "() => { sessionStorage.setItem('access_token', 'tok2') }"
+check "index.html?beta" -w beta goto "$u?beta"
+check "Page" -w beta eval "() => { sessionStorage.setItem('access_token', 'tok1'); setTimeout(() => sessionStorage.setItem('late', 'L'), 1500) }"
+check "Page" -w eph1 eval "() => { sessionStorage.setItem('fresh', 'F') }"
+sleep 2
 check "dashboard shown" dashboard
 check "recording" -w beta video-start "$dir/quit.mp4"
 check "### Video" quit
 LC_ALL=C grep -qa moov "$dir/quit.mp4" || fail "quit left the video without its index"
 stopped
-# goto as the first command of a run must still bring the profile's session cookies back.
+# goto as the first command of a run must still bring the profile's session cookies back, and a detour through
+# another origin first (an SSO bounce) must not use up the first origin's sessionStorage.
+check "index.html?first" -w beta goto "http://localhost:$port/index.html?first"
+check '"tok2"' -w beta eval "sessionStorage.getItem('access_token')"
 check "index.html?again" -w beta goto "$u?again"
 check 'sso=1' -w beta eval 'document.cookie'
-check '"tok1"' -w beta eval "sessionStorage.getItem('access_token')"
+check '\["tok1","L"\]' -w beta eval "[sessionStorage.getItem('access_token'), sessionStorage.getItem('late')]"
+check '^null$' -w eph1 --raw eval "sessionStorage.getItem('fresh')"
 check '"dashboard":true' list --json
 check "dashboard hidden" dashboard --hide
 check "beta (profile selftest-shared" list
 check "eph1 (fresh profile" list
 check "index.html?again" -w beta tab-list
 check 'button "Press me"' -w beta snapshot
+# Cleared (a logout) is saved too, so the next restart doesn't log back in.
+check "Page" -w beta eval "() => { sessionStorage.clear() }"
 check "bye" quit
 stopped
 # A run that never touches the profile must not save over its session cookies.
 check 'button "Press me"' -w alpha snapshot
+check '"dashboard":false' list --json
 check "bye" quit
 stopped
 check "Title" -w delta open "$u" -p selftest-shared
 check 'kept=1' -w delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
 check 'sso=1' -w delta eval 'document.cookie'
+check '^null$' -w beta --raw eval "sessionStorage.getItem('access_token')"
 case "$(defaults read $domain agwebTestFrame)" in *"{900, "*) ;; *) false ;; esac || fail "the test window's saved frame was not restored"
 [ "$(defaults read $domain agwebMainFrame 2>/dev/null)" = "$person_frame" ] || fail "the selftest changed the person's saved window frame"
 check "workspace delta closed" close-all

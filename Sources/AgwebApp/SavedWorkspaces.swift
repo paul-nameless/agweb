@@ -36,7 +36,7 @@ extension Browser {
             await self.model.displayedTab?.captureSession()
             guard !Task.isCancelled else { return }
             self.saveWorkspaces()
-            // So a crash loses at most the last second of logins.
+            // So a crash loses at most the last second of cookie logins; sessionStorage is saved on commands and quit.
             await Profiles.saveSessionCookies()
         }
     }
@@ -47,7 +47,8 @@ extension Browser {
         let state = SavedWorkspaces(
             workspaces: model.workspaces.map { workspace in
                 .init(name: workspace.name, profile: workspace.profile, current: workspace.tabs.firstIndex { $0.id == workspace.currentID },
-                      tabs: workspace.tabs.map { .init(url: $0.currentURL, title: $0.currentTitle, session: $0.session.isEmpty ? nil : $0.session) })
+                      tabs: workspace.tabs.map { .init(url: $0.currentURL, title: $0.currentTitle,
+                                                       session: workspace.profile == nil || $0.session.isEmpty ? nil : $0.session) })
             },
             displayed: displayed?.workspace.name, displayedIndex: displayed.flatMap { tab in tab.workspace.tabs.firstIndex { $0 === tab } },
             dashboard: model.dashboardOpen ? true : nil)
@@ -65,12 +66,11 @@ extension Browser {
             guard let workspace = try? existingOrNewWorkspace(named: saved.name, profile: saved.profile) else { continue }
             for savedTab in saved.tabs {
                 let url = URL(string: savedTab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
-                let tab = addTab(to: workspace, display: false, lazy: url != nil)
+                let seeds = workspace.profile == nil ? [:] : savedTab.session ?? [:]
+                let tab = addTab(to: workspace, display: false, lazy: url != nil, seeds: seeds)
                 tab.pendingURL = url
                 tab.url = savedTab.url
                 tab.title = savedTab.title
-                tab.session = savedTab.session ?? [:]
-                tab.restoredSession = savedTab.session
             }
             if let index = saved.current, workspace.tabs.indices.contains(index) { workspace.currentID = workspace.tabs[index].id }
         }

@@ -67,8 +67,15 @@ final class Browser {
 
     /// `display: false` only adds it, for tabs reopened at launch.
     @discardableResult
-    func addTab(to workspace: Workspace, display: Bool = true, lazy: Bool = false) -> Tab {
-        let tab = makeTab(in: workspace, configuration: lazy ? workspace.makeConfiguration(lazy: true) : nil, opener: nil)
+    func addTab(to workspace: Workspace, display: Bool = true, lazy: Bool = false, seeds: [String: [String: String]] = [:]) -> Tab {
+        let configuration = lazy || !seeds.isEmpty ? workspace.makeConfiguration(lazy: lazy, ownController: !seeds.isEmpty) : nil
+        let tab = makeTab(in: workspace, configuration: configuration, opener: nil)
+        if !seeds.isEmpty {
+            tab.ownController = configuration?.userContentController
+            tab.session = seeds
+            tab.pendingSeeds = seeds
+            workspace.installScripts()
+        }
         if display { drive(tab) }
         return tab
     }
@@ -110,6 +117,8 @@ final class Browser {
         tab.webView.stopLoading()
         tab.webView.navigationDelegate = nil
         tab.webView.uiDelegate = nil
+        // Its handlers hold the console sink; a workspace's own controller is cleaned up with the workspace.
+        if let own = tab.ownController { for handler in Workspace.handlers { own.removeScriptMessageHandler(forName: handler) } }
         mainWindow.remove(tab.webView)
         workspace.tabs.remove(at: index)
         if workspace.currentID == tab.id {
