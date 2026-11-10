@@ -15,7 +15,7 @@ person_frame=$(defaults read $domain agwebMainFrame 2>/dev/null)
 defaults write $domain agwebTestFrame -string "{{200, 200}, {900, 600}}"
 
 port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
-(cd "$dir" && exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1 >"$dir/server.log" 2>&1) &
+(server="$PWD/server.py"; cd "$dir" && exec /usr/bin/python3 "$server" "$port" >"$dir/server.log" 2>&1) &
 server=$!
 trap '"$agweb" quit >/dev/null 2>&1; kill $server 2>/dev/null; wait $server 2>/dev/null; defaults delete $domain agwebTestFrame 2>/dev/null; rm -r "$dir"' EXIT
 for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 0.3; done
@@ -139,6 +139,8 @@ check '^0$' -w alpha --raw eval "document.querySelectorAll('div[style*=\"2147483
 fails "did you mean tab-list" -w alpha tabs
 
 echo "== network, routes, downloads and prompts"
+check "Page" -w alpha click '#slow'
+check '^1$' -w alpha --raw eval 'window.slowDone'
 check "Page" -w alpha click '#api'
 sleep 0.5
 check 'POST\] http.*index.html?api => 501 \[fetch\]' -w alpha requests --filter 'api$'

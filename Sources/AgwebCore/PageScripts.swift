@@ -271,6 +271,11 @@ public enum PageScripts {
     return String(document.readyState === 'complete' && !(window.__agwebPending > 0));
     """
 
+    /// Page world: whether a fetch or XHR started at or after `since` (ms since 1970) is still in flight.
+    public static let busySince = """
+    return String([...(window.__agwebInflight || [])].some(e => e.start >= since));
+    """
+
     public static let focusedKind = """
     const e = document.activeElement;
     return !e ? '' : e.tagName === 'SELECT' ? 'select' : e.tagName === 'INPUT' ? (e.getAttribute('type') || 'text').toLowerCase() : '';
@@ -374,9 +379,11 @@ public enum PageScripts {
     (() => {
       if (window.__agwebNetwork) return;
       window.__agwebNetwork = true;
-      // Calls in flight, for wait --load.
+      // Calls in flight: their count for wait --load, their entries (with start times) for settling after an action.
       window.__agwebPending = 0;
-      const begin = () => { window.__agwebPending++; }, end = () => { window.__agwebPending = Math.max(0, window.__agwebPending - 1); };
+      const inflight = window.__agwebInflight = new Set();
+      const begin = (e) => { window.__agwebPending++; inflight.add(e); };
+      const end = (e) => { window.__agwebPending = Math.max(0, window.__agwebPending - 1); inflight.delete(e); };
       const post = (m) => { try { window.webkit.messageHandlers.agwebPage.postMessage(m); } catch {} };
       const max = 65536;
       const cut = (s) => s == null ? null : s.length > max ? s.slice(0, max) + `… (${s.length} characters)` : s;
@@ -402,7 +409,7 @@ public enum PageScripts {
           post({ ...entry, status, statusText: 'routed', responseHeaders: Object.fromEntries(headers), responseBody: cut(r.body ?? ''), routed: true });
           return new Response(nullBody.includes(status) ? null : r.body ?? '', { status, headers });
         }
-        begin();
+        begin(entry);
         try {
           const res = await fetch0.apply(this, arguments);
           const type = res.headers.get('content-type') || '';
@@ -413,7 +420,7 @@ public enum PageScripts {
           post({ ...entry, failure: String(e) });
           throw e;
         } finally {
-          end();
+          end(entry);
         }
       };
 
@@ -437,9 +444,9 @@ public enum PageScripts {
         if (entry) {
           entry.requestBody = bodyText(body);
           entry.start = Date.now();
-          begin();
+          begin(entry);
           this.addEventListener('loadend', () => {
-            end();
+            end(entry);
             const { route: r, ...rest } = entry;
             const headers = Object.fromEntries(this.getAllResponseHeaders().trim().split(/[\\r\\n]+/).filter(Boolean).map(l => [l.slice(0, l.indexOf(':')).trim().toLowerCase(), l.slice(l.indexOf(':') + 1).trim()]));
             const type = this.responseType;

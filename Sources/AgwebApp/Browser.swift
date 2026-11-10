@@ -329,6 +329,7 @@ final class Browser {
             guard Commands.all.contains(request.command) else { throw Failure(Commands.unknown(request.command)) }
             throw Failure("workspace has no tabs; run tab-new")
         }
+        tab.commandStart = Date().timeIntervalSince1970 * 1000
         // A tab reopened at launch loads on first use.
         if request.command != "goto" { try await tab.loadIfPending() }
         let webView = tab.webView

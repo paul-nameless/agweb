@@ -372,13 +372,25 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         try await withCheckedThrowingContinuation { loadWaiter = $0 }
     }
 
-    /// After an action that may navigate: give it a moment to start, then wait for it to settle.
+    /// When the running command started, in ms since 1970, the clock the page's network hook stamps calls with.
+    @ObservationIgnored var commandStart = 0.0
+
+    /// After an action that may navigate: give it a moment to start, then wait for it to settle, and for the fetch
+    /// and XHR calls it started, so the next snapshot sees the page's answer. Older calls (long polls) don't count.
     func settle() async {
         try? await Task.sleep(for: .milliseconds(150))
         let deadline = Date().addingTimeInterval(15)
         while webView.isLoading, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(100))
         }
+        let network = Date().addingTimeInterval(5)
+        var waited = false
+        while Date() < network, (try? await call(PageScripts.busySince, ["since": commandStart], world: .page)) == "true" {
+            waited = true
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        // The page renders the answer just after the call ends.
+        if waited { try? await Task.sleep(for: .milliseconds(50)) }
     }
 
     func finishLoad(_ error: Error?) {
