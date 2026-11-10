@@ -19,12 +19,23 @@ func pathEndsExactlyOnTarget(distance: Double) {
     }
 }
 
-@Test func longThrowsFallShortThenCorrect() {
-    var motion = Motion(seed: 3)
-    let path = motion.path(from: .zero, to: CGPoint(x: 1000, y: 0), targetSize: 40)
-    // The ballistic leg ends with the corrective pause, short of the target.
-    let corner = path.first { $0.pause > 1.0 / 60 + 0.001 }
-    #expect(corner.map { (850...960).contains($0.point.x) } == true)
+@Test func longThrowsMissThenCorrect() {
+    var short = 0, over = 0
+    for seed in 0..<300 as Range<UInt64> {
+        var motion = Motion(seed: seed)
+        let path = motion.path(from: .zero, to: CGPoint(x: 1000, y: 0), targetSize: 20)
+        // The ballistic leg ends with the corrective pause, near the target.
+        guard let corner = path.first(where: { $0.pause > 1.0 / 60 + 0.001 }) else { continue }
+        if (850...960).contains(corner.point.x) { short += 1 } else if (1020...1090).contains(corner.point.x) { over += 1 }
+    }
+    #expect(short > over && over > 20)
+}
+
+@Test func aimClustersInTheMiddle() {
+    var motion = Motion(seed: 6)
+    let points = (0..<2000).map { _ in motion.aim(center: .zero, size: CGSize(width: 120, height: 120)) }
+    let inner = points.filter { abs($0.x) < 20 && abs($0.y) < 20 }.count
+    #expect(Double(inner) / Double(points.count) > 0.4)
 }
 
 @Test func aimStaysInsideTheTarget() {

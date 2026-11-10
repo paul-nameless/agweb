@@ -31,8 +31,11 @@ public struct Motion {
     /// Log-normal with this median: mostly near it, now and then much longer, as human timings are.
     public mutating func logNormal(median: Double, sigma: Double) -> Double { median * exp(sigma * gaussian()) }
 
+    /// Where a person lands on a target: normally scattered around its middle (SD a sixth of its size, Meyer
+    /// 1988), never outside it.
     public mutating func aim(center: CGPoint, size: CGSize) -> CGPoint {
-        CGPoint(x: center.x + jitter(0, min(size.width * 0.18, 9)), y: center.y + jitter(0, min(size.height * 0.18, 5)))
+        func axis(_ side: Double) -> Double { min(max(side / 6 * gaussian(), -side * 0.4), side * 0.4) }
+        return CGPoint(x: center.x + axis(size.width), y: center.y + axis(size.height))
     }
 
     /// Points about 60 Hz apart, each with the pause that follows it; the last point is `to`.
@@ -41,9 +44,10 @@ public struct Motion {
         guard dist >= 0.5 else { return [(to, 0)] }
         let index = log2(2 * dist / min(max(targetSize, 14), 320) + 1)
         let seconds = min(max(0.115 + 0.135 * index, 0.2), 1.15)
-        guard dist > 260 else { return leg(from, to, seconds) }
-        // A ballistic throw that falls short, then a quick correction.
-        let f = 0.88 + 0.07 * random()
+        // The harder the target, the likelier a ballistic throw that misses, then a quick correction; most throws
+        // fall short, some overshoot.
+        guard random() < min(max((index - 2.5) / 3, 0), 0.9) else { return leg(from, to, seconds) }
+        let f = random() < 0.3 ? 1.03 + 0.05 * random() : 0.88 + 0.07 * random()
         let short = CGPoint(x: from.x + (to.x - from.x) * f + jitter(0, dist * 0.012),
                             y: from.y + (to.y - from.y) * f + jitter(0, dist * 0.012))
         var throwLeg = leg(from, short, seconds * 0.8)
