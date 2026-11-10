@@ -11,13 +11,13 @@ agweb="$PWD/../bin/agweb"
 cp testpage.html "$dir/index.html"
 cp frame.html "$dir/"
 domain=dev.playground.agweb
-person_frame=$(defaults read $domain "NSWindow Frame agwebMain" 2>/dev/null)
-defaults write $domain "NSWindow Frame agwebTest" "200 200 900 600 0 0 1440 900"
+person_frame=$(defaults read $domain agwebMainFrame 2>/dev/null)
+defaults write $domain agwebTestFrame -string "{{200, 200}, {900, 600}}"
 
 port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 (cd "$dir" && exec /usr/bin/python3 -m http.server "$port" --bind 127.0.0.1 >"$dir/server.log" 2>&1) &
 server=$!
-trap '"$agweb" quit >/dev/null 2>&1; kill $server 2>/dev/null; wait $server 2>/dev/null; defaults delete $domain "NSWindow Frame agwebTest" 2>/dev/null; rm -r "$dir"' EXIT
+trap '"$agweb" quit >/dev/null 2>&1; kill $server 2>/dev/null; wait $server 2>/dev/null; defaults delete $domain agwebTestFrame 2>/dev/null; rm -r "$dir"' EXIT
 for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 0.3; done
 u="http://127.0.0.1:$port/index.html"
 
@@ -307,8 +307,8 @@ check "index.html?beta" -w beta tab-list
 check 'button "Press me"' -w beta snapshot
 check 'kept=1' -w delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
 check 'sso=1' -w delta eval 'document.cookie'
-[ "$(defaults read $domain "NSWindow Frame agwebTest" | cut -d' ' -f3)" = 900 ] || fail "the test window's saved frame was not restored"
-[ "$(defaults read $domain "NSWindow Frame agwebMain" 2>/dev/null)" = "$person_frame" ] || fail "the selftest changed the person's saved window frame"
+case "$(defaults read $domain agwebTestFrame)" in *"{900, "*) ;; *) false ;; esac || fail "the test window's saved frame was not restored"
+[ "$(defaults read $domain agwebMainFrame 2>/dev/null)" = "$person_frame" ] || fail "the selftest changed the person's saved window frame"
 check "workspace delta closed" close-all
 check "profile selftest-shared deleted" profile-delete selftest-shared
 check "Title" -w zeta open "$u" -p selftest-shared
