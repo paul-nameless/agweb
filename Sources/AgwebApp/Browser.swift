@@ -181,7 +181,10 @@ final class Browser {
         defer {
             if let workspace = model.workspaces.first(where: { $0.name == request.workspace }) {
                 workspace.busy = false
-                if let tab = workspace.current { keepAwakeAfterCommand(tab) }
+                // Only after a command that acted on a page (`list` or `cookie-list` polling must not keep a tab awake),
+                // and the tab it left current: a popup or tab-select moves the agent on.
+                if workspace.actedOn != nil, let tab = workspace.current { keepAwakeAfterCommand(tab) }
+                workspace.actedOn = nil
                 updateVisibility()
             }
             scheduleSave()
@@ -848,7 +851,7 @@ final class Browser {
 
     private func describe(_ tab: Tab) -> String {
         var out = "### Page\n- URL: \(tab.currentURL)\n- Title: \(tab.currentTitle)"
-        if windowHidden { out += "\n- Note: the window is closed or minimized; pages may pause (agweb show)" }
+        if windowHidden { out += "\n- Note: the window is closed or minimized; pages are frozen between commands (agweb show)" }
         // Only when the tabs changed since the agent last saw them: a popup opened, a tab closed, another is current.
         // A --raw reply drops the list, so it doesn't count as seen.
         let workspace = tab.workspace

@@ -40,7 +40,7 @@ Role and text targets must match exactly one visible element, so add more of the
 
 - Every snapshot, even of one element, replaces the refs.
 - Actions don't wait for an element to appear: on a page still changing, `wait` for it first.
-- Between your commands your tab is hidden after 10 s (the page sees `document.hidden`, animations and audio stop) and is suspended after about 4 minutes; every command wakes it first, so this costs you nothing.
+- Between your commands your tab is hidden after 30 s (the page sees `document.hidden`, animations and audio stop) and is suspended after about 4 minutes; every command wakes it first, so this costs you nothing.
 - After an action, agweb waits for a navigation it caused and for fetch/XHR calls it started (up to 5 s), so the next snapshot shows the answer.
 
 ## Reading the page

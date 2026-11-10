@@ -40,6 +40,8 @@ final class Workspace: Identifiable {
     @ObservationIgnored var tabsShown: [Int] = []
     /// The running command's reply is printed --raw, without the tab list.
     @ObservationIgnored var rawReply = false
+    /// Set when the running command woke a tab, so its current tab is kept awake after it.
+    @ObservationIgnored var actedOn: Tab?
     /// What `dialog-accept <text>` answers prompt() with; nil answers with the prompt's default.
     @ObservationIgnored var promptText: String?
     @ObservationIgnored var recorder: Recorder?
@@ -90,7 +92,8 @@ final class Workspace: Identifiable {
             contentController.addUserScript(WKUserScript(source: PageScripts.pendingStorage(String(decoding: json, as: UTF8.self)),
                                                          injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
-        for tab in tabs { tab.webView.evaluateJavaScript(setRoutes) }
+        // A tab not loaded yet gets them from the user script; running a script would start its web process.
+        for tab in tabs where tab.pendingURL == nil { tab.webView.evaluateJavaScript(setRoutes) }
     }
 
     /// `lazy`: no web process until the first load, for a reopened tab whose page loads only when used. Not for a tab
@@ -385,7 +388,6 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     }
 
     /// Every first load goes through here, so a profile's saved session cookies are back before any page asks.
-    /// After the tab exists: WebKit never answers a cookie store in a process that has no web view yet.
     /// False when a later load replaced this one while the cookies were coming back.
     @discardableResult
     func load(_ url: URL) async -> Bool {
@@ -423,12 +425,15 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     /// What the tab costs: "visible", "hidden" (throttled), "suspended" (process frozen by WebKit) or "not loaded".
     var state: String {
         if pendingURL != nil { return "not loaded" }
-        guard webView.superview?.isHidden == true else { return "visible" }
         let selector = NSSelectorFromString("_webProcessState")
-        guard webView.responds(to: selector) else { return "hidden" }
         typealias Get = @convention(c) (AnyObject, Selector) -> Int
         // 0 not running, 1 foreground, 2 background, 3 suspended.
-        return unsafeBitCast(webView.method(for: selector), to: Get.self)(webView, selector) == 3 ? "suspended" : "hidden"
+        let process = webView.responds(to: selector) ? unsafeBitCast(webView.method(for: selector), to: Get.self)(webView, selector) : 1
+        if process == 3 { return "suspended" }
+        if process == 0 { return "not running" }
+        // A closed or minimized window hides every tab from WebKit.
+        let shown = webView.superview?.isHidden == false && webView.window.map(MainWindow.isRendering) == true
+        return shown ? "visible" : "hidden"
     }
 
     func setMuted(_ muted: Bool) {
@@ -439,7 +444,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         unsafeBitCast(webView.method(for: selector), to: SetMuted.self)(webView, selector, muted ? 1 : 0)
     }
 
-    /// Waits until the web process has applied a visibility change, so the next script sees the page visible.
+    /// Waits until WebKit has sent the page its visibility change; the next script is ordered behind it.
     func activityStateApplied() async {
         let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
         guard webView.responds(to: selector) else { return }

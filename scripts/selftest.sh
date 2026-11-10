@@ -330,7 +330,7 @@ check "workspace fs closed" -w fs close
 echo "== an idle tab nobody watches is hidden; a command wakes it"
 check "Title" -w vis open "$u"
 check "Page" -w vis eval "() => { window.vis = []; addEventListener('visibilitychange', () => vis.push(document.visibilityState)) }"
-sleep 11
+sleep 31
 check '"state":"hidden"' list --json
 check '\["hidden","visible"\]' -w vis eval 'vis'
 check '^30$' -w vis --raw eval "() => new Promise(r => { let n = 0; const f = () => ++n < 30 ? requestAnimationFrame(f) : r(n); requestAnimationFrame(f) })"
