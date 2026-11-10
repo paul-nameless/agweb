@@ -7,6 +7,8 @@ cd "$(dirname "$0")"
 dir=$(mktemp -d /tmp/agweb-test.XXXXXX)
 export AGWEB_SOCKET="$dir/s.sock"
 unset AGWEB_PROFILE AGWEB_WORKSPACE
+# Every command at once (the checks about human pace use `paced`), and tabs hide 3 s after a command, not 30.
+export AGWEB_INSTANT=1 AGWEB_AWAKE_SECONDS=3
 agweb=${AGWEB_CLI:-$PWD/../bin/agweb}
 cp testpage.html "$dir/index.html"
 cp frame.html frames.html side.html redirect.html "$dir/"
@@ -40,6 +42,7 @@ run() {
     [ "$(frontmost)" = "$domain" ] && fail "agweb became the frontmost app after: agweb $*"
 }
 check() { run 0 "$@"; }
+paced() { AGWEB_INSTANT=; check "$@"; AGWEB_INSTANT=1; }
 fails() { run 1 "$@"; }
 lacks() {
     pattern=$1; shift
@@ -77,13 +80,13 @@ check '"2"' -w alpha eval "() => document.querySelector('#s').value"
 echo "== the pointer glides: trusted mousemoves arrive, :hover follows, typing is per key"
 check "Page" -w alpha mousemove 5 5 --instant
 check 'false' -w alpha eval "() => { moves = 0; return document.querySelector('#b').matches(':hover') }"
-check "Page" -w alpha hover '#b'
+paced "Page" -w alpha hover '#b'
 check 'true' -w alpha eval "() => document.querySelector('#b').matches(':hover') && moves > 5"
 fails "inside the" -w alpha mousemove nan 5
 fails "inside the" -w alpha mousemove 5 99999
 check "Page" -w alpha eval "() => { q.focus(); q.setSelectionRange(99, 99); inputs = 0 }"
 start=$(now)
-check "Page" -w alpha type ' world'
+paced "Page" -w alpha type ' world'
 /usr/bin/python3 -c "import sys; sys.exit(0 if $(now) - $start >= 0.6 else 1)" || fail "typing ' world' took under 0.6 s; it should go at a person's pace"
 check "Page" -w alpha type '!' --instant
 check '\["hello world!",7\]' -w alpha eval '[q.value, inputs]'
@@ -335,7 +338,7 @@ check "workspace fs closed" -w fs close
 echo "== an idle tab nobody watches is hidden; a command wakes it"
 check "Title" -w vis open "$u"
 check "Page" -w vis eval "() => { window.vis = []; addEventListener('visibilitychange', () => vis.push(document.visibilityState)) }"
-sleep 31
+sleep 4
 check '"state":"hidden"' list --json
 check '\["hidden","visible"\]' -w vis eval 'vis'
 check '^30$' -w vis --raw eval "() => new Promise(r => { let n = 0; const f = () => ++n < 30 ? requestAnimationFrame(f) : r(n); requestAnimationFrame(f) })"
@@ -372,7 +375,7 @@ check '""' -w eph2 eval 'document.cookie'
 
 echo "== beta is not the displayed tab: snapshot, hover and screenshots still work"
 check 'button "Press me"' -w beta snapshot
-check "Page" -w beta hover '#b'
+paced "Page" -w beta hover '#b'
 check 'true' -w beta eval "() => document.querySelector('#b').matches(':hover') && moves > 5"
 check "Screenshot" -w beta screenshot "$dir/beta1.png"
 check "Page" -w beta eval "() => { document.body.style.background = '#c00' }"

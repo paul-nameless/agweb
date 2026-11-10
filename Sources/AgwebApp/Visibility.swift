@@ -7,7 +7,7 @@ import WebKit
 // it, or for a while after the agent's last command on it (toggling around every command would refetch on each
 // visibilitychange).
 extension Browser {
-    static let awakeAfterCommand: Double = 30
+    static let awakeAfterCommand = Double(ProcessInfo.processInfo.environment["AGWEB_AWAKE_SECONDS"] ?? "") ?? 30
 
     func needsVisible(_ tab: Tab) -> Bool {
         if model.displayedTabID == tab.id, !model.dashboardOpen { return true }

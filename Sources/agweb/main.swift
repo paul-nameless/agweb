@@ -79,6 +79,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
 --json                          print the reply as one JSON object
 -w NAME, --workspace=NAME       default $AGWEB_WORKSPACE, else "default"
 -p NAME, --profile=NAME         default $AGWEB_PROFILE, else a fresh profile
+AGWEB_INSTANT=1                 every command as if --instant
 `--` ends options, so text that starts with dashes can be passed: agweb type -- --verbose
 env: AGWEB_SOCKET runs a separate instance on that socket; AGWEB_APP points at Agweb.app
 """
@@ -132,6 +133,7 @@ while let arg = input.popFirst() {
 }
 if let name = options.removeValue(forKey: "workspace") { workspace = name }
 if options["profile"] == nil, let profile = env["AGWEB_PROFILE"], !profile.isEmpty { options["profile"] = profile }
+if options["instant"] == nil, env["AGWEB_INSTANT"].map({ !$0.isEmpty }) == true { options["instant"] = "" }
 
 guard let command = positional.first, command != "help", options["help"] == nil else {
     print(usage)
@@ -227,7 +229,9 @@ if !isServing(socket) {
         // -n with the socket in its environment: an instance for exactly this socket, whatever else runs.
         let launch = Process()
         launch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        launch.arguments = ["-g", "-n", "--env", "AGWEB_SOCKET=\(socket)", "-a", app]
+        // AGWEB_AWAKE_SECONDS shortens how long a tab stays visible after a command; the selftest uses it.
+        let awake = env["AGWEB_AWAKE_SECONDS"].map { ["--env", "AGWEB_AWAKE_SECONDS=\($0)"] } ?? []
+        launch.arguments = ["-g", "-n", "--env", "AGWEB_SOCKET=\(socket)"] + awake + ["-a", app]
         try launch.run()
         launch.waitUntilExit()
     }
