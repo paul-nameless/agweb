@@ -88,6 +88,24 @@ final class MainWindow: NSObject, NSWindowDelegate {
         container.addSubview(host, positioned: .above, relativeTo: placeholder)
     }
 
+    private static let askBar = NSUserInterfaceItemIdentifier("ask")
+
+    /// `ask`'s bar, floating over the bottom of the tab so it hides little of the page.
+    func showAsk(on webView: WKWebView, message: String, done: @escaping () -> Void) {
+        guard let host = webView.superview else { return }
+        hideAsk(on: webView)
+        let bar = NSHostingView(rootView: AskBar(message: message, done: done))
+        bar.identifier = Self.askBar
+        let width = min(bar.fittingSize.width, host.bounds.width - 32)
+        bar.frame = NSRect(x: (host.bounds.width - width) / 2, y: 16, width: width, height: bar.fittingSize.height)
+        bar.autoresizingMask = [.minXMargin, .maxXMargin, .maxYMargin]
+        host.addSubview(bar)
+    }
+
+    func hideAsk(on webView: WKWebView) {
+        webView.superview?.subviews.filter { $0.identifier == Self.askBar }.forEach { $0.removeFromSuperview() }
+    }
+
     /// Over every tab; the tabs underneath are hidden while it shows.
     func showDashboard(_ open: Bool) {
         dashboardButton.state = open ? .on : .off
@@ -265,12 +283,32 @@ private struct TabRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
+            if let asking = tab.asking {
+                Image(systemName: "hand.raised.fill").foregroundStyle(.orange).help("The agent asks you: \(asking)")
+            }
             Button(action: close) { Image(systemName: "xmark").font(.caption2) }
                 .buttonStyle(.borderless)
                 .opacity(hovering ? 1 : 0)
                 .help("Close tab")
         }
         .onHover { hovering = $0 }
+    }
+}
+
+private struct AskBar: View {
+    let message: String
+    let done: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
+            Text(message).lineLimit(3).frame(maxWidth: 480, alignment: .leading)
+            // No Return shortcut: it would take Enter from the login form under the bar.
+            Button("Done", action: done)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(.regularMaterial, in: Capsule())
+        .fixedSize()
     }
 }
 

@@ -311,6 +311,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     var title = ""
     /// The dashboard's picture of the tab, and when an agent last acted on it (its place there).
     var thumbnail: NSImage?
+    /// What the agent asked the person to do here (`ask`), while it waits.
+    var asking: String?
     var lastActivity = Date()
     var url = ""
     /// Strong on purpose: a closed tab can still get page callbacks, and closeTab breaks the cycle.

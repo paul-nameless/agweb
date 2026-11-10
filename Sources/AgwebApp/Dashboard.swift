@@ -144,6 +144,14 @@ private struct TabTile: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(displayed ? Color.accentColor : Color(nsColor: .separatorColor),
                                                                         lineWidth: displayed ? 2 : 1))
+                .overlay(alignment: .bottom) {
+                    if let asking = tab.asking {
+                        Label { Text(asking).lineLimit(2) } icon: { Image(systemName: "hand.raised.fill").foregroundStyle(.orange) }
+                            .font(.system(size: 11 * scale))
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(.regularMaterial, in: Capsule()).padding(8)
+                    }
+                }
                 .overlay(alignment: .topLeading) {
                     if tab.state != "visible" {
                         Text(tab.state).font(.system(size: 10 * scale)).padding(.horizontal, 6).padding(.vertical, 2)

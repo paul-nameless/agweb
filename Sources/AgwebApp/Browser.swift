@@ -244,7 +244,7 @@ final class Browser {
                     ["name": workspace.name, "profile": workspace.profile ?? NSNull(), "busy": workspace.busy,
                      "tabs": workspace.tabs.enumerated().map { index, tab in
                          ["index": index, "url": tab.currentURL, "title": tab.currentTitle, "current": tab.id == workspace.currentID,
-                          "state": tab.state]
+                          "state": tab.state, "asking": tab.asking ?? NSNull()]
                      }]
                 }
                 return String(decoding: try JSONSerialization.data(withJSONObject: ["workspaces": list, "dashboard": model.dashboardOpen],
@@ -436,6 +436,8 @@ final class Browser {
             }
             let note = options["diff"] != nil ? "no earlier snapshot of this page, so this is all of it" : nil
             return describe(tab, note: note) + "\n### Snapshot\n" + tree
+        case "ask":
+            return try await ask(tab, try arg(0, "message"), args.count > 1 ? args[1] : nil, options) + "\n" + describe(tab)
         case "find":
             let query = try arg(0, "text")
             guard let max = Int(options["max-results"] ?? "20"), max > 0 else { throw Failure("--max-results is a number above 0") }
@@ -685,6 +687,15 @@ final class Browser {
             try await Task.sleep(for: .milliseconds(ms))
             return "### Result\nwaited \(Int(ms)) ms"
         }
+        guard let condition = condition(tab, arg, options) else {
+            throw Failure("use: agweb wait <ms> | <target> [--gone] | --text=… | --url=… | --load  [--timeout=ms]")
+        }
+        let waited = try await poll(timeout, condition.what, condition.check)
+        return "### Result\nwaited \(String(format: "%.1f", waited)) s for \(condition.what)"
+    }
+
+    /// What `wait` and `ask` wait for: a target to show (or go), text, a URL, or a quiet network; nil if none.
+    private func condition(_ tab: Tab, _ arg: String?, _ options: [String: String]) -> (what: String, check: () async throws -> Bool)? {
         let what: String
         let check: () async throws -> Bool
         if let target = arg {
@@ -708,10 +719,36 @@ final class Browser {
                 return quietSince.map { now - $0 >= 0.5 } ?? false
             }
         } else {
-            throw Failure("use: agweb wait <ms> | <target> [--gone] | --text=… | --url=… | --load  [--timeout=ms]")
+            return nil
         }
-        let waited = try await poll(timeout, what, check)
-        return "### Result\nwaited \(String(format: "%.1f", waited)) s for \(what)"
+        return (what, check)
+    }
+
+    /// Hands the tab to the person: shows it, puts the message in a bar over it with a Done button and marks it in
+    /// the sidebar and dashboard, all without activating the app. Ends when the person clicks Done, the condition
+    /// holds, or the timeout passes; the bar and marks go in every case.
+    private func ask(_ tab: Tab, _ message: String, _ target: String?, _ options: [String: String]) async throws -> String {
+        guard let ms = Double(options["timeout"] ?? "600000"), (0...3_600_000).contains(ms) else {
+            throw Failure("--timeout is milliseconds, up to 3600000")
+        }
+        let condition = condition(tab, target, options)
+        final class Flag { var on = false }
+        let done = Flag()
+        tab.asking = message
+        model.display(tab.id)
+        mainWindow.showQuietly()
+        mainWindow.showAsk(on: tab.webView, message: message) { done.on = true }
+        defer {
+            tab.asking = nil
+            mainWindow.hideAsk(on: tab.webView)
+        }
+        let waited = try await poll(ms / 1000, "the person (\(message))") {
+            guard tab.webView.window != nil else { throw Failure("the tab was closed while asking the person") }
+            if done.on { return true }
+            return try await condition?.check() ?? false
+        }
+        let how = done.on ? "the person clicked Done" : "\(condition?.what ?? "") (the person didn't need to click Done)"
+        return "### Result\n\(how) after \(String(format: "%.0f", waited)) s"
     }
 
     /// Checks every 100 ms until `check` holds; the seconds it took.
@@ -725,7 +762,8 @@ final class Browser {
             do {
                 if try await check() { break }
                 ambiguousSince = nil
-            } catch let error as Failure where error.description.contains("invalid selector") || error.description.contains("take a new snapshot") {
+            } catch let error as Failure where error.description.contains("invalid selector") || error.description.contains("take a new snapshot")
+                        || error.description.contains("was closed") {
                 throw error
             } catch let error as Failure where error.description.contains("Be more specific") {
                 let now = ProcessInfo.processInfo.systemUptime

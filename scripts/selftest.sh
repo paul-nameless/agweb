@@ -184,6 +184,17 @@ fails "ref $old not found" -w refs click "$old"
 lacks "button \"Press me\" \[ref=$old\]" -w refs snapshot
 check '"changes":\["- call: POST http' -w refs --json click '#api'
 check "closed" -w refs close
+check "Title" -w asker open "$u?ask"
+check "Page" -w asker eval "() => { setTimeout(() => { document.body.append('Logged in as tester') }, 800) }"
+"$agweb" -w asker ask "Log in please" --text='Logged in as tester' --timeout=10000 >"$dir/ask.out" 2>&1 &
+asking=$!
+sleep 0.4
+check '"asking":"Log in please"' list --json
+wait $asking || fail "ask did not return when its text appeared: $(cat "$dir/ask.out")"
+grep -q 'text "Logged in as tester" (the person didn' "$dir/ask.out" || fail "ask's reply: $(cat "$dir/ask.out")"
+check '"asking":null' list --json
+fails "timed out after 0.5 s waiting for the person" -w asker ask "Nobody will click" --timeout=500
+check "closed" -w asker close
 check '  - button "Inner button"' -w alpha snapshot
 check "Page" -w alpha click 'role=button[name="inner"]'
 check "Page" -w alpha click 'text=Inner button'

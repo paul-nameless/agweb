@@ -67,6 +67,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   dialog-accept [text] | dialog-dismiss   how confirm() and prompt() are answered (default dismiss)
   tab-list | tab-new [url] | tab-select <i> | tab-close [i]
   show                          display this workspace's tab in the window (no activation)
+  ask <message> [target]        hand the tab to the person: a bar with Done over it, without taking focus; returns on
+                                Done, or when target/--text/--url appears (--timeout, default 600000 ms, up to 1 h)
   close                         close the workspace; a named profile keeps its logins
   list                          workspaces
   close-all                     close every workspace
@@ -302,7 +304,7 @@ if !isServing(socket) {
 // Typing at a person's pace averages about 0.25 s a key, so long text gets longer.
 // A wait gets its own timeout, or its fixed pause, plus room for the reply.
 // wait, and actions waiting for their target, may take up to --timeout before they answer.
-let waitSeconds = max(Int(options["timeout"] ?? "") ?? (command == "wait" ? 30_000 : 0), command == "wait" ? Int(args.first ?? "") ?? 0 : 0) / 1000 + 30
+let waitSeconds = max(Int(options["timeout"] ?? "") ?? (command == "wait" ? 30_000 : command == "ask" ? 600_000 : 0), command == "wait" ? Int(args.first ?? "") ?? 0 : 0) / 1000 + 30
 let timeout = max(command == "download" ? 200 : 120, waitSeconds) + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
 guard let response = sendRequest(Request(workspace: workspace, command: command, args: args, options: options), path: socket, timeout: timeout) else {
     fail("no response from agweb on \(socket)")

@@ -5,7 +5,7 @@ public enum Commands {
         "upload", "download", "eval", "highlight", "screenshot", "pdf", "resize", "emulate", "wait", "video-start", "video-chapter", "video-stop",
         "console", "requests", "request", "request-headers", "request-body", "response-headers", "response-body", "route",
         "route-list", "unroute", "cookie-list", "cookie-get", "cookie-set", "cookie-delete", "cookie-clear", "state-save",
-        "state-load", "dialog-accept", "dialog-dismiss", "tab-list", "tab-new", "tab-select", "tab-close", "show", "close",
+        "state-load", "dialog-accept", "dialog-dismiss", "ask", "tab-list", "tab-new", "tab-select", "tab-close", "show", "close",
         "list", "close-all", "profile-list", "profile-delete", "dashboard", "install-skill", "quit",
     ]
 
