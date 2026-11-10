@@ -133,6 +133,11 @@ paced "Page" -w alpha type ' world'
 /usr/bin/python3 -c "import sys; sys.exit(0 if $(now) - $start >= 0.6 else 1)" || fail "typing ' world' took under 0.6 s; it should go at a person's pace"
 check "Page" -w alpha type '!' --instant
 check '\["hello world!",7\]' -w alpha eval '[q.value, inputs]'
+check "Page" -w alpha eval "() => { window.keys = []; q.addEventListener('keydown', e => keys.push(e.key + (e.isTrusted ? '' : '!'))) }"
+paced "Page" -w alpha type 'Ab é'
+check '"A","b"," "\]' -w alpha eval 'keys'
+check 'hello world!Ab é' -w alpha eval 'q.value'
+check "Page" -w alpha fill '#q' 'hello world!'
 
 echo "== output modes and files"
 check '^hello world!$' -w alpha --raw eval 'q.value'

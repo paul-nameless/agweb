@@ -163,6 +163,16 @@ enum NativeInput {
         return map
     }()
 
+    /// The key that types `char` on a US keyboard, as a combo for `press`; nil when there is none (é, emoji).
+    static func combo(for char: Character) -> String? {
+        switch char {
+        case " ": return "Space"
+        case "\n", "\r": return "Enter"
+        case "\t": return "Tab"
+        default: return keys[char] == nil ? nil : String(char)
+        }
+    }
+
     /// Playwright-style combos: "Enter", "Shift+Tab", "Meta+a", "A", "?".
     private static func parse(_ combo: String) throws -> (code: UInt16, characters: String, unmodified: String, modifiers: NSEvent.ModifierFlags) {
         var parts = combo.components(separatedBy: "+")

@@ -518,15 +518,28 @@ final class Browser {
             if instant || text.isEmpty {
                 _ = try await tab.call(PageScripts.insertText, ["text": text])
             } else {
-                for (i, char) in text.enumerated() {
+                // Real key presses, so pages see keydown and keyup with a person's rhythm, not text appearing by itself;
+                // a character with no US key is inserted as text.
+                let focused = try await tab.call(PageScripts.focusedKind)
+                if Self.pickerKinds.contains(focused) { throw Failure("typing would open the focused \(focused)'s native picker; use: agweb fill <target> <value>") }
+                let chars = Array(text)
+                for (i, char) in chars.enumerated() {
                     // A tab closed mid-word still runs scripts; the rest must not go nowhere and report success.
-                    guard tab.webView.window != nil else { throw Failure("the tab was closed after \(i) of \(text.count) characters") }
+                    guard tab.webView.window != nil else { throw Failure("the tab was closed after \(i) of \(chars.count) characters") }
+                    let hold = tab.motion.keyHold()
                     do {
-                        _ = try await tab.call(PageScripts.insertText, ["text": String(char)])
+                        if let combo = NativeInput.combo(for: char) {
+                            try await stroke(tab, combo, hold: hold)
+                        } else {
+                            _ = try await tab.call(PageScripts.insertText, ["text": String(char)])
+                        }
                     } catch {
-                        throw Failure("typed \(i) of \(text.count) characters: \(error)")
+                        throw Failure("typed \(i) of \(chars.count) characters: \(error)")
                     }
-                    if i < text.count - 1 { try await Task.sleep(for: .seconds(tab.motion.keyDelay(after: char))) }
+                    // The gap is press to press; the hold and the hand-back already took part of it.
+                    if i < chars.count - 1 {
+                        try await Task.sleep(for: .seconds(max(0.02, tab.motion.keyDelay(after: char, next: chars[i + 1]) - hold - 0.05)))
+                    }
                 }
             }
             if options["submit"] != nil { try await pressKey(tab, "Enter", instant: instant) }
