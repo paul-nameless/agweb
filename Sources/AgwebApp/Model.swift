@@ -99,8 +99,9 @@ final class Workspace: Identifiable {
         config.userContentController = contentController
         // Off: only a click opens a window, so an ad's timer can't hand the agent a new tab.
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
-        // Keep timers alive in tabs nobody is looking at.
-        config.preferences.inactiveSchedulingPolicy = .none
+        // Only hidden tabs are affected (see Visibility.swift): after about 4 minutes hidden WebKit frees their memory
+        // and suspends the process; any command wakes it in milliseconds.
+        config.preferences.inactiveSchedulingPolicy = .suspend
         // Without a Safari token Google sign-in and bot checks treat the browser as unknown.
         config.applicationNameForUserAgent = "Version/\(Self.safariVersion) Safari/605.1.15"
         return config
