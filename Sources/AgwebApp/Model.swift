@@ -38,7 +38,14 @@ final class Workspace: Identifiable {
     var tabs: [Tab] = []
     var currentID: Int?
     /// True while an agent command runs. Commands on one workspace are serialized, so this is exact.
-    var busy = false
+    /// Pages may open windows only meanwhile: WebKit blocks a window.open that follows a fetch after the click
+    /// (a deploy button that opens a window after a fetch), and an ad's timer must not hand an idle agent a new tab.
+    var busy = false {
+        didSet {
+            guard busy != oldValue else { return }
+            for tab in tabs { tab.webView.configuration.preferences.javaScriptCanOpenWindowsAutomatically = busy }
+        }
+    }
     /// What the agent last ran here and when, for the dashboard.
     var lastCommand: String?
     var lastCommandAt: Date?
@@ -137,7 +144,7 @@ final class Workspace: Identifiable {
         } else {
             config.userContentController = contentController
         }
-        // Off: only a click opens a window, so an ad's timer can't hand the agent a new tab.
+        // On only while a command runs; see Workspace.busy.
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         // Only hidden tabs are affected (see Visibility.swift): after about 4 minutes hidden WebKit frees their memory
         // and suspends the process; any command wakes it in milliseconds.
