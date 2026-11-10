@@ -110,6 +110,14 @@ public struct Motion {
         }
     }
 
+    /// A wheel scroll of `total` pixels in ticks that speed up and slow down, each with the pause after it.
+    public mutating func wheelTicks(_ total: Double) -> [(delta: Double, pause: Double)] {
+        let count = max(1, Int((abs(total) / 60).rounded(.up)))
+        let weights = (0..<count).map { sin(.pi * (Double($0) + 0.5) / Double(count)) + 0.3 }
+        let sum = weights.reduce(0, +)
+        return weights.map { (total * $0 / sum, jitter(0.03, 0.012)) }
+    }
+
     /// How long a key stays down: about 116 ms, rarely under 80 or over 150.
     public mutating func keyHold() -> Double { min(max(0.116 + 0.024 * gaussian(), 0.06), 0.2) }
 

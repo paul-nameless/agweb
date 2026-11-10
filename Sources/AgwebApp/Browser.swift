@@ -932,14 +932,17 @@ final class Browser {
     private func wheel(_ tab: Tab, dx: Double, dy: Double, instant: Bool) async throws {
         let viewport = try await viewportSize(tab)
         let at = tab.pointer ?? CGPoint(x: viewport.width / 2, y: viewport.height / 2)
-        let ticks = instant ? 1 : max(1, Int((max(abs(dx), abs(dy)) / 60).rounded(.up)))
-        var sentX = 0.0, sentY = 0.0
-        for i in 1...ticks {
-            let x = (dx * Double(i) / Double(ticks)).rounded(), y = (dy * Double(i) / Double(ticks)).rounded()
+        // Ticks that speed up and slow down, as a finger flicks a wheel; the last one makes up any rounding.
+        let distance = max(abs(dx), abs(dy), 1)
+        let ticks = instant ? [(delta: distance, pause: 0.0)] : tab.motion.wheelTicks(distance)
+        var sentX = 0.0, sentY = 0.0, done = 0.0
+        for (i, tick) in ticks.enumerated() {
+            done += tick.delta / distance
+            let x = i == ticks.count - 1 ? dx : (dx * done).rounded(), y = i == ticks.count - 1 ? dy : (dy * done).rounded()
             try NativeInput.wheel(tab.webView, at: at, viewportHeight: viewport.height, dx: Int32(x - sentX), dy: Int32(y - sentY))
             sentX = x
             sentY = y
-            if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.035, 0.01))) }
+            if tick.pause > 0 { try await Task.sleep(for: .seconds(tick.pause)) }
         }
         try await Task.sleep(for: .milliseconds(150))
     }
