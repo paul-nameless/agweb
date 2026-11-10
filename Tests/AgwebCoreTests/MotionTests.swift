@@ -41,8 +41,31 @@ func pathEndsExactlyOnTarget(distance: Double) {
     var motion = Motion(seed: 11)
     let letters = (0..<500).map { _ in motion.keyDelay(after: "a") }
     let commas = (0..<500).map { _ in motion.keyDelay(after: ",") }
-    #expect(letters.allSatisfy { $0 >= 0.1 })
+    #expect(letters.allSatisfy { $0 >= 0.06 })
     #expect(commas.reduce(0, +) > letters.reduce(0, +))
+}
+
+@Test func keyGapsAreSkewedLikeAPersons() {
+    var motion = Motion(seed: 5)
+    let gaps = (0..<4000).map { _ in motion.keyDelay(after: "a") }.sorted()
+    let median = gaps[gaps.count / 2], mean = gaps.reduce(0, +) / Double(gaps.count)
+    #expect((0.18...0.24).contains(median))
+    // A long tail: the mean sits above the median.
+    #expect(mean > median + 0.015)
+}
+
+@Test func alternatingHandsTypeFaster() {
+    var a = Motion(seed: 9), b = Motion(seed: 9)
+    let alternating = (0..<500).map { _ in a.keyDelay(after: "a", next: "k") }.reduce(0, +)
+    let sameHand = (0..<500).map { _ in b.keyDelay(after: "a", next: "s") }.reduce(0, +)
+    #expect(alternating < sameHand)
+}
+
+@Test func keysAreHeldLikeAPersons() {
+    var motion = Motion(seed: 2)
+    let holds = (0..<2000).map { _ in motion.keyHold() }
+    #expect(holds.allSatisfy { (0.06...0.2).contains($0) })
+    #expect(abs(holds.reduce(0, +) / Double(holds.count) - 0.116) < 0.005)
 }
 
 @Test func randomStaysInUnitInterval() {

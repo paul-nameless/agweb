@@ -23,6 +23,14 @@ public struct Motion {
 
     public mutating func jitter(_ base: Double, _ spread: Double) -> Double { base + (random() - 0.5) * 2 * spread }
 
+    /// Standard normal, by Box-Muller.
+    public mutating func gaussian() -> Double {
+        sqrt(-2 * log(max(random(), 1e-12))) * cos(2 * .pi * random())
+    }
+
+    /// Log-normal with this median: mostly near it, now and then much longer, as human timings are.
+    public mutating func logNormal(median: Double, sigma: Double) -> Double { median * exp(sigma * gaussian()) }
+
     public mutating func aim(center: CGPoint, size: CGSize) -> CGPoint {
         CGPoint(x: center.x + jitter(0, min(size.width * 0.18, 9)), y: center.y + jitter(0, min(size.height * 0.18, 5)))
     }
@@ -61,15 +69,29 @@ public struct Motion {
         }
     }
 
-    /// Seconds to wait after typing `char`: longer after spaces and punctuation, and now and then a hesitation.
-    public mutating func keyDelay(after char: Character) -> Double {
-        var delay = jitter(0.165, 0.065)
+    /// Seconds from pressing `char` to pressing `next`, as measured in 136M keystrokes (Dhakal et al., CHI 2018):
+    /// log-normal around 0.22 s with a long tail, longer after spaces and punctuation, a little shorter when the
+    /// hands alternate, and now and then a hesitation.
+    public mutating func keyDelay(after char: Character, next: Character? = nil) -> Double {
+        var delay = logNormal(median: 0.2, sigma: 0.42)
         if char == " " {
-            delay += jitter(0.09, 0.04)
+            delay += jitter(0.06, 0.03)
         } else if ".,@!?:;_-/".contains(char) {
-            delay += jitter(0.18, 0.07)
+            delay += jitter(0.14, 0.06)
         }
-        if random() < 0.07 { delay += jitter(0.42, 0.16) }
-        return delay
+        if let next, let a = Self.hand(char), let b = Self.hand(next) { delay += a == b ? 0.01 : -0.015 }
+        if random() < 0.05 { delay += logNormal(median: 0.4, sigma: 0.35) }
+        return min(max(delay, 0.06), 2)
+    }
+
+    /// How long a key stays down: about 116 ms, rarely under 80 or over 150.
+    public mutating func keyHold() -> Double { min(max(0.116 + 0.024 * gaussian(), 0.06), 0.2) }
+
+    /// 0 for the left hand, 1 for the right, on a QWERTY keyboard.
+    private static func hand(_ char: Character) -> Int? {
+        let c = Character(char.lowercased())
+        if "qwertasdfgzxcvb12345`~!@#$%".contains(c) { return 0 }
+        if "yuiophjklnm67890-=[];',./\\^&*()_+{}:\"<>?|".contains(c) { return 1 }
+        return nil
     }
 }
