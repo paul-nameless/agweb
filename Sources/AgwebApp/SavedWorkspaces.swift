@@ -57,8 +57,9 @@ extension Browser {
         for saved in state.workspaces where !model.workspaces.contains(where: { $0.name == saved.name }) {
             guard let workspace = try? existingOrNewWorkspace(named: saved.name, profile: saved.profile) else { continue }
             for savedTab in saved.tabs {
-                let tab = addTab(to: workspace, display: false)
-                tab.pendingURL = URL(string: savedTab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
+                let url = URL(string: savedTab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
+                let tab = addTab(to: workspace, display: false, lazy: url != nil)
+                tab.pendingURL = url
                 tab.url = savedTab.url
                 tab.title = savedTab.title
             }

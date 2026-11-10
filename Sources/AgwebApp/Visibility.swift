@@ -26,6 +26,7 @@ extension Browser {
         await tab.activityStateApplied()
     }
 
+
     func keepAwakeAfterCommand(_ tab: Tab) {
         tab.awakeUntil = Date().addingTimeInterval(Self.awakeAfterCommand)
         Task {

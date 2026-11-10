@@ -93,8 +93,15 @@ final class Workspace: Identifiable {
         for tab in tabs { tab.webView.evaluateJavaScript(setRoutes) }
     }
 
-    func makeConfiguration() -> WKWebViewConfiguration {
+    /// `lazy`: no web process until the first load, for a reopened tab whose page loads only when used. Not for a tab
+    /// that may never load (a blank one), which scripts must still reach.
+    func makeConfiguration(lazy: Bool = false) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
+        let delay = NSSelectorFromString("_setDelaysWebProcessLaunchUntilFirstLoad:")
+        if lazy, config.responds(to: delay) {
+            typealias SetBool = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(config.method(for: delay), to: SetBool.self)(config, delay, true)
+        }
         config.websiteDataStore = dataStore
         config.userContentController = contentController
         // Off: only a click opens a window, so an ad's timer can't hand the agent a new tab.

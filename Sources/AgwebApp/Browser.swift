@@ -65,8 +65,8 @@ final class Browser {
 
     /// `display: false` only adds it, for tabs reopened at launch.
     @discardableResult
-    func addTab(to workspace: Workspace, display: Bool = true) -> Tab {
-        let tab = makeTab(in: workspace, configuration: nil, opener: nil)
+    func addTab(to workspace: Workspace, display: Bool = true, lazy: Bool = false) -> Tab {
+        let tab = makeTab(in: workspace, configuration: lazy ? workspace.makeConfiguration(lazy: true) : nil, opener: nil)
         if display { drive(tab) }
         return tab
     }
