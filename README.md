@@ -2,6 +2,22 @@
 
 A WebKit (WKWebView) browser for coding agents, driven by a playwright-cli-style CLI. It never activates or raises its window: agents work in the background while the window stays visible in the window list.
 
+## Why agweb
+
+- It never takes focus. Nothing comes to the front, activates or pops up: dialogs, file choosers, downloads and context menus are answered in code, so you keep typing while agents browse.
+- It stays visible. One window shows every agent's tabs grouped by task, with a dot on the tab each agent drives. Click in to watch, or press Cmd+D to see all tabs at once.
+- Agents run in parallel, each in its own workspace with its own tabs.
+- Agents share logins. Log in once to a named profile and every agent can use it at the same time, which Chrome can't do with one profile. SSO session cookies survive restarts.
+- Workspaces and tabs reopen after a restart and load only when used.
+- Idle tabs are throttled, then suspended: five idle pages take about 0% CPU and 560 MB, against half a core and 1 GB before.
+- Clicks and keys are native events (`isTrusted`), and the pointer moves like a person's, so hover menus and drag-and-drop work.
+- `video-start` records a tab to MP4 with the pointer and clicks drawn in, idle time cut and chapter cards.
+- Commands follow playwright-cli. Snapshots carry refs, targets take `role=` and `text=`, `text` returns an article as markdown, actions wait for the network, and API calls can be mocked.
+
+Coming: passwords filled from `pass`, 1Password or Bitwarden without the agent seeing them, and basic auth and permission prompts answered in code.
+
+## Features
+
 - One window. The sidebar groups tabs by workspace, one per agent task; a green dot marks the tab each agent is driving. Click a tab to watch it, hover it to close it, right-click a workspace for a new tab.
 - Toolbar: the dashboard, back, forward, reload, a centered address field, new tab. ⌘T, ⌘W, ⌘L, ⌘R, ⌘[, ⌘], ⇧⌘[ and ⇧⌘] (previous and next tab, across workspaces, wrapping around) and the usual Edit shortcuts work.
 - Dashboard (⌘D, or `agweb dashboard`): every tab at once as a grid of thumbnails, most recently active first, each with its workspace, profile, the agent's last command and whether it is hidden or suspended. Click a tile or a sidebar tab to go to it. Thumbnails refresh about once a second for tabs an agent is working on; idle ones keep their last picture, so the dashboard wakes nothing. `agweb dashboard --filename=grid.png` saves a picture of it.
