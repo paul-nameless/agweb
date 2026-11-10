@@ -4,6 +4,7 @@ A WebKit (WKWebView) browser for coding agents, driven by a playwright-cli-style
 
 - One window. The sidebar groups tabs by workspace, one per agent task; a green dot marks the tab each agent is driving. Click a tab to watch it, hover it to close it, use the workspace's + for a new tab.
 - Toolbar: back, forward, reload, a centered address field, new tab. ⌘T, ⌘W, ⌘L, ⌘R, ⌘[, ⌘] and the usual Edit shortcuts work.
+- Workspaces and their tabs survive a quit or restart: they are saved as they change and reopen at launch, each page loading when it is first shown or driven. `close` and `close-all` end them for good. Fresh-profile workspaces come back logged out.
 - A workspace starts with a fresh profile that keeps nothing. `-p NAME` (or `AGWEB_PROFILE`) gives it a named, persistent profile instead, shared by every workspace naming it, in parallel, which Chrome can't do with one profile dir. `profile-list` and `profile-delete` manage them.
 - Clicks and key presses are native AppKit events delivered straight to the tab's web view, so pages see `isTrusted == true`, and they reach tabs nobody is looking at.
 - Commands follow playwright-cli's names and options (`agweb help`); targets also take `role=button[name="Save"]` and `text=Save`, and reach into same-origin iframes. `--raw`, `--json` and `--filename` reshape or redirect replies.
@@ -49,7 +50,6 @@ The app is a regular app launched with `open -g`, never calls `activate`, and fi
 - No `run-code` (there is no Playwright engine), tracing, Chromium-only options (`--config`, `--browser`) or cross-origin iframe refs.
 - `fill` and `type` use `execCommand('insertText')`, not key events (`type` per character). Only pointer input and `press` are native.
 - Closing (red button) or minimizing the window pauses pages; `agweb show` puts it back, and screenshots refuse until then. Recordings get no frames meanwhile.
-- Workspaces and their tabs survive a quit or restart: they are saved as they change and reopen at launch, each page loading when it is first shown or driven. `close` and `close-all` end them for good. Fresh-profile workspaces come back logged out.
 - Named profiles keep their logins across relaunches, session cookies included: agweb saves those on quit (0600, under `~/Library/Application Support/agweb/session-cookies/`) and restores them when the profile next opens, so SSO logins survive. A crash or `kill -9` loses the session cookies of that run.
 - HTML5-draggable sources (`draggable`, links, images) are dropped with DOM drag events rather than the pointer: a native drag would start an AppKit drag session that follows your real mouse.
 - `document.hasFocus()` is false in pages, since the window is never key while agents work. It only reports key to WebKit while the app is in the background, because WebKit drops mouse moves otherwise; pages therefore also react to your own pointer over the background window, as in Chrome, and a tab you clicked into yourself keeps `document.hasFocus()` true after you switch away.
