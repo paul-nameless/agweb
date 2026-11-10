@@ -380,10 +380,10 @@ check "Screenshot" -w beta screenshot "$dir/beta2.png"
 cmp -s "$dir/beta1.png" "$dir/beta2.png" && fail "a hidden tab's screenshot did not change with the page"
 check "loaded ?parallel-b\|loaded ?beta" -w beta console
 check "Page" -w beta eval "() => { console.warn('careful'); console.error('bad') }"
-check "1 new errors" -w beta eval 1
+check "1 new error " -w beta eval 1
 check "error: bad" -w beta console error
 lacks "careful" -w beta console error
-lacks "new errors" -w beta eval 1
+lacks "new error" -w beta eval 1
 check "Page" -w beta eval "() => { setTimeout(() => null.x, 0) }"
 check "pageerror: TypeError: null is not an object" -w beta console error
 check "warn: careful" -w beta console warning
