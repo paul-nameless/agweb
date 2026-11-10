@@ -59,6 +59,8 @@ final class Workspace: Identifiable {
     @ObservationIgnored var routes: [Route] = [] { didSet { installScripts() } }
     /// localStorage from `state-load` by origin, set when the origin next loads.
     @ObservationIgnored var pendingStorage: [String: [[String]]] = [:] { didSet { installScripts() } }
+    /// sessionStorage by origin for reopened tabs' first loads; see Tab.load.
+    @ObservationIgnored var sessionSeeds: [String: [String: String]] = [:] { didSet { installScripts() } }
 
     nonisolated var id: String { name }
     var current: Tab? { tabs.first { $0.id == currentID } }
@@ -99,6 +101,10 @@ final class Workspace: Identifiable {
         contentController.addUserScript(WKUserScript(source: setRoutes + PageScripts.networkHook, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         if !pendingStorage.isEmpty, let json = try? JSONEncoder().encode(pendingStorage) {
             contentController.addUserScript(WKUserScript(source: PageScripts.pendingStorage(String(decoding: json, as: UTF8.self)),
+                                                         injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        if !sessionSeeds.isEmpty, let json = try? JSONEncoder().encode(sessionSeeds) {
+            contentController.addUserScript(WKUserScript(source: PageScripts.seedSession(String(decoding: json, as: UTF8.self)),
                                                          injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         // A tab not loaded yet gets them from the user script; running a script would start its web process.
@@ -411,6 +417,16 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         let generation = loadGeneration
         if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
         guard generation == loadGeneration else { return false }
+        if let seeds = restoredSession, !seeds.isEmpty {
+            restoredSession = nil
+            seededOrigins = Array(seeds.keys)
+            workspace.sessionSeeds.merge(seeds) { _, new in new }
+            // Until the load ends, so other tabs of the workspace don't keep getting them.
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(30))
+                self?.unseed()
+            }
+        }
         expected = url.isFileURL
             ? webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
             : webView.load(URLRequest(url: url))
@@ -433,6 +449,22 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
             if !Task.isCancelled { self?.finishLoad(Failure("timed out waiting for the page to load")) }
         }
         try await withCheckedThrowingContinuation { loadWaiter = $0 }
+    }
+
+    /// sessionStorage by origin, saved with the tab so a restart doesn't log out apps that keep their tokens there
+    /// (OAuth implicit flows), as Chrome and Safari restore it. `restoredSession` waits for the reopened tab's first load.
+    @ObservationIgnored var session: [String: [String: String]] = [:]
+    @ObservationIgnored var restoredSession: [String: [String: String]]?
+    @ObservationIgnored private var seededOrigins: [String] = []
+
+    func captureSession() async {
+        guard pendingURL == nil, let scheme = webView.url?.scheme, scheme.hasPrefix("http"),
+              // Short: quit reads every tab, and a hung page must not hold it up.
+              let json = try? await withTimeout(2, "reading sessionStorage", { try await self.call(PageScripts.readSession) }),
+              let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let origin = object["origin"] as? String, let items = object["items"] as? [String: String] else { return }
+        // A page that fills it with megabytes of cache doesn't get it saved.
+        session[origin] = items.isEmpty || json.utf8.count > 1_000_000 ? nil : items
     }
 
     /// The tab stays visible until then after its agent's last command; see Visibility.swift.
@@ -493,7 +525,14 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         if waited { try? await Task.sleep(for: .milliseconds(50)) }
     }
 
+    private func unseed() {
+        guard !seededOrigins.isEmpty else { return }
+        for origin in seededOrigins { workspace.sessionSeeds[origin] = nil }
+        seededOrigins = []
+    }
+
     func finishLoad(_ error: Error?) {
+        unseed()
         expected = nil
         loadTimeout?.cancel()
         guard let waiter = loadWaiter else { return }

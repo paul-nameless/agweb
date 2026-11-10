@@ -497,6 +497,22 @@ public enum PageScripts {
         """
     }
 
+    /// Page world, document start, main frame: a reopened tab's sessionStorage, saved before a restart, put back
+    /// before the page's scripts run. Only into a tab that has none yet for the origin.
+    public static func seedSession(_ json: String) -> String {
+        """
+        (() => {
+          const items = (\(json))[location.origin];
+          if (!items || sessionStorage.length) return;
+          for (const [k, v] of Object.entries(items)) { try { sessionStorage.setItem(k, v); } catch {} }
+        })();
+        """
+    }
+
+    public static let readSession = """
+    return JSON.stringify({ origin: location.origin, items: Object.fromEntries(Object.keys(sessionStorage).map(k => [k, sessionStorage.getItem(k)])) });
+    """
+
     public static let readStorage = """
     return JSON.stringify({ origin: location.origin, items: Object.keys(localStorage).map(k => [k, localStorage.getItem(k)]) });
     """

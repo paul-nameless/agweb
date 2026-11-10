@@ -133,6 +133,7 @@ final class Browser {
     func prepareToQuit() async -> [String] {
         var videos: [String] = []
         for workspace in model.workspaces { videos += await describeStop(workspace) }
+        for tab in model.workspaces.flatMap(\.tabs) { await tab.captureSession() }
         await Profiles.saveSessionCookies()
         saveWorkspaces()
         preparedToQuit = true
@@ -185,7 +186,10 @@ final class Browser {
                 workspace.busy = false
                 // Only after a command that acted on a page (`list` or `cookie-list` polling must not keep a tab awake),
                 // and the tab it left current: a popup or tab-select moves the agent on.
-                if workspace.actedOn != nil, let tab = workspace.current { keepAwakeAfterCommand(tab) }
+                if workspace.actedOn != nil, let tab = workspace.current {
+                    keepAwakeAfterCommand(tab)
+                    Task { await tab.captureSession() }
+                }
                 workspace.actedOn = nil
                 updateVisibility()
             }

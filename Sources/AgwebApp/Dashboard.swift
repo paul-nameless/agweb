@@ -11,6 +11,7 @@ extension Browser {
         dashboardTask?.cancel()
         mainWindow.showDashboard(open)
         updateVisibility()
+        scheduleSave()
         guard open else { return }
         // Fixed while it is open, so tiles don't jump around as agents work; new tabs go last.
         model.dashboardOrder = model.workspaces.flatMap(\.tabs).sorted { $0.lastActivity > $1.lastActivity }.map(\.id)

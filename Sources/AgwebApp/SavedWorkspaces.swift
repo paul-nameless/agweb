@@ -15,12 +15,15 @@ struct SavedWorkspaces: Codable {
     struct Tab: Codable {
         var url: String
         var title: String
+        /// sessionStorage by origin; 0600 like the rest, since it holds tokens.
+        var session: [String: [String: String]]?
     }
 
     var workspaces: [Workspace]
     /// The tab the window showed, as workspace name and index.
     var displayed: String?
     var displayedIndex: Int?
+    var dashboard: Bool?
 }
 
 extension Browser {
@@ -28,6 +31,9 @@ extension Browser {
         saveTask?.cancel()
         saveTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            // The tab the person is looking at may be one they log in to by hand.
+            await self.model.displayedTab?.captureSession()
             guard !Task.isCancelled else { return }
             self.saveWorkspaces()
             // So a crash loses at most the last second of logins.
@@ -41,9 +47,10 @@ extension Browser {
         let state = SavedWorkspaces(
             workspaces: model.workspaces.map { workspace in
                 .init(name: workspace.name, profile: workspace.profile, current: workspace.tabs.firstIndex { $0.id == workspace.currentID },
-                      tabs: workspace.tabs.map { .init(url: $0.currentURL, title: $0.currentTitle) })
+                      tabs: workspace.tabs.map { .init(url: $0.currentURL, title: $0.currentTitle, session: $0.session.isEmpty ? nil : $0.session) })
             },
-            displayed: displayed?.workspace.name, displayedIndex: displayed.flatMap { tab in tab.workspace.tabs.firstIndex { $0 === tab } })
+            displayed: displayed?.workspace.name, displayedIndex: displayed.flatMap { tab in tab.workspace.tabs.firstIndex { $0 === tab } },
+            dashboard: model.dashboardOpen ? true : nil)
         guard let data = try? JSONEncoder().encode(state) else { return }
         let file = Agweb.workspacesFile
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -62,6 +69,8 @@ extension Browser {
                 tab.pendingURL = url
                 tab.url = savedTab.url
                 tab.title = savedTab.title
+                tab.session = savedTab.session ?? [:]
+                tab.restoredSession = savedTab.session
             }
             if let index = saved.current, workspace.tabs.indices.contains(index) { workspace.currentID = workspace.tabs[index].id }
         }
@@ -69,5 +78,6 @@ extension Browser {
            let tabs = model.workspaces.first(where: { $0.name == name })?.tabs, tabs.indices.contains(index) {
             model.display(tabs[index].id)
         }
+        if state.dashboard == true { model.dashboardOpen = true }
     }
 }
