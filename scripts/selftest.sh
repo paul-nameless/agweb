@@ -9,7 +9,7 @@ export AGWEB_SOCKET="$dir/s.sock"
 unset AGWEB_PROFILE AGWEB_WORKSPACE
 agweb="$PWD/../bin/agweb"
 cp testpage.html "$dir/index.html"
-cp frame.html "$dir/"
+cp frame.html frames.html side.html "$dir/"
 domain=dev.playground.agweb
 person_frame=$(defaults read $domain agwebMainFrame 2>/dev/null)
 defaults write $domain agwebTestFrame -string "{{200, 200}, {900, 600}}"
@@ -43,7 +43,13 @@ check() { run 0 "$@"; }
 fails() { run 1 "$@"; }
 lacks() {
     pattern=$1; shift
-    if "$agweb" "$@" 2>&1 | grep -q -- "$pattern"; then fail "agweb $*: the output contains $pattern"; else printf 'ok    agweb %s (no %s)\n' "$*" "$pattern"; fi
+    out=$("$agweb" "$@" 2>&1) || { fail "agweb $*: failed: $out"; return; }
+    if printf '%s' "$out" | grep -q -- "$pattern"; then fail "agweb $*: the output contains $pattern"; else printf 'ok    agweb %s (no %s)\n' "$*" "$pattern"; fi
+}
+# Waits for a quit instance to let go of its socket.
+stopped() {
+    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e "$AGWEB_SOCKET" ] || break; sleep 0.5; done
+    sleep 1
 }
 video_seconds() { sed -n 's/.* frames, \([0-9.]*\) s.*/\1/p'; }
 
@@ -91,16 +97,20 @@ check "$dir/el.png" -w alpha screenshot '#b' --path="$dir/el.png"
 [ "$(sips -g pixelWidth "$dir/el.png" | awk '/pixelWidth/ {print $2}')" -lt 400 ] || fail "screenshot '#b' is not just the button"
 check "Screenshot" -w alpha screenshot --full-page --filename="$dir/full.jpg"
 [ "$(sips -g pixelHeight "$dir/full.jpg" | awk '/pixelHeight/ {print $2}')" -gt 3000 ] || fail "screenshot --full-page is not the whole page"
+check "Page" -w alpha fill '#q' again --submit
+check '"submit:again"' -w alpha eval 'log'
+check "Page" -w alpha click '#b' --js
+check '"click trusted=false"' -w alpha eval 'log'
 
 echo "== locators, iframes, checkboxes, buttons and keys"
 check '  - button "Inner button"' -w alpha snapshot
 check "Page" -w alpha click 'role=button[name="inner"]'
 check "Page" -w alpha click 'text=Inner button'
+check '\["inner","inner"\]' -w alpha eval 'log.filter(x => x === "inner")'
 fails "matches .* elements" -w alpha click 'role=button'
 check '^- form' -w alpha snapshot '#f'
 lacks 'Press me' -w alpha snapshot '#f'
 check '^inner$' -w alpha --raw eval '(el) => el.id' 'role=button[name="inner"]'
-check "Page" -w alpha check '#cb'
 check "Page" -w alpha check 'text=Remember me'
 check "Page" -w alpha check '#r2'
 check '\[true,true\]' -w alpha eval '[cb.checked, r2.checked]'
@@ -131,13 +141,22 @@ check 'POST\] http.*index.html?api => 501 \[fetch\]' -w alpha requests --filter 
 n=$("$agweb" -w alpha requests --filter 'api$' | sed -n 's/^\([0-9]*\)\. .*/\1/p' | tail -1)
 check '^x=1$' -w alpha request-body "${n:-0}"
 check 'content-type: text/html' -w alpha response-headers "${n:-0}"
+check "### Request ${n:-0}" -w alpha request "${n:-0}"
+check 'x-req: yes' -w alpha request-headers "${n:-0}"
+check 'Unsupported method' -w alpha response-body "${n:-0}"
+fails "no request 999" -w alpha request 999
 check "get 418" -w alpha route '**/index.html?api' --status 418 --body '{"mocked":true}' --content-type application/json --header 'x-test: 1'
+check '\*\*/index.html?api => 418 application/json' -w alpha route-list
 check "Page" -w alpha click '#api'
 sleep 0.5
 check '^{"mocked":true}$' -w alpha --raw eval 'api'
 check '=> 418 (routed)' -w alpha requests --filter 'api$'
 check '\[418,"{\\"mocked\\":true}","1"\]' -w alpha eval "() => new Promise(r => { const x = new XMLHttpRequest(); x.open('GET', '/index.html?api'); x.onload = () => r([x.status, x.responseText, x.getResponseHeader('x-test')]); x.send() })"
 check "removed 1 routes" -w alpha unroute
+check "no routes" -w alpha route-list
+check "frame.html" -w alpha requests --static
+check "api" -w alpha requests --clear
+check "no requests" -w alpha requests --filter 'api$'
 check "$dir/dl/saved.html" -w alpha download '#dl' --filename="$dir/dl/saved.html"
 [ -s "$dir/dl/saved.html" ] || fail "download did not save the file"
 check 'prompt() gets "Paul"' -w alpha dialog-accept Paul
@@ -151,6 +170,11 @@ check "token=abc; domain=127.0.0.1" -w st cookie-list
 check '^""$' -w st eval 'document.cookie'
 check "Page" -w st eval "() => { localStorage.setItem('k', 'v1'); document.cookie = 'c1=one' }"
 check "sameSite=lax" -w st cookie-set lax v --sameSite=Lax
+check "token=abc" -w st cookie-get token
+fails "no cookie nope" -w st cookie-get nope
+expires=$(($(date +%s) + 86400))
+check "set - sec=1; domain=127.0.0.1; path=/; expires=$expires; secure" -w st cookie-set sec 1 --domain=127.0.0.1 --expires=$expires --secure
+check "deleted 1 cookies" -w st cookie-delete sec
 check "$dir/state.json" -w st state-save "$dir/state.json"
 grep -q '"name":"k","value":"v1"' "$dir/state.json" || fail "state-save left out localStorage"
 check "deleted 3 cookies" -w st cookie-clear
@@ -167,6 +191,7 @@ check 'for text "Arrived late"' -w st2 wait --text='Arrived late'
 check "Page" -w st2 eval "() => { setTimeout(() => late.remove(), 300) }"
 check "#late to go" -w st2 wait '#late' --gone
 fails "timed out" -w st2 wait '#nothing' --timeout=300
+fails "invalid selector" -w st2 wait 'bad[[' --timeout=5000
 check "network to go quiet" -w st2 wait --load
 check "Page" -w st2 emulate --color-scheme light
 check 'false' -w st2 eval "matchMedia('(prefers-color-scheme: dark)').matches"
@@ -202,13 +227,14 @@ fails "positive dy" -w alpha mousewheel 0 down
 echo "== recording"
 fails "must end in .mp4" -w alpha video-start "$dir"
 fails "max-idle takes seconds" -w alpha video-start "$dir/v.mp4" --max-idle=soon
+fails "must end in .mp4" -w alpha video-start --filename="$dir/v.txt"
 fails "size is WIDTHxHEIGHT" -w alpha video-start "$dir/v.mp4" --size=big
 fails "not recording" -w alpha video-chapter x
 check "recording alpha" -w alpha video-start "$dir/v.mp4"
 check "Page" -w alpha hover '#al'
 check "Page" -w alpha eval "async () => { for (const c of ['#fee', '#efe', '#eef']) { document.body.style.background = c; await new Promise(r => setTimeout(r, 150)) } }"
 fails "already recording" -w alpha video-start "$dir/w.mp4"
-check 'chapter "Step one"' -w alpha video-chapter "Step one" --duration 300
+check 'chapter "Step one"' -w alpha video-chapter "Step one" --description "The first part" --duration 300
 check "frames, " -w alpha video-stop
 LC_ALL=C grep -qa moov "$dir/v.mp4" || fail "the video has no index (moov)"
 fails "not recording" -w alpha video-stop
@@ -227,10 +253,13 @@ check "0: (current)" -w alpha tab-select 0
 check "1: (current)" -w alpha tab-select 1
 fails "no tab 9" -w alpha tab-close 9
 check "0: (current)" -w alpha tab-close 1
+check "index.html?tabnew" -w alpha tab-new "$u?tabnew"
+check "0: (current)" -w alpha tab-close 1
 check "Page" -w alpha eval "() => { setTimeout(() => open('/index.html?ad'), 200) }"
 sleep 1
 check "0: (current)" -w alpha tab-list
 check "index.html?next" -w alpha click 'a'
+check "URL containing next" -w alpha wait --url=next
 check "URL: $u\$" -w alpha go-back
 check "index.html?next" -w alpha go-forward
 check "index.html?next" -w alpha reload
@@ -245,6 +274,21 @@ fails "navigation failed" -w alpha goto http://127.0.0.1:1/
 fails "boom" -w alpha eval '() => { throw new Error("boom") }'
 fails "is not a field" -w alpha fill '#b' x
 fails "no workspace\|no session" -w nobody snapshot
+
+echo "== frames, accessible names and controls inside controls"
+check 'combobox "Shipping speed" \[expanded\]' -w alpha snapshot
+check 'option "Standard"' -w alpha snapshot
+check 'link "Developers"' -w alpha snapshot
+check '  - textbox "Find"' -w alpha snapshot
+check "Page" -w alpha fill 'role=textbox[name="Find"]' found
+check '"found"' -w alpha eval 'dq.value'
+check "Title: frames" -w fs open "http://127.0.0.1:$port/frames.html"
+check 'button "Side button"' -w fs snapshot
+check 'button "Inner button"' -w fs snapshot
+check 'for text "Side text"' -w fs wait --text='Side text'
+check "Page" -w fs click 'text=Side button'
+check '"side"' -w fs eval 'window.clicked'
+check "workspace fs closed" -w fs close
 
 echo "== workspaces run in parallel"
 start=$(now)
@@ -281,12 +325,19 @@ check "1 new errors" -w beta eval 1
 check "error: bad" -w beta console error
 lacks "careful" -w beta console error
 lacks "new errors" -w beta eval 1
+check "Page" -w beta eval "() => { setTimeout(() => null.x, 0) }"
+check "pageerror: TypeError: null is not an object" -w beta console error
 check "warn: careful" -w beta console warning
+check "warn: careful" -w beta console --clear
+check "no console messages" -w beta console
 check "Title" -w beta show
 check "beta (profile selftest-shared" list
 check "eph1 (fresh profile" list
 check "selftest-shared: beta, gamma" profile-list
 fails "in use by beta, gamma" profile-delete selftest-shared
+out=$(AGWEB_SOCKET="$dir/o.sock" "$agweb" profile-delete selftest-shared 2>&1)
+printf '%s' "$out" | grep -q "open in another agweb instance" || fail "another instance deleted a profile beta has open: $out"
+AGWEB_SOCKET="$dir/o.sock" "$agweb" quit >/dev/null 2>&1
 check "confirm() and prompt() will be accepted" -w beta dialog-accept
 check "will be dismissed" -w beta dialog-dismiss
 
@@ -298,13 +349,21 @@ check "Page" -w beta eval "() => { document.cookie = 'kept=1; max-age=600'; docu
 check "recording" -w beta video-start "$dir/quit.mp4"
 check "### Video" quit
 LC_ALL=C grep -qa moov "$dir/quit.mp4" || fail "quit left the video without its index"
-for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e "$AGWEB_SOCKET" ] || break; sleep 0.5; done
-sleep 1
-check "Title" -w delta open "$u" -p selftest-shared
+stopped
+# goto as the first command of a run must still bring the profile's session cookies back.
+check "index.html?again" -w beta goto "$u?again"
+check 'sso=1' -w beta eval 'document.cookie'
 check "beta (profile selftest-shared" list
 check "eph1 (fresh profile" list
-check "index.html?beta" -w beta tab-list
+check "index.html?again" -w beta tab-list
 check 'button "Press me"' -w beta snapshot
+check "bye" quit
+stopped
+# A run that never touches the profile must not save over its session cookies.
+check 'button "Press me"' -w alpha snapshot
+check "bye" quit
+stopped
+check "Title" -w delta open "$u" -p selftest-shared
 check 'kept=1' -w delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
 check 'sso=1' -w delta eval 'document.cookie'
 case "$(defaults read $domain agwebTestFrame)" in *"{900, "*) ;; *) false ;; esac || fail "the test window's saved frame was not restored"

@@ -1,9 +1,9 @@
 #!/bin/sh
-# Builds build/agweb.app with the agweb CLI inside it, and links bin/agweb to that CLI.
+# Builds build/Agweb.app with the agweb CLI inside it, and links bin/agweb to that CLI.
 set -eu
 cd "$(dirname "$0")/.."
 export CC=/usr/bin/clang
-app=build/agweb.app
+app=build/Agweb.app
 
 # Overwriting a running signed binary gets the process killed (Code Signature Invalid) with all its sessions.
 if pgrep -f "$PWD/$app/Contents/MacOS/agweb" >/dev/null; then

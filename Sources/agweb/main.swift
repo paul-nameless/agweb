@@ -76,7 +76,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
 -w NAME, --workspace=NAME       default $AGWEB_WORKSPACE, else "default"
 -p NAME, --profile=NAME         default $AGWEB_PROFILE, else a fresh profile
 `--` ends options, so text that starts with dashes can be passed: agweb type -- --verbose
-env: AGWEB_SOCKET runs a separate instance on that socket; AGWEB_APP points at agweb.app
+env: AGWEB_SOCKET runs a separate instance on that socket; AGWEB_APP points at Agweb.app
 """
 
 func fail(_ message: String) -> Never {
@@ -167,7 +167,8 @@ case "download":
     if let path = writeAnswerTo { options["filename"] = path }
     writeAnswerTo = nil
 case "video-start":
-    args = [absolute(args.first ?? ".agweb/video-\(stamp).mp4")]
+    args = [writeAnswerTo ?? absolute(args.first ?? ".agweb/video-\(stamp).mp4")]
+    writeAnswerTo = nil
 case "upload" where args.count > 1:
     args = [args[0]] + args.dropFirst().map(absolute)
 case "state-save":

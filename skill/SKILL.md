@@ -36,7 +36,10 @@ Anything taking `<target>` accepts:
 - `text=Save` (substring) or `text="Save"` (exact);
 - a CSS selector.
 
-Role and text targets must match exactly one visible element, so add more of the name if the error says several match. Same-origin iframes are searched and appear in snapshots.
+Role and text targets must match exactly one visible element, so add more of the name if the error says several match. Same-origin iframes and frames are searched and appear in snapshots.
+
+- Every snapshot, even of one element, replaces the refs.
+- Actions don't wait for an element to appear: on a page still changing, `wait` for it first.
 
 ## Reading the page
 

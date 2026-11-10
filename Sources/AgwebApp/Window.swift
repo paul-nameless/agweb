@@ -39,7 +39,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         window.contentViewController = split
-        window.title = "agweb"
+        window.title = "Agweb"
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 1280, height: 820))
@@ -178,9 +178,6 @@ private struct WorkspaceHeader: View {
             }
             Spacer()
             if workspace.busy { ProgressView().controlSize(.mini) }
-            Button { model.onNewTab?(workspace) } label: { Image(systemName: "plus") }
-                .buttonStyle(.borderless)
-                .help("New tab in \(workspace.name)")
         }
         .contextMenu {
             Button("New Tab") { model.onNewTab?(workspace) }

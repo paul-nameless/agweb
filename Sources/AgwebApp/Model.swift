@@ -122,12 +122,20 @@ enum Profiles {
         if let store = stores[name] { return store }
         let store = WKWebsiteDataStore(forIdentifier: identifier(name))
         stores[name] = store
-        if !names.contains(name) { save(names + [name]) }
+        holdInUse(name)
+        if !names.contains(name) { update { $0.contains(name) ? $0 : $0 + [name] } }
         return store
     }
 
     static func delete(_ name: String) async throws {
         guard names.contains(name) else { throw Failure("no profile \(name); see agweb profile-list") }
+        if let fd = inUse.removeValue(forKey: name) { close(fd) }
+        let probe = open(inUseFile(name).path, O_CREAT | O_RDWR, 0o600)
+        defer { if probe >= 0 { close(probe) } }
+        guard probe < 0 || flock(probe, LOCK_EX | LOCK_NB) == 0 else {
+            if stores[name] != nil { holdInUse(name) }
+            throw Failure("profile \(name) is open in another agweb instance; quit it or close its workspaces first")
+        }
         // WebKit refuses to remove a store it still holds, which it does for a while after the store's last tab
         // closes, and crashes removing one before any web view exists. Wiping its data works in both cases;
         // removing the emptied store itself is a bonus.
@@ -135,16 +143,19 @@ enum Profiles {
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         try? await WKWebsiteDataStore.remove(forIdentifier: identifier(name))
         try? FileManager.default.removeItem(at: sessionCookies(name))
-        save(names.filter { $0 != name })
+        update { $0.filter { $0 != name } }
     }
 
     // Cookies without an expiry die with the app in every browser that doesn't restore sessions, and SSO logins
-    // live in them. They're saved per named profile on quit and put back the first time the profile opens again.
+    // live in them. They're saved per named profile as pages change and on quit, and put back before the profile's
+    // first page loads in a run. A profile whose saved cookies were never put back is not saved: its store holds
+    // none yet, and saving would wipe the logins.
 
-    private static var restored: Set<String> = []
+    /// One per profile per run; a second load of the profile waits for the first one's restore to finish.
+    private static var restoring: [String: Task<Void, Never>] = [:]
 
     static func saveSessionCookies() async {
-        for (name, store) in stores {
+        for (name, store) in stores where restoring[name] != nil {
             let cookies = await store.httpCookieStore.allCookies().filter(\.isSessionOnly)
             let list = cookies.compactMap { $0.properties.map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key.rawValue, $0.value) }) } }
             guard let data = try? PropertyListSerialization.data(fromPropertyList: list, format: .binary, options: 0) else { continue }
@@ -155,14 +166,36 @@ enum Profiles {
     }
 
     static func restoreSessionCookies(_ name: String) async {
-        guard let store = stores[name], restored.insert(name).inserted,
-              let data = try? Data(contentsOf: sessionCookies(name)),
-              let list = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [[String: Any]] else { return }
-        for properties in list {
-            let keyed = Dictionary(uniqueKeysWithValues: properties.map { (HTTPCookiePropertyKey($0.key), $0.value) })
-            guard let cookie = HTTPCookie(properties: keyed) else { continue }
-            _ = try? await withTimeout(2, "restoring a cookie") { await store.httpCookieStore.setCookie(cookie) }
+        if let task = restoring[name] { return await task.value }
+        guard let store = stores[name] else { return }
+        let file = sessionCookies(name)
+        let task = Task {
+            guard let data = try? Data(contentsOf: file),
+                  let list = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [[String: Any]] else { return }
+            for properties in list {
+                let keyed = Dictionary(uniqueKeysWithValues: properties.map { (HTTPCookiePropertyKey($0.key), $0.value) })
+                guard let cookie = HTTPCookie(properties: keyed) else { continue }
+                _ = try? await withTimeout(2, "restoring a cookie") { await store.httpCookieStore.setCookie(cookie) }
+            }
         }
+        restoring[name] = task
+        await task.value
+    }
+
+    // Every instance holding a profile's store keeps a shared lock on its file, so another instance (a test one on
+    // its own socket) can't delete a profile the person's browser has open.
+    private static var inUse: [String: Int32] = [:]
+
+    private static func holdInUse(_ name: String) {
+        let file = inUseFile(name)
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = open(file.path, O_CREAT | O_RDWR, 0o600)
+        guard fd >= 0 else { return }
+        if flock(fd, LOCK_SH | LOCK_NB) == 0 { inUse[name] = fd } else { close(fd) }
+    }
+
+    private static func inUseFile(_ name: String) -> URL {
+        file.deletingLastPathComponent().appendingPathComponent("profile-locks/\(identifier(name)).lock")
     }
 
     private static func sessionCookies(_ name: String) -> URL {
@@ -175,9 +208,14 @@ enum Profiles {
         return digest.withUnsafeBufferPointer { NSUUID(uuidBytes: $0.baseAddress!) as UUID }
     }
 
-    private static func save(_ names: [String]) {
+    /// Locked: instances on other sockets share the registry, and two read-modify-writes at once lose a name.
+    private static func update(_ change: ([String]) -> [String]) {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? JSONEncoder().encode(names.sorted()).write(to: file, options: .atomic)
+        let lock = open(file.path + ".lock", O_CREAT | O_RDWR, 0o600)
+        defer { if lock >= 0 { close(lock) } }
+        if lock >= 0 { flock(lock, LOCK_EX) }
+        try? JSONEncoder().encode(change(names).sorted()).write(to: file, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 }
 
@@ -221,6 +259,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     /// For the click ring in recordings.
     @ObservationIgnored var lastClick: (point: CGPoint, time: Double)?
     @ObservationIgnored private var loadWaiter: CheckedContinuation<Void, Error>?
+    @ObservationIgnored private var initialLoad: Task<Void, Error>?
+    @ObservationIgnored private var loadGeneration = 0
+    /// The navigation `load` started; another one ending (the page it replaced) doesn't end the wait.
+    @ObservationIgnored private var expected: WKNavigation?
     @ObservationIgnored private var loadTimeout: Task<Void, Never>?
     @ObservationIgnored private var lastCrash: Double?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
@@ -263,34 +305,46 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     var currentURL: String { webView.url?.absoluteString ?? (url.isEmpty ? "about:blank" : url) }
     var currentTitle: String { webView.title.flatMap { $0.isEmpty ? nil : $0 } ?? title }
 
+    /// Loads a reopened tab's page, or waits for the load already under way: the window starts one for the tab it
+    /// shows, and a command arriving meanwhile must not act on about:blank.
     func loadIfPending() async throws {
-        guard let url = pendingURL else { return }
-        pendingURL = nil
-        if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
-        load(url)
-        try await waitForLoad()
+        if let url = pendingURL {
+            pendingURL = nil
+            initialLoad = Task { if await self.load(url) { try await self.waitForLoad() } }
+        }
+        guard let task = initialLoad else { return }
+        defer { if initialLoad == task { initialLoad = nil } }
+        try await task.value
     }
 
     func goto(_ url: URL) async throws {
         pendingURL = nil
+        initialLoad = nil
         // A fragment-only change is a same-document navigation; WebKit sends no didFinish for it.
         if let current = webView.url, Self.sameDocument(current, url) {
             webView.load(URLRequest(url: url))
             try? await Task.sleep(for: .milliseconds(100))
             return
         }
-        load(url)
+        guard await load(url) else { return }
         try await waitForLoad()
         // The title arrives just after didFinish; agents read it from the reply.
         for _ in 0..<5 where (webView.title ?? "").isEmpty { try? await Task.sleep(for: .milliseconds(60)) }
     }
 
-    func load(_ url: URL) {
-        if url.isFileURL {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        } else {
-            webView.load(URLRequest(url: url))
-        }
+    /// Every first load goes through here, so a profile's saved session cookies are back before any page asks.
+    /// After the tab exists: WebKit never answers a cookie store in a process that has no web view yet.
+    /// False when a later load replaced this one while the cookies were coming back.
+    @discardableResult
+    func load(_ url: URL) async -> Bool {
+        loadGeneration += 1
+        let generation = loadGeneration
+        if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
+        guard generation == loadGeneration else { return false }
+        expected = url.isFileURL
+            ? webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            : webView.load(URLRequest(url: url))
+        return true
     }
 
     private static func sameDocument(_ a: URL, _ b: URL) -> Bool {
@@ -321,22 +375,25 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     }
 
     func finishLoad(_ error: Error?) {
+        expected = nil
         loadTimeout?.cancel()
         guard let waiter = loadWaiter else { return }
         loadWaiter = nil
         if let error { waiter.resume(throwing: error) } else { waiter.resume() }
     }
 
+    private func isExpected(_ navigation: WKNavigation?) -> Bool { expected == nil || navigation === expected }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        finishLoad(nil)
+        if isExpected(navigation) { finishLoad(nil) }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        loadFailed(error)
+        if isExpected(navigation) { loadFailed(error) }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        loadFailed(error)
+        if isExpected(navigation) { loadFailed(error) }
     }
 
     private func loadFailed(_ error: Error) {

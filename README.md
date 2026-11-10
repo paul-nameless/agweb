@@ -2,7 +2,7 @@
 
 A WebKit (WKWebView) browser for coding agents, driven by a playwright-cli-style CLI. It never activates or raises its window: agents work in the background while the window stays visible in the window list.
 
-- One window. The sidebar groups tabs by workspace, one per agent task; a green dot marks the tab each agent is driving. Click a tab to watch it, hover it to close it, use the workspace's + for a new tab.
+- One window. The sidebar groups tabs by workspace, one per agent task; a green dot marks the tab each agent is driving. Click a tab to watch it, hover it to close it, right-click a workspace for a new tab.
 - Toolbar: back, forward, reload, a centered address field, new tab. ⌘T, ⌘W, ⌘L, ⌘R, ⌘[, ⌘] and the usual Edit shortcuts work.
 - Workspaces and their tabs survive a quit or restart: they are saved as they change and reopen at launch, each page loading when it is first shown or driven. `close` and `close-all` end them for good. Fresh-profile workspaces come back logged out.
 - A workspace starts with a fresh profile that keeps nothing. `-p NAME` (or `AGWEB_PROFILE`) gives it a named, persistent profile instead, shared by every workspace naming it, in parallel, which Chrome can't do with one profile dir. `profile-list` and `profile-delete` manage them.
@@ -17,7 +17,7 @@ A WebKit (WKWebView) browser for coding agents, driven by a playwright-cli-style
 ## Build and run
 
 ```sh
-./scripts/build.sh                 # build/agweb.app, bin/agweb (refuses while the app runs: bin/agweb quit)
+./scripts/build.sh                 # build/Agweb.app, bin/agweb (refuses while the app runs: bin/agweb quit)
 ln -s "$PWD/bin/agweb" ~/.local/bin/agweb
 agweb -w demo open example.com     # starts the app with open -g if needed
 agweb -w demo snapshot
@@ -33,7 +33,8 @@ agweb quit
 - `~/Library/WebKit/dev.playground.agweb/WebsiteDataStore/<uuid>/`: each named profile's cookies, localStorage, IndexedDB and cache, owned by WebKit. The uuid is derived from the name.
 - `~/Library/Application Support/agweb/`:
   - `profiles.json`: profile names, since WebKit only knows the uuids;
-  - `session-cookies/<uuid>.plist`: session cookies saved on quit;
+  - `session-cookies/<uuid>.plist`: session cookies, saved as pages change and on quit;
+  - `profile-locks/<uuid>.lock`: held by every instance with the profile open, so another one can't delete it;
   - `workspaces.json`: open workspaces, their profile, tabs (URL, title), current tab and the displayed tab;
   - `agweb.sock`: the CLI's socket.
 
@@ -50,7 +51,7 @@ The app is a regular app launched with `open -g`, never calls `activate`, and fi
 - No `run-code` (there is no Playwright engine), tracing, Chromium-only options (`--config`, `--browser`) or cross-origin iframe refs.
 - `fill` and `type` use `execCommand('insertText')`, not key events (`type` per character). Only pointer input and `press` are native.
 - Closing (red button) or minimizing the window pauses pages; `agweb show` puts it back, and screenshots refuse until then. Recordings get no frames meanwhile.
-- Named profiles keep their logins across relaunches, session cookies included: agweb saves those on quit (0600, under `~/Library/Application Support/agweb/session-cookies/`) and restores them when the profile next opens, so SSO logins survive. A crash or `kill -9` loses the session cookies of that run.
+- Named profiles keep their logins across relaunches, session cookies included: agweb saves those about a second after each page change and on quit (0600, under `~/Library/Application Support/agweb/session-cookies/`) and restores them before the profile's first page loads, so SSO logins survive. A crash or `kill -9` loses at most the last second. Instances on other sockets share profiles but not live cookies: the last one to save wins.
 - HTML5-draggable sources (`draggable`, links, images) are dropped with DOM drag events rather than the pointer: a native drag would start an AppKit drag session that follows your real mouse.
 - `document.hasFocus()` is false in pages, since the window is never key while agents work. It only reports key to WebKit while the app is in the background, because WebKit drops mouse moves otherwise; pages therefore also react to your own pointer over the background window, as in Chrome, and a tab you clicked into yourself keeps `document.hasFocus()` true after you switch away.
 - Untested: real logins, passkeys (WebKit allows them only for entitled browsers or associated domains), Cloudflare and other bot checks.

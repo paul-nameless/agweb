@@ -66,11 +66,11 @@ private func makeMainMenu(target: MainWindow) -> NSMenu {
         return item
     }
 
-    submenu("agweb", [
-        item("Hide agweb", #selector(NSApplication.hide(_:)), "h"),
+    submenu("Agweb", [
+        item("Hide Agweb", #selector(NSApplication.hide(_:)), "h"),
         item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
         .separator(),
-        item("Quit agweb", #selector(NSApplication.terminate(_:)), "q"),
+        item("Quit Agweb", #selector(NSApplication.terminate(_:)), "q"),
     ])
     submenu("File", [
         item("New Tab", #selector(MainWindow.newTab(_:)), "t", to: target),

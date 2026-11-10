@@ -28,7 +28,10 @@ extension Browser {
         saveTask?.cancel()
         saveTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(1))
-            if !Task.isCancelled { self.saveWorkspaces() }
+            guard !Task.isCancelled else { return }
+            self.saveWorkspaces()
+            // So a crash loses at most the last second of logins.
+            await Profiles.saveSessionCookies()
         }
     }
 

@@ -61,6 +61,8 @@ extension Browser {
     // MARK: Cookies and storage state
 
     func cookies(_ request: Request, in workspace: Workspace) async throws -> String {
+        // Before reading or changing them, or a profile not loaded yet this run reports its logins missing.
+        if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
         let store = workspace.dataStore.httpCookieStore
         let options = request.options
         let all = try await withTimeout(5, "reading cookies") { await store.allCookies() }

@@ -25,22 +25,32 @@ public enum PageScripts {
       if (tag === 'img') return 'img';
       if (['nav', 'main', 'form', 'dialog', 'ul', 'ol', 'table'].includes(tag)) return { nav: 'navigation', ul: 'list', ol: 'list' }[tag] || tag;
       if (tag === 'li') return 'listitem';
-      if (tag === 'iframe') return 'iframe';
+      if (tag === 'iframe' || tag === 'frame') return 'iframe';
       if (el.isContentEditable && !el.parentElement?.isContentEditable) return 'textbox';
       return null;
     };
-    const nameOf = (el) => clean(
-      el.getAttribute('aria-label') || el.labels?.[0]?.innerText || el.getAttribute('alt') || el.getAttribute('title') ||
-      el.getAttribute('placeholder') || (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) ? '' : el.innerText) ||
-      el.querySelector?.('img[alt]')?.getAttribute('alt') || (el.type === 'password' ? '' : el.value)
-    );
+    // The accessible name, in the spec's order: aria-labelledby, aria-label, a native label or alt, the content for
+    // roles named by it (a combobox or textbox is not: its text is the value), then title and placeholder.
+    const fromContent = new Set(['link', 'button', 'heading', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'option', 'listitem', 'cell', 'row']);
+    const nameOf = (el, role = roleOf(el)) => {
+      const root = el.getRootNode();
+      const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\\s+/)
+        .map(id => id && (root.getElementById?.(id) || el.ownerDocument.getElementById(id))?.innerText).filter(Boolean).join(' ');
+      const button = el.tagName === 'INPUT' && ['submit', 'button', 'reset'].includes(el.type);
+      return clean(
+        labelledBy || el.getAttribute('aria-label') || el.labels?.[0]?.innerText || el.getAttribute('alt') ||
+        (button ? el.value : '') || (fromContent.has(role) && !['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) ? el.innerText : '') ||
+        (fromContent.has(role) ? el.querySelector?.('img[alt]')?.getAttribute('alt') : '') ||
+        el.getAttribute('title') || el.getAttribute('placeholder') || ''
+      );
+    };
     const visible = (el) => el.getClientRects().length > 0 && el.ownerDocument.defaultView.getComputedStyle(el).visibility !== 'hidden';
     // Every element, through open shadow roots and same-origin iframes.
     const all = function* (root) {
       for (const el of root.querySelectorAll('*')) {
         yield el;
         if (el.shadowRoot) yield* all(el.shadowRoot);
-        if (el.tagName === 'IFRAME') { let doc = null; try { doc = el.contentDocument; } catch {} if (doc) yield* all(doc); }
+        if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') { let doc = null; try { doc = el.contentDocument; } catch {} if (doc) yield* all(doc); }
       }
     };
     const find = (target) => {
@@ -107,7 +117,7 @@ public enum PageScripts {
         const assigned = node.assignedNodes({ flatten: true });
         return assigned.length ? assigned : node.childNodes;
       }
-      if (node.tagName === 'IFRAME') {
+      if (node.tagName === 'IFRAME' || node.tagName === 'FRAME') {
         let body = null;
         try { body = node.contentDocument?.body; } catch {}
         return body ? [body] : [];
@@ -123,17 +133,20 @@ public enum PageScripts {
       if (node.nodeType !== Node.ELEMENT_NODE || skip.has(node.tagName) || node.getAttribute('aria-hidden') === 'true') return;
       const style = node.ownerDocument.defaultView.getComputedStyle(node);
       // display:contents boxes (every <slot> by default) have no rects but their children do.
-      if (style.display === 'contents' || node.tagName === 'BODY') { walk(node, depth); return; }
+      if (style.display === 'contents' || node.tagName === 'BODY' || node.tagName === 'FRAMESET') { walk(node, depth); return; }
       if (node.getClientRects().length === 0 || style.visibility === 'hidden') return;
       const role = roleOf(node);
       if (!role) { walk(node, depth); return; }
       const ref = `e${++n}`;
       W.refs.set(ref, node);
       let line = `${'  '.repeat(depth)}- ${role}`;
-      const name = leaf.has(role) ? nameOf(node) : clean(node.getAttribute('aria-label') || (role === 'iframe' ? node.getAttribute('title') : ''));
+      // A container's text shows as its children, so only a leaf is named by its content.
+      const name = nameOf(node, leaf.has(role) ? role : null);
       if (name) line += ` ${JSON.stringify(name)}`;
       if (role === 'heading') line += ` [level=${/^H[1-6]$/.test(node.tagName) ? node.tagName[1] : node.getAttribute('aria-level') || 2}]`;
       if (node.checked || node.getAttribute('aria-checked') === 'true') line += ' [checked]';
+      if (node.getAttribute('aria-selected') === 'true') line += ' [selected]';
+      if (node.getAttribute('aria-expanded') === 'true') line += ' [expanded]';
       if (node.disabled) line += ' [disabled]';
       // A password someone typed by hand must not reach an agent's transcript.
       if (node.type === 'password') { if (node.value) line += ' [value=<hidden>]'; }
@@ -145,15 +158,22 @@ public enum PageScripts {
         for (const option of node.options) {
           emit(`${'  '.repeat(depth + 1)}- option ${JSON.stringify(clean(option.label))}${option.selected ? ' [selected]' : ''}`);
         }
-      } else if (!leaf.has(role)) {
-        walk(node, depth + 1);
+      } else {
+        walk(node, depth + 1, leaf.has(role));
       }
     };
-    const walk = (parent, depth) => {
+    // Inside a leaf (a button, a link, a combobox) its text is already the name, so only elements with a role
+    // show: a search box in a dialog the page made a button, the options of an open custom select.
+    const walk = (parent, depth, insideLeaf = false) => {
       for (const node of childrenOf(parent)) {
         if (truncated) return;
-        visit(node, depth);
+        if (insideLeaf) { for (const el of roled(node)) visit(el, depth); } else visit(node, depth);
       }
+    };
+    const roled = function* (node) {
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (roleOf(node)) { yield node; return; }
+      for (const child of childrenOf(node)) yield* roled(child);
     };
     if (root) visit(root, 0); else walk(document.body || document.documentElement, 0);
     if (truncated) lines.push(`- (truncated at \(maxSnapshotLines) lines; use eval to read the rest)`);
@@ -223,12 +243,18 @@ public enum PageScripts {
     /// For wait: whether the target is on the page and visible (several matches count), or with `gone` whether not.
     public static let present = find + """
     let present;
-    try { present = visible(find(target)); } catch (e) { present = /matches \\d+ elements/.test(e.message); }
+    try { present = visible(find(target)); } catch (e) {
+      if (e.name === 'SyntaxError') throw new Error(`invalid selector ${target}`);
+      present = /matches \\d+ elements/.test(e.message);
+    }
     return String(gone ? !present : present);
     """
 
     public static let hasText = """
-    return String((document.body?.innerText ?? '').includes(text));
+    const texts = (doc) => [doc.body?.innerText ?? '', ...[...doc.querySelectorAll('iframe, frame')].flatMap(f => {
+      try { return f.contentDocument ? texts(f.contentDocument) : []; } catch { return []; }
+    })];
+    return String(texts(document).some(t => t.includes(text)));
     """
 
     /// Page world: loaded, and no fetch or XHR in flight.
@@ -308,7 +334,7 @@ public enum PageScripts {
     """
 
     public static let insertText = """
-    const focusedDocument = (doc) => { const a = doc.activeElement; try { if (a?.tagName === 'IFRAME' && a.contentDocument) return focusedDocument(a.contentDocument); } catch {} return doc; };
+    const focusedDocument = (doc) => { const a = doc.activeElement; try { if ((a?.tagName === 'IFRAME' || a?.tagName === 'FRAME') && a.contentDocument) return focusedDocument(a.contentDocument); } catch {} return doc; };
     if (!focusedDocument(document).execCommand('insertText', false, text)) throw new Error('no editable element is focused');
     return 'ok';
     """
@@ -445,7 +471,8 @@ public enum PageScripts {
     (() => {
       const describe = (a) => {
         if (typeof a === 'string') return a;
-        if (a instanceof Error) return a.stack || `${a.name}: ${a.message}`;
+        // WebKit's stack is only the frames, without V8's "TypeError: message" first line.
+        if (a instanceof Error) return `${a.name}: ${a.message}` + (a.stack ? ` (at ${a.stack.split('\\n')[0]})` : '');
         try { return JSON.stringify(a) ?? String(a); } catch { return String(a); }
       };
       const post = (level, args) => {

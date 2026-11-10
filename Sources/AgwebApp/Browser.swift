@@ -34,6 +34,9 @@ final class Browser {
     }
 
     func existingOrNewWorkspace(named name: String, profile: String?) throws -> Workspace {
+        if let profile, profile.trimmingCharacters(in: .whitespaces) != profile || profile.isEmpty {
+            throw Failure("profile names can't be empty or start or end with spaces")
+        }
         if let workspace = model.workspaces.first(where: { $0.name == name }) {
             if let profile, profile != workspace.profile {
                 throw Failure("workspace \(name) already uses \(Self.describe(profile: workspace.profile)); close it first to switch")
@@ -224,9 +227,6 @@ final class Browser {
             workspace.busy = true
             mainWindow.showQuietly()
             let tab = workspace.current ?? addTab(to: workspace)
-            // Once per profile per run, before its first page loads. After the tab exists: WebKit never answers a
-            // cookie store in a process that has no web view yet.
-            if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
             if let url = args.first { try await tab.goto(try Address.url(url)) } else { try await tab.loadIfPending() }
             return describe(tab)
         default:
@@ -605,8 +605,8 @@ final class Browser {
         }
         let start = ProcessInfo.processInfo.systemUptime
         while true {
-            // A navigation in progress makes page scripts fail; that is "not yet".
-            if (try? await check()) == true { break }
+            // A navigation in progress makes page scripts fail; that is "not yet". A bad selector never will be.
+            do { if try await check() { break } } catch let error as Failure where error.description.contains("invalid selector") { throw error } catch {}
             if ProcessInfo.processInfo.systemUptime - start > timeout { throw Failure("timed out after \(Int(timeout)) s waiting for \(what)") }
             try await Task.sleep(for: .milliseconds(100))
         }
