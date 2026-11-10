@@ -99,6 +99,11 @@ private func makeMainMenu(target: MainWindow, settings: SettingsWindow) -> NSMen
         item("Dashboard", #selector(MainWindow.toggleDashboard(_:)), "d", to: target),
         .separator(),
         item("Reload Page", #selector(MainWindow.reloadPage(_:)), "r", to: target),
+        .separator(),
+        item("Zoom In", #selector(MainWindow.zoomIn(_:)), "=", to: target),
+        item("Zoom Out", #selector(MainWindow.zoomOut(_:)), "-", to: target),
+        item("Actual Size", #selector(MainWindow.actualSize(_:)), "0", to: target),
+        .separator(),
         item("Back", #selector(MainWindow.goBack(_:)), "[", to: target),
         item("Forward", #selector(MainWindow.goForward(_:)), "]", to: target),
     ])
@@ -108,7 +113,8 @@ private func makeMainMenu(target: MainWindow, settings: SettingsWindow) -> NSMen
         item("Show Previous Tab", #selector(MainWindow.showPreviousTab(_:)), "{", to: target),
         .separator(),
         item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
-        item("Show Browser", #selector(NSWindow.makeKeyAndOrderFront(_:)), "0", to: target.window),
+        // ⌘0 is Actual Size, as in Safari.
+        item("Show Browser", #selector(NSWindow.makeKeyAndOrderFront(_:)), "0", [.command, .shift], to: target.window),
     ])
     let help = submenu("Help", [item("Install Agent Skill", #selector(SettingsWindow.installSkill(_:)), "", to: settings)])
     NSApp.helpMenu = help

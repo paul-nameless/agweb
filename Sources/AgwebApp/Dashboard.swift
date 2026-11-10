@@ -54,6 +54,7 @@ struct DashboardView: View {
     @State private var frozen: [Int]?
     @AppStorage(Settings.showUsage) private var showUsage = false
     @AppStorage(Settings.columns) private var columns = 0
+    @AppStorage(Settings.textSize) private var textSize = TextSize.medium
 
     var body: some View {
         let recent = model.workspaces.flatMap(\.tabs).sorted { ($0.lastActivity, $1.id) > ($1.lastActivity, $0.id) }
@@ -72,7 +73,8 @@ struct DashboardView: View {
             LazyVGrid(columns: grid, spacing: 18) {
                 ForEach(tabs) { tab in
                     let pid = tab.processID
-                    TabTile(tab: tab, displayed: model.displayedTabID == tab.id, usage: usage[pid]?.usage, shared: (sharing[pid] ?? 0) > 1) {
+                    TabTile(tab: tab, displayed: model.displayedTabID == tab.id, usage: usage[pid]?.usage, shared: (sharing[pid] ?? 0) > 1,
+                            scale: textSize.scale) {
                         model.onCloseTab?(tab)
                     }
                         .contentShape(Rectangle())
@@ -111,7 +113,7 @@ struct DashboardView: View {
             Label("Total " + sum(usage.values).label, systemImage: "gauge.with.dots.needle.33percent")
             Spacer()
         }
-        .font(.callout).foregroundStyle(.secondary)
+        .font(.system(size: 12 * textSize.scale)).foregroundStyle(.secondary)
         .help(parts.joined(separator: "\n"))
     }
 }
@@ -121,6 +123,8 @@ private struct TabTile: View {
     let displayed: Bool
     let usage: Usage?
     let shared: Bool
+    /// The Settings text size; macOS text styles have fixed sizes, so these are the styles' sizes scaled.
+    let scale: CGFloat
     let close: () -> Void
 
     var body: some View {
@@ -133,7 +137,7 @@ private struct TabTile: View {
                     if let image = tab.thumbnail {
                         Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
                     } else {
-                        Image(systemName: "globe").font(.largeTitle).foregroundStyle(.tertiary).frame(maxHeight: .infinity)
+                        Image(systemName: "globe").font(.system(size: 26 * scale)).foregroundStyle(.tertiary).frame(maxHeight: .infinity)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -141,13 +145,13 @@ private struct TabTile: View {
                                                                         lineWidth: displayed ? 2 : 1))
                 .overlay(alignment: .topLeading) {
                     if tab.state != "visible" {
-                        Text(tab.state).font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
+                        Text(tab.state).font(.system(size: 10 * scale)).padding(.horizontal, 6).padding(.vertical, 2)
                             .background(.regularMaterial, in: Capsule()).padding(6)
                     }
                 }
                 .overlay(alignment: .topTrailing) {
                     Button(action: close) {
-                        Image(systemName: "xmark").font(.caption.weight(.semibold)).frame(width: 22, height: 22)
+                        Image(systemName: "xmark").font(.system(size: 10 * scale, weight: .semibold)).frame(width: 22, height: 22)
                             .background(.regularMaterial, in: Circle())
                     }
                     .buttonStyle(.plain)
@@ -158,20 +162,21 @@ private struct TabTile: View {
                 Circle().fill(driven ? Color.green : Color.clear).frame(width: 6, height: 6)
                 Text(tab.title.isEmpty ? (tab.url.isEmpty ? "New tab" : tab.url) : tab.title).lineLimit(1).truncationMode(.tail)
             }
+            .font(.system(size: 13 * scale))
             HStack(spacing: 6) {
                 Label(workspace.name, systemImage: "square.stack").lineLimit(1)
                 if let profile = workspace.profile { Label(profile, systemImage: "person.crop.circle").lineLimit(1) }
                 Spacer(minLength: 0)
                 if workspace.busy { ProgressView().controlSize(.mini) }
             }
-            .font(.caption).foregroundStyle(.secondary)
+            .font(.system(size: 10 * scale)).foregroundStyle(.secondary)
             if let usage {
-                Text(usage.label + (shared ? " · shared" : "")).font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                Text(usage.label + (shared ? " · shared" : "")).font(.system(size: 10 * scale)).monospacedDigit().foregroundStyle(.secondary)
                     .help(shared ? "This page shares its process with another tab, so both show the same numbers" : "This page's process")
             }
             if driven, let last = workspace.lastCommand, let at = workspace.lastCommandAt {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text("\(last) · \(Self.ago(at, context.date))").font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                    Text("\(last) · \(Self.ago(at, context.date))").font(.system(size: 10 * scale)).foregroundStyle(.tertiary).lineLimit(1)
                 }
             }
         }

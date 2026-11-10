@@ -185,10 +185,23 @@ final class MainWindow: NSObject, NSWindowDelegate {
     @objc func goBack(_ sender: Any?) { model.displayedTab?.webView.goBack() }
     @objc func goForward(_ sender: Any?) { model.displayedTab?.webView.goForward() }
     @objc func reloadPage(_ sender: Any?) { model.displayedTab?.webView.reload() }
+
+    // Safari's steps. Clicks and screenshots already scale by pageZoom; a zoomed page has a narrower CSS viewport,
+    // so this is for the person, per tab, and not saved.
+    private static let zoomSteps: [CGFloat] = [0.5, 0.75, 0.85, 1, 1.15, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    @objc func zoomIn(_ sender: Any?) { zoom { zoom in Self.zoomSteps.first { $0 > zoom + 0.001 } } }
+    @objc func zoomOut(_ sender: Any?) { zoom { zoom in Self.zoomSteps.last { $0 < zoom - 0.001 } } }
+    @objc func actualSize(_ sender: Any?) { zoom { _ in 1 } }
+
+    private func zoom(_ next: (CGFloat) -> CGFloat?) {
+        guard let webView = model.displayedTab?.webView, let zoom = next(webView.pageZoom) else { return }
+        webView.pageZoom = zoom
+    }
 }
 
 struct SidebarView: View {
     let model: BrowserModel
+    @AppStorage(Settings.textSize) private var textSize = TextSize.medium
 
     var body: some View {
         // Nothing is selected while the dashboard shows, so clicking even the displayed tab goes back to it. A tap
@@ -211,6 +224,7 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .environment(\.sidebarRowSize, textSize.sidebarRows)
     }
 }
 

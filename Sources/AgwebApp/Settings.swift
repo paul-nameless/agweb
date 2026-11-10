@@ -6,15 +6,33 @@ enum Settings {
     static let showUsage = "dashboardShowsUsage"
     /// 0 fits as many as the width allows.
     static let columns = "dashboardColumns"
+    static let textSize = "textSize"
+}
+
+/// The sidebar's and the dashboard's text; pages have their own zoom (⌘+, ⌘−).
+enum TextSize: Int, CaseIterable {
+    case small, medium, large
+
+    var title: String { ["Small", "Medium", "Large"][rawValue] }
+    var sidebarRows: SidebarRowSize { [.small, .medium, .large][rawValue] }
+    /// For the dashboard, whose text styles macOS doesn't scale.
+    var scale: CGFloat { [0.9, 1, 1.25][rawValue] }
 }
 
 struct SettingsView: View {
     @AppStorage(Settings.showUsage) private var showUsage = false
     @AppStorage(Settings.columns) private var columns = 0
+    @AppStorage(Settings.textSize) private var textSize = TextSize.medium
     @State private var skill: [String] = []
 
     var body: some View {
         Form {
+            Section("Appearance") {
+                Picker("Text size", selection: $textSize) {
+                    ForEach(TextSize.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                Text("Sidebar and dashboard. Zoom a page with ⌘+ and ⌘−.").font(.caption).foregroundStyle(.secondary)
+            }
             Section("Dashboard") {
                 Picker("Columns", selection: $columns) {
                     Text("Automatic").tag(0)
