@@ -72,8 +72,12 @@ final class Recorder {
 
     /// Finishes the file and describes it.
     func stop() async throws -> String {
-        // Stopped (or quit) right after starting: take the first frame now rather than throw the file away.
-        if frames == 0 { await capture() }
+        // Stopped (or quit) right after starting: take the first frame now rather than throw the file away. A tab
+        // just woken from hidden can give an empty snapshot for a moment, so try for up to a second.
+        for _ in 0..<10 where frames == 0 {
+            await capture()
+            if frames == 0 { try? await Task.sleep(for: .milliseconds(100)) }
+        }
         // A click's capture may be awaiting a snapshot; appending after markAsFinished would raise.
         finished = true
         loop?.cancel()
