@@ -424,7 +424,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
 
     /// What the tab costs: "visible", "hidden" (throttled), "suspended" (process frozen by WebKit) or "not loaded".
     var state: String {
-        if pendingURL != nil { return "not loaded" }
+        if pendingURL != nil || webView.url == nil { return "not loaded" }
         let selector = NSSelectorFromString("_webProcessState")
         typealias Get = @convention(c) (AnyObject, Selector) -> Int
         // 0 not running, 1 foreground, 2 background, 3 suspended.
