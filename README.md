@@ -6,15 +6,9 @@ macOS only. It is built on WebKit, the engine behind Safari.
 
 ## Why
 
-- **It never steals focus.** No window comes to the front, nothing pops up. Dialogs, file pickers and downloads are answered in code, so you keep typing while agents browse.
-- **You can always see it.** The dashboard (⌘D) shows every tab of every agent at once, live, with each agent's last command; click one to jump in and take over. When an agent needs you (a login, an MFA code, a CAPTCHA), `ask` puts a request with a Done button on its tab and waits. And it is always a real window: some sites block headless browsers, and headless leaves you guessing what went wrong.
-- **Many agents at once.** Each agent works in its own workspace with its own tabs, grouped by agent in the sidebar.
-- **Log in once.** A named profile (`-p work`) keeps its logins and is shared by every agent using it, at the same time. Chrome can't share one profile between processes. Logins and tabs survive a restart.
-- **Light on your Mac.** It uses less memory and CPU than Chrome-based tools: idle tabs are throttled and then suspended, so five real pages (Wikipedia, GitHub, Apple, Hacker News, MDN) take 0.0% CPU and about 590 MB after a few idle minutes, down from 0.7% and 760 MB just after loading.
-- **Acts like a person.** Clicks and keys are native macOS events, and the pointer moves like a hand, so hover menus and drag-and-drop work.
-- **Made for agents.** Snapshots give each element a ref that lasts while it is on the page. `snapshot --diff` and `find` show only what matters, and every action reports what it changed.
-- **Passwords stay out of the transcript.** `fill --secret-cmd 'pass show site'` types a secret the agent never sees in replies. 1Password and Bitwarden CLIs work too.
-- **Demo videos.** `video-start` records a tab to MP4, with the pointer and clicks drawn in.
+I built agweb for myself. I run several coding agents at once, and Playwright's Chrome windows kept popping up and taking my keyboard, while headless browsers got blocked by some sites and left me guessing what went wrong.
+
+agweb is one window that never takes focus. Each agent works in its own workspace, the dashboard (⌘D) shows them all live, and when one needs me for a login or a CAPTCHA it asks and waits. Agents share my logins, type and move the pointer like a person, and get compact page snapshots that say what changed. Idle tabs are suspended, so five open pages take 0% CPU and about 590 MB.
 
 ## Install
 
