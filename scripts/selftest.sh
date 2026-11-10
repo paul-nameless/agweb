@@ -293,8 +293,11 @@ fails "already uses profile selftest-alpha" -w alpha open -p other
 fails "unknown command" -w alpha frobnicate
 fails "did you mean --submit" -w alpha fill '#q' x --sumbit
 check "Page" -w alpha eval "() => { q.value = ''; q.focus() }"
-check "Page" -w alpha type --instant -- --x
-check '"--x"' -w alpha eval 'q.value'
+check "Page" -w alpha type --instant -- '--x "q"'
+check '"--x \\"q\\""' -w alpha eval 'q.value'
+check "Page" -w alpha eval "() => { q.value = '' }"
+check "Page" -w alpha type -- '--y teh'
+check '"--y teh"' -w alpha eval 'q.value'
 fails "missing <target>" -w alpha click
 fails "navigation failed" -w alpha goto http://127.0.0.1:1/
 fails "boom" -w alpha eval '() => { throw new Error("boom") }'

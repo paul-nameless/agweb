@@ -101,6 +101,12 @@ private func makeMainMenu(target: MainWindow) -> NSMenu {
 }
 
 signal(SIGPIPE, SIG_IGN)
+// WebKit reads these before the first web view, falling back to the system's text settings, which turn an agent's
+// "--verbose" into "—verbose", straighten or curl its quotes and autocorrect its words.
+for key in ["WebAutomaticDashSubstitutionEnabled", "WebAutomaticQuoteSubstitutionEnabled", "WebAutomaticTextReplacementEnabled",
+            "WebAutomaticSpellingCorrectionEnabled"] {
+    UserDefaults.standard.set(false, forKey: key)
+}
 let app = NSApplication.shared
 let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate
