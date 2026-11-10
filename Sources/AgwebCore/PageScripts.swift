@@ -82,7 +82,12 @@ public enum PageScripts {
         return el;
       }
       if (matches.length === 0) throw new Error(`no visible element matches ${target}`);
-      if (matches.length > 1) throw new Error(`${target} matches ${matches.length} elements; be more specific or use a ref from snapshot`);
+      if (matches.length > 1) {
+        const ref = (el) => [...W.refs].find(([, v]) => v === el)?.[0];
+        const label = (el) => `${roleOf(el) || el.tagName.toLowerCase()} ${JSON.stringify(nameOf(el) || clean(el.innerText).slice(0, 40))}` + (ref(el) ? ` [ref=${ref(el)}]` : '');
+        const listed = matches.slice(0, 5).map(label).join('; ') + (matches.length > 5 ? `; and ${matches.length - 5} more` : '');
+        throw new Error(`${target} matches ${matches.length} elements: ${listed}. Be more specific or use a ref from snapshot`);
+      }
       return matches[0];
     };
     // The element's rect in the top page's viewport, through same-origin iframes.

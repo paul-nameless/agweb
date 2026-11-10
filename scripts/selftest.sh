@@ -111,7 +111,7 @@ check '  - button "Inner button"' -w alpha snapshot
 check "Page" -w alpha click 'role=button[name="inner"]'
 check "Page" -w alpha click 'text=Inner button'
 check '\["inner","inner"\]' -w alpha eval 'log.filter(x => x === "inner")'
-fails "matches .* elements" -w alpha click 'role=button'
+fails 'matches .* elements: button "Press me" \[ref=e2\]; ' -w alpha click 'role=button'
 check '^- form' -w alpha snapshot '#f'
 lacks 'Press me' -w alpha snapshot '#f'
 check '^inner$' -w alpha --raw eval '(el) => el.id' 'role=button[name="inner"]'
