@@ -145,6 +145,7 @@ let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of:
 var writeAnswerTo = options.removeValue(forKey: "filename").map(absolute)
 switch command {
 case "screenshot":
+    writeAnswerTo = writeAnswerTo ?? options.removeValue(forKey: "path").map(absolute)
     // playwright-cli's positional is a target; a path there is an old habit worth keeping.
     if writeAnswerTo == nil, let first = args.first, [".png", ".jpg", ".jpeg"].contains(where: first.lowercased().hasSuffix) {
         writeAnswerTo = absolute(first)

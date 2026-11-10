@@ -87,7 +87,7 @@ check '"ok":true' -w alpha --json eval '1'
 check '"workspaces":\[{' list --json
 check "$dir/snap.md" -w alpha snapshot --filename="$dir/snap.md"
 grep -q 'button "Press me"' "$dir/snap.md" || fail "snapshot --filename did not write the tree"
-check "Screenshot" -w alpha screenshot '#b' --filename="$dir/el.png"
+check "$dir/el.png" -w alpha screenshot '#b' --path="$dir/el.png"
 [ "$(sips -g pixelWidth "$dir/el.png" | awk '/pixelWidth/ {print $2}')" -lt 400 ] || fail "screenshot '#b' is not just the button"
 check "Screenshot" -w alpha screenshot --full-page --filename="$dir/full.jpg"
 [ "$(sips -g pixelHeight "$dir/full.jpg" | awk '/pixelHeight/ {print $2}')" -gt 3000 ] || fail "screenshot --full-page is not the whole page"
@@ -150,14 +150,16 @@ check "set - token=abc" -w st cookie-set token abc --httpOnly
 check "token=abc; domain=127.0.0.1" -w st cookie-list
 check '^""$' -w st eval 'document.cookie'
 check "Page" -w st eval "() => { localStorage.setItem('k', 'v1'); document.cookie = 'c1=one' }"
+check "sameSite=lax" -w st cookie-set lax v --sameSite=Lax
 check "$dir/state.json" -w st state-save "$dir/state.json"
 grep -q '"name":"k","value":"v1"' "$dir/state.json" || fail "state-save left out localStorage"
-check "deleted 2 cookies" -w st cookie-clear
+check "deleted 3 cookies" -w st cookie-clear
 check "no cookies" -w st cookie-list
 check "Title" -w st2 open
 check "localStorage waits for" -w st2 state-load "$dir/state.json"
 check "Title" -w st2 goto "$u"
 check '\["v1",.*c1=one' -w st2 eval '[localStorage.getItem("k"), document.cookie]'
+check "lax=v.*sameSite=lax" -w st2 cookie-list
 check "viewport is 400x300" -w st2 resize 400 300
 check '\[400,300\]' -w st2 eval '[innerWidth, innerHeight]'
 check "Page" -w st2 click '#b'
