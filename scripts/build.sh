@@ -20,7 +20,7 @@ bin=$(swift build -c release --show-bin-path)
 # The app and the CLI share a name, so the CLI lives in Helpers.
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources" bin
 cp -f Resources/Info.plist "$app/Contents/Info.plist"
-cp -f Resources/AppIcon.icns Resources/defuddle.js Resources/defuddle-LICENSE "$app/Contents/Resources/"
+cp -f Resources/AppIcon.icns Resources/defuddle.js Resources/defuddle-LICENSE skill/SKILL.md "$app/Contents/Resources/"
 cp -f "$bin/AgwebApp" "$app/Contents/MacOS/agweb"
 cp -f "$bin/agweb" "$app/Contents/Helpers/agweb"
 # macOS ties privacy grants (Downloads, Desktop, ...) to the signature. An ad-hoc one changes on every build,

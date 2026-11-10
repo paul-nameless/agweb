@@ -11,6 +11,7 @@ enum Settings {
 struct SettingsView: View {
     @AppStorage(Settings.showUsage) private var showUsage = false
     @AppStorage(Settings.columns) private var columns = 0
+    @State private var skill: [String] = []
 
     var body: some View {
         Form {
@@ -25,8 +26,15 @@ struct SettingsView: View {
                 Text("Each page's process, and the total for agweb with its GPU and network processes, sampled every 2 s while the dashboard is open.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Agent skill") {
+                ForEach(skill, id: \.self) { Text($0) }
+                Button("Install for Claude Code and Codex") { skill = SkillInstaller.install() }
+                Text("Teaches agents to use the agweb command. A copy agweb installed is updated when agweb updates.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
+        .onAppear { skill = SkillInstaller.agents.map { "\($0.name): \(SkillInstaller.status($0.folder).rawValue)" } }
         .frame(width: 440)
         .fixedSize()
     }
@@ -44,4 +52,12 @@ final class SettingsWindow: NSObject {
     }()
 
     @objc func show(_ sender: Any?) { window.makeKeyAndOrderFront(nil) }
+
+    /// Help ▸ Install Agent Skill.
+    @objc func installSkill(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Agent Skill"
+        alert.informativeText = SkillInstaller.install().joined(separator: "\n")
+        alert.runModal()
+    }
 }

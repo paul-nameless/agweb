@@ -39,6 +39,7 @@ Coming: basic auth and permission prompts answered in code.
 ```sh
 ./scripts/build.sh                 # build/Agweb.app, bin/agweb (refuses while the app runs: bin/agweb quit)
 ln -s "$PWD/bin/agweb" ~/.local/bin/agweb
+agweb install-skill                # the agent skill for Claude Code and Codex (also Help ▸ Install Agent Skill, Settings)
 agweb -w demo open example.com     # starts the app with open -g if needed
 agweb -w demo snapshot
 agweb -w demo click e2

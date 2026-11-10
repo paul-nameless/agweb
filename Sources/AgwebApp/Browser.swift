@@ -260,6 +260,8 @@ final class Browser {
                 lines.append("workspace \(workspace.name) closed")
             }
             return lines.isEmpty ? "no workspaces" : lines.joined(separator: "\n")
+        case "install-skill":
+            return SkillInstaller.install().joined(separator: "\n")
         case "profile-list":
             let names = Profiles.names
             if names.isEmpty { return "no named profiles; open a workspace with -p NAME to create one" }

@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let browser = browser
         Profiles.sweepDeletedStores()
+        SkillInstaller.install(onlyOutdated: true)
         browser.restoreWorkspaces()
         do {
             try serve(path: path) { request in await browser.handle(request) }
@@ -53,12 +54,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 private func makeMainMenu(target: MainWindow, settings: SettingsWindow) -> NSMenu {
     let main = NSMenu()
-    func submenu(_ title: String, _ items: [NSMenuItem]) {
+    @discardableResult
+    func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenu {
         let menu = NSMenu(title: title)
         items.forEach(menu.addItem)
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.submenu = menu
         main.addItem(item)
+        return menu
     }
     func item(_ title: String, _ action: Selector, _ key: String, _ modifiers: NSEvent.ModifierFlags = .command,
               to receiver: AnyObject? = nil) -> NSMenuItem {
@@ -107,6 +110,8 @@ private func makeMainMenu(target: MainWindow, settings: SettingsWindow) -> NSMen
         item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
         item("Show Browser", #selector(NSWindow.makeKeyAndOrderFront(_:)), "0", to: target.window),
     ])
+    let help = submenu("Help", [item("Install Agent Skill", #selector(SettingsWindow.installSkill(_:)), "", to: settings)])
+    NSApp.helpMenu = help
     return main
 }
 

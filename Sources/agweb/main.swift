@@ -72,6 +72,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
                                 --filename=grid.png also saves a picture of it
   profile-list                  named profiles and the workspaces using them
   profile-delete <name>         delete a named profile and everything it stored
+  install-skill                 install the agent skill for Claude Code and Codex (also Help menu)
   quit                          stop agweb
 
 --instant                       pointer verbs, upload and type act at once instead of at human speed
