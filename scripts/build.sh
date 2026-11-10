@@ -1,17 +1,21 @@
 #!/bin/sh
 # Builds build/Agweb.app with the agweb CLI inside it, and links bin/agweb to that CLI.
+# --test builds a throwaway copy in /tmp/agtest instead, leaving the running app alone, and prints its CLI's path:
+#   AGWEB_CLI=$(scripts/build.sh --test) scripts/selftest.sh
 set -eu
 cd "$(dirname "$0")/.."
 export CC=/usr/bin/clang
 app=build/Agweb.app
+test=false
+if [ "${1:-}" = --test ]; then app=/tmp/agtest/Agweb.app test=true; fi
 
 # Overwriting a running signed binary gets the process killed (Code Signature Invalid) with all its sessions.
-if pgrep -f "$PWD/$app/Contents/MacOS/agweb" >/dev/null; then
+if ! $test && pgrep -f "$PWD/$app/Contents/MacOS/agweb" >/dev/null; then
     echo "agweb is running from $app; stop it first: bin/agweb quit" >&2
     exit 1
 fi
 
-swift build -c release
+swift build -c release >&2
 bin=$(swift build -c release --show-bin-path)
 # The app and the CLI share a name, so the CLI lives in Helpers.
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources" bin
@@ -22,7 +26,9 @@ cp -f "$bin/agweb" "$app/Contents/Helpers/agweb"
 # macOS ties privacy grants (Downloads, Desktop, ...) to the signature. An ad-hoc one changes on every build,
 # so each rebuild asks again; a development identity keeps one Allow. AGWEB_SIGN overrides, "-" is ad-hoc.
 identity=${AGWEB_SIGN:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development: .*\)"/\1/p' | head -1)}
+$test && identity=-
 codesign --force --sign "${identity:--}" "$app/Contents/Helpers/agweb"
 codesign --force --sign "${identity:--}" "$app"
+if $test; then echo "$app/Contents/Helpers/agweb"; exit; fi
 ln -sf "$PWD/$app/Contents/Helpers/agweb" bin/agweb
 echo "built $app; CLI: $PWD/bin/agweb"

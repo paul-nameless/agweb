@@ -15,7 +15,7 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 ## Build and test
 
 - `./scripts/build.sh` builds `build/Agweb.app`, signed with the first Apple Development identity so privacy grants survive rebuilds, and links `bin/agweb`. It refuses while the app runs. The person uses that app: never quit, rebuild or restart it without asking.
-- `scripts/test-bundle.sh` builds a throwaway copy in `/tmp/agtest` instead; `AGWEB_CLI=$(scripts/test-bundle.sh) scripts/selftest.sh` tests it without touching the running app.
+- `scripts/build.sh --test` builds a throwaway copy in `/tmp/agtest` instead; `AGWEB_CLI=$(scripts/build.sh --test) scripts/selftest.sh` tests it without touching the running app.
 - Builds need `CC=/usr/bin/clang`; a `cc` wrapper on PATH shadows the C compiler.
 - `CC=/usr/bin/clang swift test` runs the unit tests; `./scripts/selftest.sh` drives every verb in a separate instance (see its header).
 - Experiments go in an isolated instance (`AGWEB_SOCKET=/tmp/x.sock`), never in a standalone AppKit probe: an unbundled binary run from a terminal activates itself.
