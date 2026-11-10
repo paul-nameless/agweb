@@ -383,13 +383,12 @@ check "recording" -w eph2 video-start "$dir/close.mp4"
 check "### Video" -w eph2 close
 LC_ALL=C grep -qa moov "$dir/close.mp4" || fail "close left the video without its index"
 check "Page" -w beta eval "() => { document.cookie = 'kept=1; max-age=600'; document.cookie = 'sso=1' }"
-check "autoload=1" -w beta tab-new "$u?autoload=1"
 check "recording" -w beta video-start "$dir/quit.mp4"
 check "### Video" quit
 LC_ALL=C grep -qa moov "$dir/quit.mp4" || fail "quit left the video without its index"
 stopped
 # goto as the first command of a run must still bring the profile's session cookies back.
-check "not reopened .*autoload=1" -w beta goto "$u?again"
+check "index.html?again" -w beta goto "$u?again"
 check 'sso=1' -w beta eval 'document.cookie'
 check "beta (profile selftest-shared" list
 check "eph1 (fresh profile" list
