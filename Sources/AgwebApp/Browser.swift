@@ -512,7 +512,7 @@ final class Browser {
             if secret { secrets.insert(try arg(1, "text")) }
             _ = try await tab.call(PageScripts.fill, ["target": try arg(0, "target"), "text": try arg(1, request.command == "select" ? "value" : "text"),
                                                       "onlySelect": request.command == "select", "secret": secret])
-            if options["submit"] != nil { try await pressKey(tab, "Enter") }
+            if options["submit"] != nil { try await pressKey(tab, "Enter", instant: instant) }
         case "type":
             let text = try arg(0, "text")
             if instant || text.isEmpty {
@@ -529,9 +529,9 @@ final class Browser {
                     if i < text.count - 1 { try await Task.sleep(for: .seconds(tab.motion.keyDelay(after: char))) }
                 }
             }
-            if options["submit"] != nil { try await pressKey(tab, "Enter") }
+            if options["submit"] != nil { try await pressKey(tab, "Enter", instant: instant) }
         case "press":
-            try await pressKey(tab, try arg(0, "key"))
+            try await pressKey(tab, try arg(0, "key"), instant: instant)
         case "keydown", "keyup":
             try await pressKey(tab, try arg(0, "key"), phases: [request.command == "keydown" ? .keyDown : .keyUp])
         case "eval":
@@ -603,21 +603,33 @@ final class Browser {
     }
 
     /// A native key press (or only its down or up half) on the tab, giving the keyboard back to whoever had it.
-    private func pressKey(_ tab: Tab, _ combo: String, phases: [NSEvent.EventType] = [.keyDown, .keyUp]) async throws {
+    private func pressKey(_ tab: Tab, _ combo: String, phases: [NSEvent.EventType] = [.keyDown, .keyUp], instant: Bool = false) async throws {
         let focused = try await tab.call(PageScripts.focusedKind)
         if Self.pickerKinds.contains(focused), Self.pickerKeys.contains(combo.lowercased().components(separatedBy: "+").last ?? "") {
             throw Failure("\(combo) would open the focused \(focused)'s native picker; use: agweb fill <target> <value>")
         }
+        try await stroke(tab, combo, phases: phases, hold: instant ? 0 : tab.motion.keyHold())
+        if phases.contains(.keyUp) { await tab.settle() }
+    }
+
+    /// Sends a key to the tab, held down for `hold` seconds when both phases are sent, as a finger holds it. The tab
+    /// is first responder only while WebKit takes the key, and gets the keyboard back right away, not after the
+    /// page settles: the person may be typing.
+    private func stroke(_ tab: Tab, _ combo: String, phases: [NSEvent.EventType] = [.keyDown, .keyUp], hold: Double) async throws {
         let window = mainWindow.window
         var previous = window.firstResponder
         if let editor = previous as? NSTextView, editor.isFieldEditor { previous = editor.delegate as? NSResponder }
         // Another agent's press may have left its hidden tab first responder; the person types in the displayed one.
         if previous is WKWebView { previous = model.displayedTab?.webView }
-        try NativeInput.press(tab.webView, combo: combo, phases: phases, held: &tab.held)
-        // Give the keyboard back right away, not after the page settles: the person may be typing.
+        if phases.count == 2, hold > 0 {
+            try NativeInput.press(tab.webView, combo: combo, phases: [.keyDown], held: &tab.held)
+            try? await Task.sleep(for: .seconds(hold))
+            try NativeInput.press(tab.webView, combo: combo, phases: [.keyUp], held: &tab.held)
+        } else {
+            try NativeInput.press(tab.webView, combo: combo, phases: phases, held: &tab.held)
+        }
         try? await Task.sleep(for: .milliseconds(50))
         if let previous, previous !== tab.webView, window.firstResponder === tab.webView { window.makeFirstResponder(previous) }
-        if phases.contains(.keyUp) { await tab.settle() }
     }
 
     /// A right click asks WebKit for a context menu, which would pop up on the person's screen.
