@@ -1,9 +1,9 @@
 import CoreGraphics
 import Foundation
 
-/// Human pointer paths and typing rhythm, ported from the qa-video skill's prelude.js: Fitts's-law duration,
-/// a bowed cubic Bezier at minimum-jerk speed, a corrective second leg on long throws, off-centre aim.
-/// Its tremor is left out: a pixel of wobble is invisible and only adds events.
+/// Human pointer paths and typing rhythm, from the qa-video skill's prelude.js and the HCI literature: Fitts's-law
+/// duration, a bowed cubic Bezier whose speed peaks early, a slight hand wobble (bot checks flag mathematically
+/// smooth curves), a corrective second leg on long throws, aim scattered around the target's middle.
 public struct Motion {
     public typealias Step = (point: CGPoint, pause: Double)
 
@@ -60,12 +60,21 @@ public struct Motion {
         let p2 = CGPoint(x: a.x + dx * 0.66 + nx * 0.55, y: a.y + dy * 0.66 + ny * 0.55)
         let tick = 1.0 / 60
         let count = max(1, Int((seconds / tick).rounded()))
+        // A wobble of about a pixel, smooth and gone at both ends, so the leg still lands exactly.
+        let wobble = (x: 0.5 + random(), y: 0.5 + random(), fx: 1.5 + 1.5 * random(), fy: 1.5 + 1.5 * random(),
+                      px: 2 * .pi * random(), py: 2 * .pi * random())
         return (1...count).map { i in
+            if i == count { return (b, tick) }
             let u = Double(i) / Double(count)
-            let e = u * u * u * (10 + u * (-15 + 6 * u))
+            // Minimum jerk on warped time: the speed peaks at 40% of the way, not halfway, and the hand slows into
+            // the target, as aimed movements do.
+            let w = pow(u, 0.756)
+            let e = w * w * w * (10 + w * (-15 + 6 * w))
             let m = 1 - e
             let (c0, c1, c2, c3) = (m * m * m, 3 * m * m * e, 3 * m * e * e, e * e * e)
-            return (CGPoint(x: c0 * a.x + c1 * p1.x + c2 * p2.x + c3 * b.x, y: c0 * a.y + c1 * p1.y + c2 * p2.y + c3 * b.y), tick)
+            let fade = sin(.pi * u)
+            return (CGPoint(x: c0 * a.x + c1 * p1.x + c2 * p2.x + c3 * b.x + wobble.x * fade * sin(2 * .pi * wobble.fx * u + wobble.px),
+                            y: c0 * a.y + c1 * p1.y + c2 * p2.y + c3 * b.y + wobble.y * fade * sin(2 * .pi * wobble.fy * u + wobble.py)), tick)
         }
     }
 

@@ -79,3 +79,20 @@ func pathEndsExactlyOnTarget(distance: Double) {
     let pb = b.path(from: .zero, to: CGPoint(x: 300, y: 80), targetSize: 30)
     #expect(pa.map(\.point) == pb.map(\.point))
 }
+
+@Test func speedPeaksBeforeHalfway() {
+    var motion = Motion(seed: 4)
+    let path = motion.path(from: .zero, to: CGPoint(x: 200, y: 0), targetSize: 40)
+    let steps = zip(path.dropFirst(), path).map { hypot($0.point.x - $1.point.x, $0.point.y - $1.point.y) }
+    let fastest = steps.indices.max { steps[$0] < steps[$1] }!
+    #expect(Double(fastest) / Double(steps.count) < 0.5)
+}
+
+@Test func pathsWobbleALittle() {
+    var motion = Motion(seed: 8)
+    let path = motion.path(from: .zero, to: CGPoint(x: 200, y: 0), targetSize: 40)
+    // Not a perfect curve, but never more than a few pixels off it.
+    let offsets = path.dropLast().map { abs($0.point.y) }
+    #expect(offsets.allSatisfy { $0 < 30 })
+    #expect(path.last?.point == CGPoint(x: 200, y: 0))
+}
