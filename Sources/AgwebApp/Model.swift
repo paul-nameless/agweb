@@ -395,6 +395,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         }
         guard await load(url) else { return }
         try await waitForLoad()
+        // An SSO bounce or a login redirect explains a page the agent didn't ask for.
+        if let landed = webView.url, landed.host != url.host {
+            events.append("redirected to \(landed.absoluteString.prefix(200))")
+        }
         // The title arrives just after didFinish; agents read it from the reply.
         for _ in 0..<5 where (webView.title ?? "").isEmpty { try? await Task.sleep(for: .milliseconds(60)) }
     }

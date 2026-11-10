@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 dir=$(mktemp -d /tmp/agweb-test.XXXXXX)
 export AGWEB_SOCKET="$dir/s.sock"
 unset AGWEB_PROFILE AGWEB_WORKSPACE
-agweb="$PWD/../bin/agweb"
+agweb=${AGWEB_CLI:-$PWD/../bin/agweb}
 cp testpage.html "$dir/index.html"
 cp frame.html frames.html side.html redirect.html "$dir/"
 domain=dev.playground.agweb
@@ -290,6 +290,11 @@ check "index.html?next" -w alpha reload
 check "#frag" -w alpha goto "$u#frag"
 check "Page" -w alpha goto "http://127.0.0.1:$port/redirect.html"
 check "URL containing redirected" -w alpha wait --url=redirected
+check "redirected to http://localhost:$port/index.html?bounced" -w alpha goto "http://127.0.0.1:$port/x?to=http://localhost:$port/index.html%3Fbounced"
+check "Page" -w alpha eval "location.href = '/index.html?evalnav'"
+check '"?evalnav"' -w alpha eval 'location.search'
+fails "up to 600000" -w alpha wait '#b' --timeout=700000
+check "Page" -w alpha goto "$u"
 check "Safari/" -w alpha eval navigator.userAgent
 check '() => 1' -w alpha eval '() => () => 1'
 check '42' -w alpha eval '40 + 2 // trailing comment'
@@ -309,7 +314,7 @@ fails "is not a field" -w alpha fill '#b' x
 fails "no workspace\|no session" -w nobody snapshot
 
 echo "== frames, accessible names and controls inside controls"
-check 'combobox "Shipping speed" \[expanded\]' -w alpha snapshot
+check 'combobox "Shipping speed" \[expanded\] \[value="Express"\]' -w alpha snapshot
 check 'option "Standard"' -w alpha snapshot
 check 'link "Developers"' -w alpha snapshot
 check '^    - columnheader "Fruit"' -w alpha snapshot '#tb'
