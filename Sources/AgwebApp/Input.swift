@@ -46,15 +46,11 @@ enum NativeInput {
             let event = try mouse(down ? .rightMouseDown : .rightMouseUp, webView, cssPoint, viewportHeight, clickCount: clickCount, held: held)
             if down { webView.rightMouseDown(with: event) } else { webView.rightMouseUp(with: event) }
         case .middle:
-            // NSEvent can't set buttonNumber; a CGEvent can, given a screen location.
-            guard let window = webView.window else { throw Failure("tab has no window to receive input") }
-            let screen = screenPoint(window, try mouse(.mouseMoved, webView, cssPoint, viewportHeight).locationInWindow)
-            guard let cg = CGEvent(mouseEventSource: nil, mouseType: down ? .otherMouseDown : .otherMouseUp, mouseCursorPosition: screen, mouseButton: .center) else {
-                throw Failure("could not make a middle-button event")
-            }
-            cg.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
-            cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
-            cg.flags = CGEventFlags(rawValue: UInt64(held.modifiers.rawValue))
+            // NSEvent can't set buttonNumber, and a CGEvent made from a screen point lands far off target when the
+            // window is on a secondary display; one round-tripped from the NSEvent keeps its window location.
+            let base = try mouse(down ? .otherMouseDown : .otherMouseUp, webView, cssPoint, viewportHeight, clickCount: clickCount, held: held)
+            guard let cg = base.cgEvent else { throw Failure("could not make a middle-button event") }
+            cg.setIntegerValueField(.mouseEventButtonNumber, value: Int64(CGMouseButton.center.rawValue))
             guard let event = NSEvent(cgEvent: cg) else { throw Failure("could not make a middle-button event") }
             if down { webView.otherMouseDown(with: event) } else { webView.otherMouseUp(with: event) }
         }
@@ -139,6 +135,10 @@ enum NativeInput {
         "arrowdown": (125, function(NSDownArrowFunctionKey)), "arrowup": (126, function(NSUpArrowFunctionKey)),
         "home": (115, function(NSHomeFunctionKey)), "end": (119, function(NSEndFunctionKey)),
         "pageup": (116, function(NSPageUpFunctionKey)), "pagedown": (121, function(NSPageDownFunctionKey)),
+        "f1": (122, function(NSF1FunctionKey)), "f2": (120, function(NSF2FunctionKey)), "f3": (99, function(NSF3FunctionKey)),
+        "f4": (118, function(NSF4FunctionKey)), "f5": (96, function(NSF5FunctionKey)), "f6": (97, function(NSF6FunctionKey)),
+        "f7": (98, function(NSF7FunctionKey)), "f8": (100, function(NSF8FunctionKey)), "f9": (101, function(NSF9FunctionKey)),
+        "f10": (109, function(NSF10FunctionKey)), "f11": (103, function(NSF11FunctionKey)), "f12": (111, function(NSF12FunctionKey)),
     ]
 
     // ANSI layout key codes, so pages see the right event.code and shortcuts reach the right key.

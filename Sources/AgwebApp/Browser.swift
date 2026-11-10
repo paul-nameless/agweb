@@ -81,6 +81,14 @@ final class Browser {
         return tab
     }
 
+    /// A link opened with Cmd-click or the middle button: a tab after `opener` that loads without becoming current,
+    /// as in any browser. Returns its index.
+    func openInBackground(_ url: URL, from opener: Tab) -> Int {
+        let tab = makeTab(in: opener.workspace, configuration: nil, opener: opener)
+        Task { try? await tab.goto(url) }
+        return opener.workspace.tabs.firstIndex { $0 === tab } ?? -1
+    }
+
     /// Makes `tab` the one its agent drives. The window follows only when someone is already watching that
     /// workspace, so one agent never yanks the view away from another.
     private func drive(_ tab: Tab) {

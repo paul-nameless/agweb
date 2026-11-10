@@ -429,6 +429,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        // WebKit numbers the middle button 4 here.
+        if navigationAction.navigationType == .linkActivated, navigationAction.buttonNumber == 4 || navigationAction.modifierFlags.contains(.command),
+           let url = navigationAction.request.url, let browser {
+            events.append("opened in tab \(browser.openInBackground(url, from: self)): \(url.absoluteString)")
+            return decisionHandler(.cancel)
+        }
         decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
     }
 

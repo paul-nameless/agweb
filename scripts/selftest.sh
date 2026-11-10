@@ -268,6 +268,15 @@ check "0: (current)" -w alpha tab-close 1
 check "Page" -w alpha eval "() => { setTimeout(() => open('/index.html?ad'), 200) }"
 sleep 1
 check "0: (current)" -w alpha tab-list
+check "opened in tab 1: .*index.html?next" -w alpha click 'text=Next page' middle
+check "0: (current)" -w alpha tab-close 1
+check "Page" -w alpha keydown Meta
+check "opened in tab 1: .*index.html?next" -w alpha click 'text=Next page'
+check "Page" -w alpha keyup Meta
+check "0: (current)" -w alpha tab-close 1
+check "Page" -w alpha eval "() => { addEventListener('keydown', e => window.lastKey = e.key + ':' + e.code) }"
+check "Page" -w alpha press F5
+check '"F5:F5"' -w alpha eval 'window.lastKey'
 check "index.html?next" -w alpha click 'a'
 check "URL containing next" -w alpha wait --url=next
 check "URL: $u\$" -w alpha go-back
