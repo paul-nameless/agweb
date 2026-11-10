@@ -36,6 +36,8 @@ final class Workspace: Identifiable {
     @ObservationIgnored var acceptDialogs = false
     /// Where downloads nobody named go: the last command's `--download-dir`, by default its caller's `.agweb/`.
     @ObservationIgnored var downloadDir: URL?
+    /// The tab ids and current tab the agent last saw in a reply, so unchanged tabs aren't listed again.
+    @ObservationIgnored var tabsShown: [Int] = []
     /// What `dialog-accept <text>` answers prompt() with; nil answers with the prompt's default.
     @ObservationIgnored var promptText: String?
     @ObservationIgnored var recorder: Recorder?

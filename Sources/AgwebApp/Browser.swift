@@ -827,7 +827,9 @@ final class Browser {
     private func describe(_ tab: Tab) -> String {
         var out = "### Page\n- URL: \(tab.currentURL)\n- Title: \(tab.currentTitle)"
         if windowHidden { out += "\n- Note: the window is closed or minimized; pages may pause (agweb show)" }
-        if tab.workspace.tabs.count > 1 { out += "\n" + tabList(tab.workspace) }
+        // Only when the tabs changed since the agent last saw them: a popup opened, a tab closed, another is current.
+        let workspace = tab.workspace
+        if workspace.tabs.count > 1, workspace.tabsShown != tabsSeen(workspace) { out += "\n" + tabList(workspace) }
         if !tab.events.isEmpty {
             out += "\n### Events\n" + tab.events.map { "- \($0)" }.joined(separator: "\n")
             tab.events.removeAll()
@@ -847,8 +849,11 @@ final class Browser {
 
     static func describe(profile: String?) -> String { profile.map { "profile \($0)" } ?? "fresh profile" }
 
+    private func tabsSeen(_ workspace: Workspace) -> [Int] { workspace.tabs.map(\.id) + [workspace.currentID ?? -1] }
+
     private func tabList(_ workspace: Workspace) -> String {
-        "### Tabs\n" + workspace.tabs.enumerated().map { index, tab in
+        workspace.tabsShown = tabsSeen(workspace)
+        return "### Tabs\n" + workspace.tabs.enumerated().map { index, tab in
             let current = tab.id == workspace.currentID ? " (current)" : ""
             return "- \(index):\(current) [\(tab.currentTitle)](\(tab.currentURL))" + (tab.pendingURL != nil ? " (not loaded yet)" : "")
         }.joined(separator: "\n")

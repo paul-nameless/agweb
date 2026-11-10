@@ -257,6 +257,7 @@ check "Page" -w alpha eval "() => { clearInterval(window.blink); document.body.s
 
 echo "== tabs and popups"
 check "popup opened as tab 1" -w alpha click '#pop'
+lacks "### Tabs" -w alpha eval 1
 check "1: (current)" -w alpha tab-list
 check "0: (current)" -w alpha tab-select 0
 check "1: (current)" -w alpha tab-select 1
