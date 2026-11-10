@@ -97,6 +97,10 @@ private func makeMainMenu(target: MainWindow) -> NSMenu {
         item("Forward", #selector(MainWindow.goForward(_:)), "]", to: target),
     ])
     submenu("Window", [
+        // Shift+] types "}", which is what the key equivalent matches; the menu shows it as ⇧⌘].
+        item("Show Next Tab", #selector(MainWindow.showNextTab(_:)), "}", to: target),
+        item("Show Previous Tab", #selector(MainWindow.showPreviousTab(_:)), "{", to: target),
+        .separator(),
         item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
         item("Show Browser", #selector(NSWindow.makeKeyAndOrderFront(_:)), "0", to: target.window),
     ])

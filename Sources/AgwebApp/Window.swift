@@ -170,6 +170,18 @@ final class MainWindow: NSObject, NSWindowDelegate {
         if model.displayedTab == nil { model.onNewTab?(nil) } else { focusAddress() }
     }
 
+    /// Every tab in sidebar order, across workspaces, wrapping at either end.
+    @objc func showNextTab(_ sender: Any?) { stepTab(1) }
+    @objc func showPreviousTab(_ sender: Any?) { stepTab(-1) }
+
+    private func stepTab(_ step: Int) {
+        let tabs = model.workspaces.flatMap(\.tabs)
+        guard !tabs.isEmpty else { return }
+        let index = tabs.firstIndex { $0.id == model.displayedTabID }.map { ($0 + step + tabs.count) % tabs.count } ?? 0
+        model.dashboardOpen = false
+        model.display(tabs[index].id)
+    }
+
     @objc func goBack(_ sender: Any?) { model.displayedTab?.webView.goBack() }
     @objc func goForward(_ sender: Any?) { model.displayedTab?.webView.goForward() }
     @objc func reloadPage(_ sender: Any?) { model.displayedTab?.webView.reload() }
