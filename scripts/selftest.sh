@@ -9,7 +9,7 @@ export AGWEB_SOCKET="$dir/s.sock"
 unset AGWEB_PROFILE AGWEB_WORKSPACE
 agweb="$PWD/../bin/agweb"
 cp testpage.html "$dir/index.html"
-cp frame.html frames.html side.html "$dir/"
+cp frame.html frames.html side.html redirect.html "$dir/"
 domain=dev.playground.agweb
 person_frame=$(defaults read $domain agwebMainFrame 2>/dev/null)
 defaults write $domain agwebTestFrame -string "{{200, 200}, {900, 600}}"
@@ -264,6 +264,8 @@ check "URL: $u\$" -w alpha go-back
 check "index.html?next" -w alpha go-forward
 check "index.html?next" -w alpha reload
 check "#frag" -w alpha goto "$u#frag"
+check "Page" -w alpha goto "http://127.0.0.1:$port/redirect.html"
+check "URL containing redirected" -w alpha wait --url=redirected
 check "Safari/" -w alpha eval navigator.userAgent
 check '() => 1' -w alpha eval '() => () => 1'
 check '42' -w alpha eval '40 + 2 // trailing comment'

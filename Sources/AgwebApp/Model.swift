@@ -143,6 +143,7 @@ enum Profiles {
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         try? await WKWebsiteDataStore.remove(forIdentifier: identifier(name))
         try? FileManager.default.removeItem(at: sessionCookies(name))
+        try? FileManager.default.removeItem(at: inUseFile(name))
         update { $0.filter { $0 != name } }
     }
 
@@ -155,8 +156,12 @@ enum Profiles {
     private static var restoring: [String: Task<Void, Never>] = [:]
 
     static func saveSessionCookies() async {
-        for (name, store) in stores where restoring[name] != nil {
-            let cookies = await store.httpCookieStore.allCookies().filter(\.isSessionOnly)
+        for (name, store) in stores {
+            // Mid-restore, the store holds only part of the saved cookies.
+            guard let restore = restoring[name] else { continue }
+            await restore.value
+            guard let all = try? await withTimeout(5, "reading cookies", { await store.httpCookieStore.allCookies() }) else { continue }
+            let cookies = all.filter(\.isSessionOnly)
             let list = cookies.compactMap { $0.properties.map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key.rawValue, $0.value) }) } }
             guard let data = try? PropertyListSerialization.data(fromPropertyList: list, format: .binary, options: 0) else { continue }
             let file = sessionCookies(name)
@@ -389,17 +394,21 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        if isExpected(navigation) { loadFailed(error) }
+        loadFailed(navigation, error)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if isExpected(navigation) { loadFailed(error) }
+        loadFailed(navigation, error)
     }
 
-    private func loadFailed(_ error: Error) {
-        // Cancelled means another navigation replaced this one; that one reports the outcome.
-        if (error as NSError).code == NSURLErrorCancelled { return }
-        finishLoad(Failure("navigation failed: \(error.localizedDescription)"))
+    private func loadFailed(_ navigation: WKNavigation?, _ error: Error) {
+        // Cancelled means another navigation replaced this one, and that one reports the outcome: a later `load`, or
+        // the page's own redirect (location.replace in its head), which nobody expected by name.
+        if (error as NSError).code == NSURLErrorCancelled {
+            if navigation === expected { expected = nil }
+            return
+        }
+        if isExpected(navigation) { finishLoad(Failure("navigation failed: \(error.localizedDescription)")) }
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
