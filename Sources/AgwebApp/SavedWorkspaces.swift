@@ -58,7 +58,13 @@ extension Browser {
             guard let workspace = try? existingOrNewWorkspace(named: saved.name, profile: saved.profile) else { continue }
             for savedTab in saved.tabs {
                 let tab = addTab(to: workspace, display: false)
-                tab.pendingURL = URL(string: savedTab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
+                let url = URL(string: savedTab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
+                if let url, OneTimeLinks.contains(url) {
+                    tab.title = "Not reopened: \(savedTab.title)"
+                    tab.events.append("not reopened \(savedTab.url): it carries a one-time token or action; agweb goto it to load it again")
+                    continue
+                }
+                tab.pendingURL = url
                 tab.url = savedTab.url
                 tab.title = savedTab.title
             }
