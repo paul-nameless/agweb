@@ -144,7 +144,7 @@ check 'prompt() gets "Paul"' -w alpha dialog-accept Paul
 check 'answered with "Paul"' -w alpha click '#pr'
 check "will be dismissed" -w alpha dialog-dismiss
 
-echo "== cookies, storage state and resize"
+echo "== cookies, storage state, waits, colour scheme, pdf and resize"
 check "Title" -w st open "$u"
 check "set - token=abc" -w st cookie-set token abc --httpOnly
 check "token=abc; domain=127.0.0.1" -w st cookie-list
@@ -160,6 +160,21 @@ check "localStorage waits for" -w st2 state-load "$dir/state.json"
 check "Title" -w st2 goto "$u"
 check '\["v1",.*c1=one' -w st2 eval '[localStorage.getItem("k"), document.cookie]'
 check "lax=v.*sameSite=lax" -w st2 cookie-list
+check "waited 300 ms" -w st2 wait 300
+check "Page" -w st2 eval "() => { setTimeout(() => { const p = document.createElement('p'); p.id = 'late'; p.textContent = 'Arrived late'; document.body.prepend(p) }, 500) }"
+check "for #late" -w st2 wait '#late'
+check 'for text "Arrived late"' -w st2 wait --text='Arrived late'
+check "Page" -w st2 eval "() => { setTimeout(() => late.remove(), 300) }"
+check "#late to go" -w st2 wait '#late' --gone
+fails "timed out" -w st2 wait '#nothing' --timeout=300
+check "network to go quiet" -w st2 wait --load
+check "Page" -w st2 emulate --color-scheme light
+check 'false' -w st2 eval "matchMedia('(prefers-color-scheme: dark)').matches"
+check "Page" -w st2 emulate --color-scheme dark
+check 'true' -w st2 eval "matchMedia('(prefers-color-scheme: dark)').matches"
+check "$dir/page.pdf" -w st2 pdf "$dir/page.pdf" --format A4
+LC_ALL=C grep -qa '/Type */Page' "$dir/page.pdf" || fail "pdf wrote no pages"
+check "$dir/one.pdf" -w st2 pdf --single-page --filename="$dir/one.pdf"
 check "viewport is 400x300" -w st2 resize 400 300
 check '\[400,300\]' -w st2 eval '[innerWidth, innerHeight]'
 check "Page" -w st2 click '#b'

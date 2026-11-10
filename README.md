@@ -10,6 +10,7 @@ A WebKit (WKWebView) browser for coding agents, driven by a playwright-cli-style
 - Pointer verbs: `click` (left, right or middle), `dblclick`, `hover`, `drag`, `mousemove`, `mousedown`/`mouseup`, `mousewheel`; `keydown`/`keyup` hold keys, so `keydown Shift` then `click` shift-clicks. Input moves at a person's pace by default: the pointer glides to its target (Fitts's-law timing, a curved minimum-jerk path, off-centre aim, from the qa-video skill), so hover menus react, and `type` inserts a character at a time with human gaps. `--instant` jumps and inserts at once.
 - `video-start` / `video-stop` record the workspace's tab to MP4 with the pointer and click rings drawn in. A frame is written only when the page or pointer changed, and time between agent commands is cut to 1.5 s (`--max-idle`), even while a caret blinks. A recording follows the workspace's current tab, so a popup the agent opens is filmed too.
 - Nothing pops up: popups become tabs, dialogs are answered in code (confirm and prompt dismissed unless `agweb dialog-accept`) and reported under `### Events`, file choosers take files from `agweb upload`, downloads save without a panel (to `download --filename`, else `~/Downloads`), an agent's right click gets no context menu (nor does yours on a tab while its agent is mid-command), and controls that open native pickers (select, date, colour) must be set with `fill` or `select`.
+- `wait` returns when an element shows or leaves, text or a URL appears, or the network goes quiet (`--load`); `pdf` prints the page with print styles (no panel) or `--single-page`; `emulate --color-scheme` sets one tab's dark or light mode.
 - `resize` sets one tab's viewport inside the shared window, which keeps its size; larger than the window is clipped on screen but not in screenshots. `screenshot --full-page` grows the view to the page's height for the shot.
 
 ## Build and run
@@ -34,7 +35,7 @@ The app is a regular app launched with `open -g`, never calls `activate`, and fi
 
 - Not Playwright. There is no CDP, so Playwright, playwright-cli and Chrome extensions can't attach; every verb is implemented here.
 - Network: WebKit has no network API, so `requests` lists the page's documents plus fetch and XHR calls (with headers and text bodies, 64 KB each) from a page-level hook; `--static` adds resource timing entries without details. `route` answers fetch and XHR only, not navigations, images or scripts, and `--remove-header` is not supported. `state-save` reads localStorage only from origins open in the workspace.
-- No `run-code` (there is no Playwright engine), tracing, `pdf` or cross-origin iframe refs.
+- No `run-code` (there is no Playwright engine), tracing, Chromium-only options (`--config`, `--browser`) or cross-origin iframe refs.
 - `fill` and `type` use `execCommand('insertText')`, not key events (`type` per character). Only pointer input and `press` are native.
 - Closing (red button) or minimizing the window pauses pages; `agweb show` puts it back, and screenshots refuse until then. Recordings get no frames meanwhile.
 - Named profiles keep their logins across relaunches, session cookies included: agweb saves those on quit (0600, under `~/Library/Application Support/agweb/session-cookies/`) and restores them when the profile next opens, so SSO logins survive. A crash or `kill -9` loses the session cookies of that run.

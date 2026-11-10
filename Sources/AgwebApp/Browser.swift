@@ -434,6 +434,22 @@ final class Browser {
             try FileManager.default.createDirectory(at: URL(fileURLWithPath: path).deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: URL(fileURLWithPath: path))
             return "### Screenshot\n\(path)\n" + describe(tab)
+        case "wait":
+            return try await wait(tab, args.first, options) + "\n" + describe(tab)
+        case "emulate":
+            guard let scheme = options["color-scheme"] else { throw Failure("use: agweb emulate --color-scheme dark|light|auto") }
+            // prefers-color-scheme follows the view's appearance; only this tab changes.
+            switch scheme.lowercased() {
+            case "dark": webView.appearance = NSAppearance(named: .darkAqua)
+            case "light": webView.appearance = NSAppearance(named: .aqua)
+            case "auto", "no-preference": webView.appearance = nil
+            default: throw Failure("--color-scheme is dark, light or auto")
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        case "pdf":
+            let path = try options["filename"] ?? { throw Failure("missing --filename") }()
+            try await pdf(tab, to: URL(fileURLWithPath: path), singlePage: options["single-page"] != nil, paper: options["format"])
+            return "### PDF\n\(path)\n" + describe(tab)
         case "resize":
             guard let width = Int(try arg(0, "w")), let height = Int(try arg(1, "h")), (100...8192).contains(width), (100...8192).contains(height) else {
                 throw Failure("use: agweb resize <w> <h>, each 100 to 8192 CSS pixels")
@@ -535,6 +551,86 @@ final class Browser {
         let config = WKSnapshotConfiguration()
         config.rect = CGRect(x: 0, y: 0, width: full.width * scale, height: full.height * scale)
         return try await tab.snapshot(config)
+    }
+
+    /// `wait 1500` sleeps; otherwise polls until the target shows (or with --gone, leaves), the text or URL appears,
+    /// or with --load the page has loaded and no fetch/XHR has been in flight for half a second.
+    private func wait(_ tab: Tab, _ arg: String?, _ options: [String: String]) async throws -> String {
+        let timeout = try options["timeout"].map { text -> Double in
+            guard let ms = Double(text), (0...110_000).contains(ms) else { throw Failure("--timeout is milliseconds, up to 110000") }
+            return ms / 1000
+        } ?? 30
+        if let arg, let ms = Double(arg) {
+            guard (0...110_000).contains(ms) else { throw Failure("wait takes up to 110000 ms") }
+            try await Task.sleep(for: .milliseconds(ms))
+            return "### Result\nwaited \(Int(ms)) ms"
+        }
+        let what: String
+        let check: () async throws -> Bool
+        if let target = arg {
+            let gone = options["gone"] != nil
+            what = gone ? "\(target) to go" : target
+            check = { try await tab.call(PageScripts.present, ["target": target, "gone": gone]) == "true" }
+        } else if let text = options["text"] {
+            what = "text \(text.debugDescription)"
+            check = { try await tab.call(PageScripts.hasText, ["text": text]) == "true" }
+        } else if let url = options["url"] {
+            what = "a URL containing \(url)"
+            check = { tab.webView.url?.absoluteString.contains(url) ?? false }
+        } else if options["load"] != nil {
+            what = "the page to load and the network to go quiet"
+            var quietSince: Double?
+            check = {
+                let loaded = try await tab.call(PageScripts.quiet, world: .page) == "true"
+                let quiet = loaded && !tab.webView.isLoading
+                let now = ProcessInfo.processInfo.systemUptime
+                quietSince = quiet ? quietSince ?? now : nil
+                return quietSince.map { now - $0 >= 0.5 } ?? false
+            }
+        } else {
+            throw Failure("use: agweb wait <ms> | <target> [--gone] | --text=… | --url=… | --load  [--timeout=ms]")
+        }
+        let start = ProcessInfo.processInfo.systemUptime
+        while true {
+            // A navigation in progress makes page scripts fail; that is "not yet".
+            if (try? await check()) == true { break }
+            if ProcessInfo.processInfo.systemUptime - start > timeout { throw Failure("timed out after \(Int(timeout)) s waiting for \(what)") }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        return "### Result\nwaited \(String(format: "%.1f", ProcessInfo.processInfo.systemUptime - start)) s for \(what)"
+    }
+
+    /// Paginated like printing, with print styles, unless `singlePage`: then one page of the screen view.
+    private func pdf(_ tab: Tab, to url: URL, singlePage: Bool, paper: String?) async throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if singlePage {
+            let data = try await withTimeout(30, "pdf") { try await tab.webView.pdf(configuration: WKPDFConfiguration()) }
+            try data.write(to: url)
+            return
+        }
+        guard let window = tab.webView.window else { throw Failure(MainWindow.notRendering) }
+        let info = NSPrintInfo.shared.copy() as! NSPrintInfo
+        if let paper {
+            let sizes = ["a4": NSSize(width: 595, height: 842), "letter": NSSize(width: 612, height: 792), "legal": NSSize(width: 612, height: 1008)]
+            guard let size = sizes[paper.lowercased()] else { throw Failure("--format is A4, Letter or Legal") }
+            info.paperSize = size
+        }
+        info.jobDisposition = .save
+        info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
+        for side in [\NSPrintInfo.topMargin, \.bottomMargin, \.leftMargin, \.rightMargin] { info[keyPath: side] = 36 }
+        info.horizontalPagination = .fit
+        info.verticalPagination = .automatic
+        let operation = tab.webView.printOperation(with: info)
+        operation.showsPrintPanel = false
+        operation.showsProgressPanel = false
+        // WebKit lays out for print only once the operation's view has a size.
+        operation.view?.frame = tab.webView.bounds
+        try? FileManager.default.removeItem(at: url)
+        let done = PrintDone()
+        // run() returns blank pages for WKWebView; the window-modal variant prints, and with no panels shows nothing.
+        operation.runModal(for: window, delegate: done, didRun: #selector(PrintDone.printOperationDidRun(_:success:contextInfo:)), contextInfo: nil)
+        for _ in 0..<300 where !done.finished { try await Task.sleep(for: .milliseconds(100)) }
+        guard done.finished, done.success, FileManager.default.fileExists(atPath: url.path) else { throw Failure("printing to PDF failed") }
     }
 
     /// Sizes the tab's web view so the page sees `size` CSS pixels, correcting once for whatever WebKit insets.
@@ -720,6 +816,15 @@ final class Browser {
         }
         if tab.unreadErrors > 0 { out += "\n- Console: \(tab.unreadErrors) new errors (agweb console error)" }
         return out
+    }
+
+    private final class PrintDone: NSObject {
+        var finished = false
+        var success = false
+        @objc func printOperationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
+            self.success = success
+            finished = true
+        }
     }
 
     static func describe(profile: String?) -> String { profile.map { "profile \($0)" } ?? "fresh profile" }

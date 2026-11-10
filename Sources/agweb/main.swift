@@ -36,7 +36,13 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   highlight [target]            outline an element on the page (--style=css; --hide removes one, or all)
   screenshot [target]           PNG of the viewport or an element (--full-page; --filename, default
                                 .agweb/page-<time>.png; .jpg/.jpeg saves JPEG)
+  pdf [path]                    the page as a PDF, paginated with print styles (--format=A4|Letter|Legal), or
+                                --single-page: the screen view on one page (default .agweb/page-<time>.pdf)
   resize <w> <h>                set this tab's viewport size in CSS pixels; the shared window stays as it is
+  emulate --color-scheme=dark   prefers-color-scheme for this tab: dark, light or auto
+  wait <ms> | <target> [--gone] | --text=… | --url=… | --load   [--timeout=ms, default 30000]
+                                sleep, or wait until an element shows (or leaves), text or a URL appears, or the
+                                page has loaded with no fetch/XHR in flight
   video-start [path]            record the workspace's tab to MP4 (default .agweb/video-<time>.mp4), with the
               [--max-idle=S]    pointer drawn in; frames only when something changes; time between commands
               [--size=WxH]      is cut to S seconds (default 1.5, 0 keeps real time)
@@ -85,9 +91,10 @@ var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
 // --headed and --browser are accepted for playwright-cli habits; agweb is always headed WebKit.
 let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw", "json", "static", "clear", "hide",
-                  "httpOnly", "secure"]
+                  "httpOnly", "secure", "gone", "load", "single-page"]
 let valued: Set = ["profile", "workspace", "max-idle", "filename", "size", "filter", "status", "body", "content-type",
-                   "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser"]
+                   "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser", "text", "url",
+                   "timeout", "color-scheme", "format"]
 let short = ["-w": "workspace", "-p": "profile"]
 func setOption(_ name: String, _ value: String) {
     // --header repeats; the app splits on newlines.
@@ -153,6 +160,9 @@ case "screenshot":
     }
     options["filename"] = writeAnswerTo ?? absolute(".agweb/page-\(stamp).png")
     writeAnswerTo = nil
+case "pdf":
+    options["filename"] = writeAnswerTo ?? absolute(args.first ?? ".agweb/page-\(stamp).pdf")
+    writeAnswerTo = nil
 case "download":
     if let path = writeAnswerTo { options["filename"] = path }
     writeAnswerTo = nil
@@ -215,7 +225,7 @@ if !isServing(socket) {
 
 // Commands time out inside the app (pages 30 s, scripts 30 s, downloads 120 s); this only catches a wedged app.
 // Typing at a person's pace averages about 0.25 s a key, so long text gets longer.
-let timeout = (command == "download" ? 200 : 120) + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
+let timeout = (["download", "wait"].contains(command) ? 200 : 120) + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
 guard let response = sendRequest(Request(workspace: workspace, command: command, args: args, options: options), path: socket, timeout: timeout) else {
     fail("no response from agweb on \(socket)")
 }
