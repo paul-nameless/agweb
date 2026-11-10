@@ -271,6 +271,10 @@ sleep 1
 check "0: (current)" -w alpha tab-list
 check "opened in tab 1: .*index.html?next" -w alpha click 'text=Next page' middle
 check "0: (current)" -w alpha tab-close 1
+before=$("$agweb" -w alpha tab-list | grep -c '^- ')
+check "opened in tab 1: .*index.html?blank" -w alpha click '#blank' middle
+[ "$("$agweb" -w alpha tab-list | grep -c '^- ')" = $((before + 1)) ] || fail "a middle click on a target=_blank link opened more than one tab"
+check "0: (current)" -w alpha tab-close 1
 check "Page" -w alpha keydown Meta
 check "opened in tab 1: .*index.html?next" -w alpha click 'text=Next page'
 check "Page" -w alpha keyup Meta
@@ -409,9 +413,13 @@ check '^""$' -w zeta eval 'document.cookie'
 check "workspace zeta closed" -w zeta close
 check "profile selftest-shared deleted" profile-delete selftest-shared
 check "profile selftest-alpha deleted" profile-delete selftest-alpha
-ls ~/Library/WebKit/$domain/WebsiteDataStore/ 2>/dev/null | grep -qx "$alpha_store" && fail "profile-delete left selftest-alpha's WebKit folder"
 lacks "selftest" profile-list
 fails "no profile selftest-alpha" profile-delete selftest-alpha
+# WebKit keeps a deleted profile's folder while it holds the store; the next launch removes it.
+check "bye" quit
+stopped
+check "Title" -w last open "$u"
+ls ~/Library/WebKit/$domain/WebsiteDataStore/ 2>/dev/null | grep -qix "$alpha_store" && fail "a relaunch left the deleted selftest-alpha's WebKit folder"
 
 echo
 if [ "$failures" -eq 0 ]; then echo "all checks passed"; else echo "$failures checks failed"; fi

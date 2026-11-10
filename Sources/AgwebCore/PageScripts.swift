@@ -281,9 +281,12 @@ public enum PageScripts {
     return String(document.readyState === 'complete' && !(window.__agwebPending > 0));
     """
 
-    /// Page world: whether a fetch or XHR started at or after `since` (ms since 1970) is still in flight.
+    /// Page world: whether a fetch or XHR started at or after `since` (ms since 1970) is still in flight. Only the
+    /// calls found on the `first` look count, or a long poll the page reopens after each answer would hold it.
     public static let busySince = """
-    return String([...(window.__agwebInflight || [])].some(e => e.start >= since));
+    const inflight = window.__agwebInflight || new Set();
+    if (first) window.__agwebSettling = [...inflight].filter(e => e.start >= since);
+    return String((window.__agwebSettling || []).some(e => inflight.has(e)));
     """
 
     public static let focusedKind = """

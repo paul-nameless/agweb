@@ -11,6 +11,11 @@ let evalReply = "### Result\n\"a\\nb\"\n### Page\n- URL: https://example.com/\n-
     #expect(Output.raw("no workspaces") == "no workspaces")
 }
 
+@Test func headingsInAnAnswerAreContent() {
+    let article = "### Result\n# Title\n\nIntro\n\n### Overview\nMore\n### Page\n- URL: x"
+    #expect(Output.raw(article) == "# Title\n\nIntro\n\n### Overview\nMore")
+}
+
 @Test func jsonParsesSections() throws {
     let object = try #require(JSONSerialization.jsonObject(with: Data(Output.json(evalReply, ok: true).utf8)) as? [String: Any])
     #expect(object["ok"] as? Bool == true)

@@ -4,11 +4,17 @@ import Foundation
 public enum Output {
     /// Sections that describe the tab rather than answer the command.
     static let context: Set = ["Page", "Tabs", "Events"]
+    /// Every title the app emits; a `### Heading` in an answer (an article from `text`, a response body) is content.
+    static let titles: Set = context.union(["Result", "Snapshot", "Download", "PDF", "Screenshot", "Video", "Routes", "Static"])
+
+    static func isTitle(_ title: Substring) -> Bool {
+        titles.contains(String(title)) || title.hasPrefix("Request ") || title.hasPrefix("Static ")
+    }
 
     public static func sections(_ text: String) -> [(title: String, body: String)] {
         var result: [(String, [Substring])] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("### ") {
+            if line.hasPrefix("### "), isTitle(line.dropFirst(4)) {
                 result.append((String(line.dropFirst(4)), []))
             } else if result.isEmpty {
                 result.append(("Result", [line]))

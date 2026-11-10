@@ -85,7 +85,7 @@ final class Browser {
     /// as in any browser. Returns its index.
     func openInBackground(_ url: URL, from opener: Tab) -> Int {
         let tab = makeTab(in: opener.workspace, configuration: nil, opener: opener)
-        Task { try? await tab.goto(url) }
+        tab.loadInBackground(url)
         return opener.workspace.tabs.firstIndex { $0 === tab } ?? -1
     }
 
@@ -100,6 +100,7 @@ final class Browser {
     func closeTab(_ tab: Tab) {
         let workspace = tab.workspace
         guard let index = workspace.tabs.firstIndex(where: { $0 === tab }) else { return }
+        tab.cancelLoads()
         tab.finishLoad(Failure("the tab was closed"))
         tab.webView.stopLoading()
         tab.webView.navigationDelegate = nil
@@ -146,6 +147,7 @@ final class Browser {
         for tab in workspace.tabs { closeTab(tab) }
         for handler in Workspace.handlers { workspace.contentController.removeScriptMessageHandler(forName: handler) }
         model.workspaces.removeAll { $0 === workspace }
+        if let profile = workspace.profile, !model.workspaces.contains(where: { $0.profile == profile }) { Profiles.release(profile) }
         scheduleSave()
     }
 
@@ -247,6 +249,7 @@ final class Browser {
             throw Failure("no workspace '\(request.workspace)'; start it with: agweb -w \(request.workspace) open [url]")
         }
         workspace.downloadDir = options["download-dir"].map { URL(fileURLWithPath: $0) } ?? workspace.downloadDir
+        workspace.rawReply = options["raw"] != nil
         workspace.busy = true
 
         switch request.command {
@@ -836,8 +839,13 @@ final class Browser {
         var out = "### Page\n- URL: \(tab.currentURL)\n- Title: \(tab.currentTitle)"
         if windowHidden { out += "\n- Note: the window is closed or minimized; pages may pause (agweb show)" }
         // Only when the tabs changed since the agent last saw them: a popup opened, a tab closed, another is current.
+        // A --raw reply drops the list, so it doesn't count as seen.
         let workspace = tab.workspace
-        if workspace.tabs.count > 1, workspace.tabsShown != tabsSeen(workspace) { out += "\n" + tabList(workspace) }
+        if workspace.tabs.count > 1, workspace.tabsShown != tabsSeen(workspace) {
+            let saved = workspace.tabsShown
+            out += "\n" + tabList(workspace)
+            if workspace.rawReply { workspace.tabsShown = saved }
+        }
         if !tab.events.isEmpty {
             out += "\n### Events\n" + tab.events.map { "- \($0)" }.joined(separator: "\n")
             tab.events.removeAll()

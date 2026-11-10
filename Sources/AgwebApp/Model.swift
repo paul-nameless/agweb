@@ -38,6 +38,8 @@ final class Workspace: Identifiable {
     @ObservationIgnored var downloadDir: URL?
     /// The tab ids and current tab the agent last saw in a reply, so unchanged tabs aren't listed again.
     @ObservationIgnored var tabsShown: [Int] = []
+    /// The running command's reply is printed --raw, without the tab list.
+    @ObservationIgnored var rawReply = false
     /// What `dialog-accept <text>` answers prompt() with; nil answers with the prompt's default.
     @ObservationIgnored var promptText: String?
     @ObservationIgnored var recorder: Recorder?
@@ -123,11 +125,12 @@ enum Profiles {
 
     static func store(_ name: String?) -> WKWebsiteDataStore {
         guard let name else { return .nonPersistent() }
+        holdInUse(name)
         if let store = stores[name] { return store }
+        // Registered first: another instance's launch sweep removes folders of names it can't find.
+        if !names.contains(name) { update { $0.contains(name) ? $0 : $0 + [name] } }
         let store = WKWebsiteDataStore(forIdentifier: identifier(name))
         stores[name] = store
-        holdInUse(name)
-        if !names.contains(name) { update { $0.contains(name) ? $0 : $0 + [name] } }
         return store
     }
 
@@ -145,9 +148,7 @@ enum Profiles {
         let store = stores.removeValue(forKey: name) ?? WKWebsiteDataStore(forIdentifier: identifier(name))
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         try? await WKWebsiteDataStore.remove(forIdentifier: identifier(name))
-        // When WebKit still holds the store it keeps the folder, with databases that list the sites visited.
-        try? FileManager.default.removeItem(at: FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/WebKit/\(Agweb.bundleIdentifier)/WebsiteDataStore/\(identifier(name).uuidString.lowercased())"))
+        restoring[name] = nil
         try? FileManager.default.removeItem(at: sessionCookies(name))
         try? FileManager.default.removeItem(at: inUseFile(name))
         update { $0.filter { $0 != name } }
@@ -159,14 +160,25 @@ enum Profiles {
     // none yet, and saving would wipe the logins.
 
     /// One per profile per run; a second load of the profile waits for the first one's restore to finish.
-    private static var restoring: [String: Task<Void, Never>] = [:]
+    private static var restoring: [String: Task<Bool, Never>] = [:]
+
+    /// At launch, before any store exists: the folders of deleted profiles, which WebKit keeps while it still holds the
+    /// store (with databases listing the sites visited). Removing them under a live store would lose a profile
+    /// recreated under the same name in that run.
+    static func sweepDeletedStores() {
+        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/WebKit/\(Agweb.bundleIdentifier)/WebsiteDataStore")
+        let known = Set(names.map { identifier($0).uuidString.lowercased() })
+        for id in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [] where !known.contains(id.lowercased()) {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(id))
+        }
+    }
 
     static func saveSessionCookies() async {
         for (name, store) in stores {
             // Mid-restore, the store holds only part of the saved cookies.
-            guard let restore = restoring[name] else { continue }
-            await restore.value
-            guard let all = try? await withTimeout(5, "reading cookies", { await store.httpCookieStore.allCookies() }) else { continue }
+            guard let restore = restoring[name], await restore.value else { continue }
+            guard let all = try? await withTimeout(5, "reading cookies", { await store.httpCookieStore.allCookies() }),
+                  stores[name] === store else { continue } // deleted meanwhile
             let cookies = all.filter(\.isSessionOnly)
             let list = cookies.compactMap { $0.properties.map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key.rawValue, $0.value) }) } }
             guard let data = try? PropertyListSerialization.data(fromPropertyList: list, format: .binary, options: 0) else { continue }
@@ -176,21 +188,24 @@ enum Profiles {
         }
     }
 
+    /// A restore the cookie store didn't answer (no web view in this process yet) is forgotten, so no save writes
+    /// the partial set over the file and the next load tries again.
     static func restoreSessionCookies(_ name: String) async {
-        if let task = restoring[name] { return await task.value }
+        if let task = restoring[name] { return _ = await task.value }
         guard let store = stores[name] else { return }
         let file = sessionCookies(name)
-        let task = Task {
+        let task = Task { () -> Bool in
             guard let data = try? Data(contentsOf: file),
-                  let list = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [[String: Any]] else { return }
+                  let list = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [[String: Any]] else { return true }
             for properties in list {
                 let keyed = Dictionary(uniqueKeysWithValues: properties.map { (HTTPCookiePropertyKey($0.key), $0.value) })
                 guard let cookie = HTTPCookie(properties: keyed) else { continue }
-                _ = try? await withTimeout(2, "restoring a cookie") { await store.httpCookieStore.setCookie(cookie) }
+                guard (try? await withTimeout(2, "restoring a cookie", { await store.httpCookieStore.setCookie(cookie) })) != nil else { return false }
             }
+            return true
         }
         restoring[name] = task
-        await task.value
+        if await !task.value, restoring[name] == task { restoring[name] = nil }
     }
 
     // Every instance holding a profile's store keeps a shared lock on its file, so another instance (a test one on
@@ -198,11 +213,18 @@ enum Profiles {
     private static var inUse: [String: Int32] = [:]
 
     private static func holdInUse(_ name: String) {
+        guard inUse[name] == nil else { return }
         let file = inUseFile(name)
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         let fd = open(file.path, O_CREAT | O_RDWR, 0o600)
         guard fd >= 0 else { return }
-        if flock(fd, LOCK_SH | LOCK_NB) == 0 { inUse[name] = fd } else { close(fd) }
+        // Blocking: another instance's delete holds the lock only while it wipes the folder.
+        if flock(fd, LOCK_SH) == 0 { inUse[name] = fd } else { close(fd) }
+    }
+
+    /// When no workspace uses the profile any more, so another instance may delete it.
+    static func release(_ name: String) {
+        if let fd = inUse.removeValue(forKey: name) { close(fd) }
     }
 
     private static func inUseFile(_ name: String) -> URL {
@@ -328,6 +350,17 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         try await task.value
     }
 
+    /// A tab opened behind the current one: a command that later selects it waits for this load like a reopened tab's.
+    func loadInBackground(_ url: URL) {
+        initialLoad = Task { if await self.load(url) { try await self.waitForLoad() } }
+    }
+
+    /// A closed tab: a load waiting on the cookie restore must not start in its detached web view.
+    func cancelLoads() {
+        loadGeneration += 1
+        initialLoad = nil
+    }
+
     func goto(_ url: URL) async throws {
         pendingURL = nil
         initialLoad = nil
@@ -388,8 +421,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
             try? await Task.sleep(for: .milliseconds(100))
         }
         let network = Date().addingTimeInterval(5)
-        var waited = false
-        while Date() < network, (try? await call(PageScripts.busySince, ["since": commandStart], world: .page)) == "true" {
+        var waited = false, first = true
+        while Date() < network, (try? await call(PageScripts.busySince, ["since": commandStart, "first": first], world: .page)) == "true" {
+            first = false
             waited = true
             try? await Task.sleep(for: .milliseconds(100))
         }
@@ -431,8 +465,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
-        // WebKit numbers the middle button 4 here.
-        if navigationAction.navigationType == .linkActivated, navigationAction.buttonNumber == 4 || navigationAction.modifierFlags.contains(.command),
+        // A popup gets its opener's action again; only the tab the link was in opens it elsewhere.
+        if Self.opensInBackground(navigationAction), navigationAction.sourceFrame.webView === webView,
            let url = navigationAction.request.url, let browser {
             events.append("opened in tab \(browser.openInBackground(url, from: self)): \(url.absoluteString)")
             return decisionHandler(.cancel)
@@ -508,9 +542,18 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
 
     // MARK: Things that would normally pop up
 
+    /// Cmd-click or a middle click on a link, which WebKit numbers 4 here.
+    private static func opensInBackground(_ action: WKNavigationAction) -> Bool {
+        action.navigationType == .linkActivated && (action.buttonNumber == 4 || action.modifierFlags.contains(.command))
+    }
+
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         guard let browser else { return nil }
+        if Self.opensInBackground(navigationAction), let url = navigationAction.request.url {
+            events.append("opened in tab \(browser.openInBackground(url, from: self)): \(url.absoluteString)")
+            return nil
+        }
         let popup = browser.addPopup(to: workspace, configuration: configuration, opener: self)
         let index = workspace.tabs.firstIndex { $0 === popup } ?? -1
         events.append("popup opened as tab \(index): \(navigationAction.request.url?.absoluteString ?? "")")

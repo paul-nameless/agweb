@@ -137,7 +137,8 @@ guard let command = positional.first, command != "help", options["help"] == nil 
 }
 var args = Array(positional.dropFirst())
 let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-let raw = options.removeValue(forKey: "raw") != nil
+// Still sent: the app must know the tab list in a raw reply goes unseen.
+let raw = options["raw"] != nil
 let json = options["json"] != nil
 
 func absolute(_ path: String) -> String {

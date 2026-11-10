@@ -75,7 +75,7 @@ extension Browser {
 
     func cookies(_ request: Request, in workspace: Workspace) async throws -> String {
         // Before reading or changing them, or a profile not loaded yet this run reports its logins missing.
-        if let profile = workspace.profile { await Profiles.restoreSessionCookies(profile) }
+        if let profile = workspace.profile, !workspace.tabs.isEmpty { await Profiles.restoreSessionCookies(profile) }
         let store = workspace.dataStore.httpCookieStore
         let options = request.options
         let all = try await withTimeout(5, "reading cookies") { await store.allCookies() }
@@ -128,6 +128,7 @@ extension Browser {
     /// Playwright's storage-state format: every cookie of the profile, and localStorage of the origins open in the
     /// workspace (others can't be read without loading them).
     func stateSave(_ workspace: Workspace) async throws -> String {
+        if let profile = workspace.profile, !workspace.tabs.isEmpty { await Profiles.restoreSessionCookies(profile) }
         let all = try await withTimeout(5, "reading cookies") { await workspace.dataStore.httpCookieStore.allCookies() }
         let cookies: [[String: Any]] = all.map { c in
             ["name": c.name, "value": c.value, "domain": c.domain, "path": c.path, "expires": c.expiresDate?.timeIntervalSince1970 ?? -1,
@@ -145,6 +146,8 @@ extension Browser {
     }
 
     func stateLoad(_ workspace: Workspace, json: String) async throws -> String {
+        // First, or the restore at the first page load would put the saved session cookies back over these.
+        if let profile = workspace.profile, !workspace.tabs.isEmpty { await Profiles.restoreSessionCookies(profile) }
         guard let state = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { throw Failure("not storage-state JSON") }
         var count = 0
         for entry in state["cookies"] as? [[String: Any]] ?? [] {
