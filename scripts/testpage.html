@@ -17,6 +17,7 @@
 <button id="api" onclick="fetch('/index.html?api', { method: 'POST', body: 'x=1', headers: { 'x-req': 'yes' } }).then(r => r.text()).then(t => api = t)">Call API</button>
 <table id="tb"><tr><th>Fruit</th><th>Action</th></tr><tr><td>Apples</td><td><button onclick="bought = 'apples'">Buy</button></td></tr></table>
 <a id="blank" href="/index.html?blank" target="_blank">Blank link</a>
+<table id="dt"><tr><td><a class="link"><span aria-hidden="true">lens</span><span id="deploy" tabindex="0">deploy to TEST</span></a></td></tr></table>
 <button id="slow" onclick="fetch('/index.html?delay=800').then(r => r.text()).then(() => slowDone = 1)">Slow call</button>
 <iframe id="fr" src="/frame.html" title="inner" style="width:300px;height:60px"></iframe>
 <span id="lbl">Shipping speed</span><div id="cbx" role="combobox" aria-labelledby="lbl" aria-expanded="true" tabindex="0">Express<div role="listbox"><div role="option" aria-selected="true">Express</div><div role="option">Standard</div></div></div>
@@ -43,4 +44,6 @@ b.addEventListener('click', e => log.push('click trusted=' + e.isTrusted));
 q.addEventListener('keydown', e => log.push('keydown ' + e.key + ' trusted=' + e.isTrusted));
 file.addEventListener('change', () => log.push('file:' + file.files[0]?.name));
 console.log('loaded', location.search);
+// Like a deploy button that opens a window after a fetch: the window opens after a fetch the click started, outside WebKit's gesture.
+deploy.addEventListener('click', () => fetch('/index.html?delay=300').then(() => open('/index.html?deployed')));
 </script>

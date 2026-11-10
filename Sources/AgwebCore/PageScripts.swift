@@ -34,8 +34,14 @@ public enum PageScripts {
     };
     // The accessible name, in the spec's order: aria-labelledby, aria-label, a native label or alt, the content for
     // roles named by it (a combobox or textbox is not: its text is the value), then title and placeholder.
-    const fromContent = new Set(['link', 'button', 'heading', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'option', 'listitem', 'cell',
+    const fromContent = new Set(['link', 'button', 'heading', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'option', 'listitem', 'cell', 'generic',
       'gridcell', 'columnheader', 'rowheader', 'row']);
+    // innerText without aria-hidden parts: an icon font's ligature ("lens", "help") is not part of a name.
+    const shownText = (el) => {
+      let text = el.innerText || '';
+      for (const hidden of el.querySelectorAll('[aria-hidden="true"]')) text = text.replace(hidden.innerText || '\\u0000', ' ');
+      return text;
+    };
     const nameOf = (el, role = roleOf(el)) => {
       const root = el.getRootNode();
       // Without aria-hidden parts: a required "*" and icon ligatures ("help") are not part of a name.
@@ -46,7 +52,7 @@ public enum PageScripts {
       const button = el.tagName === 'INPUT' && ['submit', 'button', 'reset'].includes(el.type);
       return clean(
         labelledBy || el.getAttribute('aria-label') || el.labels?.[0]?.innerText || el.getAttribute('alt') ||
-        (button ? el.value : '') || (fromContent.has(role) && !['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) ? el.innerText : '') ||
+        (button ? el.value : '') || (fromContent.has(role) && !['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) ? shownText(el) : '') ||
         (fromContent.has(role) ? el.querySelector?.('img[alt]')?.getAttribute('alt') : '') ||
         el.getAttribute('title') || el.getAttribute('placeholder') || ''
       );
@@ -117,7 +123,7 @@ public enum PageScripts {
     let truncated = false;
     const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'svg', 'HEAD']);
     const leaf = new Set(['link', 'button', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio', 'slider', 'heading', 'img', 'switch', 'tab', 'menuitem', 'option',
-      'cell', 'gridcell', 'columnheader', 'rowheader']);
+      'cell', 'gridcell', 'columnheader', 'rowheader', 'generic']);
     const emit = (line) => {
       if (lines.length >= \(maxSnapshotLines)) { truncated = true; return false; }
       lines.push(line);
@@ -148,7 +154,7 @@ public enum PageScripts {
       // display:contents boxes (every <slot> by default) have no rects but their children do.
       if (style.display === 'contents' || node.tagName === 'BODY' || node.tagName === 'FRAMESET') { walk(node, depth); return; }
       if (node.getClientRects().length === 0 || style.visibility === 'hidden') return;
-      const role = roleOf(node);
+      const role = controlRole(node);
       if (!role) { walk(node, depth); return; }
       const ref = `e${++n}`;
       W.refs.set(ref, node);
@@ -191,9 +197,19 @@ public enum PageScripts {
         if (insideLeaf) { for (const el of roled(node)) visit(el, depth); } else visit(node, depth);
       }
     };
+    // A control built from a span or div, which only its tabindex or pointer cursor gives away, shows as Playwright
+    // does: a generic with a ref. The cursor counts only where it starts, not on every child under it.
+    const controlRole = (node) => {
+      const role = roleOf(node);
+      if (role) return role;
+      const view = node.ownerDocument.defaultView, parent = node.parentElement;
+      const tabbable = node.hasAttribute('tabindex') && node.getAttribute('tabindex') !== '-1';
+      const pointer = view.getComputedStyle(node).cursor === 'pointer' && parent && view.getComputedStyle(parent).cursor !== 'pointer';
+      return (tabbable || pointer) && clean(node.innerText) ? 'generic' : null;
+    };
     const roled = function* (node) {
       if (node.nodeType !== Node.ELEMENT_NODE) return;
-      if (roleOf(node)) { yield node; return; }
+      if (controlRole(node)) { yield node; return; }
       for (const child of childrenOf(node)) yield* roled(child);
     };
     if (root) visit(root, 0); else walk(document.body || document.documentElement, 0);
