@@ -40,7 +40,10 @@ public enum Output {
         if !ok {
             object["error"] = text.hasPrefix("Error: ") ? String(text.dropFirst(7)) : text
         } else {
-            for (title, body) in sections(text) { object[title.lowercased()] = value(body) }
+            // Changes and Found are lists of lines; read as `- key: value` pairs, two calls would collapse into one.
+            for (title, body) in sections(text) {
+                object[title.lowercased()] = ["Changes", "Found"].contains(title) ? body.split(separator: "\n").map(String.init) : value(body)
+            }
         }
         let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
         return String(decoding: data, as: UTF8.self)

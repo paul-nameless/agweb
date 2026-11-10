@@ -17,10 +17,13 @@ public enum Snapshot {
         return found.reversed()
     }
 
-    /// `+ ` added and `- ` removed lines, with unchanged enclosing lines indented by two; nil when nothing changed.
+    /// `+ ` added and `- ` removed lines, each under the unchanged lines enclosing it (indented by two); nil when
+    /// nothing changed. Focus moving is left out: every click moves it.
     public static func diff(from old: String, to new: String) -> String? {
-        let before = old.split(separator: "\n", omittingEmptySubsequences: false)
-        let after = new.split(separator: "\n", omittingEmptySubsequences: false)
+        func lines(_ tree: String) -> [Substring] {
+            tree.replacingOccurrences(of: " [focused]", with: "").split(separator: "\n", omittingEmptySubsequences: false)
+        }
+        let before = lines(old), after = lines(new)
         let changes = after.difference(from: before)
         guard !changes.isEmpty else { return nil }
         var removed = Set<Int>(), inserted = Set<Int>()
@@ -30,21 +33,22 @@ public enum Snapshot {
             case .insert(let offset, _, _): inserted.insert(offset)
             }
         }
-        var out: [String] = [], shown = Set<Int>()
-        func context(_ depth: Int, _ index: Int) {
-            for k in ancestors(of: depth, before: index, in: after) where !shown.contains(k) && !inserted.contains(k) {
-                out.append("  " + after[k])
-                shown.insert(k)
+        var out: [String] = [], shown = Set<Substring>()
+        // A removed line's parents come from the old tree, an added one's from the new; neither from changed lines.
+        func context(_ line: Substring, _ index: Int, in tree: [Substring], changed: Set<Int>) {
+            for k in ancestors(of: depth(line), before: index, in: tree) where !changed.contains(k) && !shown.contains(tree[k]) {
+                out.append("  " + tree[k])
+                shown.insert(tree[k])
             }
         }
         var i = 0, j = 0
         while i < before.count || j < after.count {
             if i < before.count, removed.contains(i) {
-                context(depth(before[i]), j)
+                context(before[i], i, in: before, changed: removed)
                 out.append("- " + before[i])
                 i += 1
             } else if j < after.count, inserted.contains(j) {
-                context(depth(after[j]), j)
+                context(after[j], j, in: after, changed: inserted)
                 out.append("+ " + after[j])
                 j += 1
             } else {

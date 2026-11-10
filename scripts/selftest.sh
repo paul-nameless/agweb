@@ -168,6 +168,15 @@ check "Page" -w alpha eval "() => { const b = document.createElement('button'); 
 check "Snapshot" -w alpha snapshot
 check '^+ *- text: "Grown by a click"' -w alpha --raw click '#grow'
 check '^- call: POST http.*index.html?api => 501' -w alpha --raw click '#api'
+check "Title" -w refs open "$u?refs"
+old=$("$agweb" -w refs snapshot | sed -n 's/.*button "Press me" \[ref=\(e[0-9]*\)\].*/\1/p')
+check "Title" -w refs goto "$u?refs2"
+start=$(now)
+fails "ref $old not found" -w refs click "$old"
+/usr/bin/python3 -c "import sys; sys.exit(0 if $(now) - $start < 2 else 1)" || fail "a ref from the page before waited instead of failing at once"
+lacks "button \"Press me\" \[ref=$old\]" -w refs snapshot
+check '"changes":\["- call: POST http' -w refs --json click '#api'
+check "closed" -w refs close
 check '  - button "Inner button"' -w alpha snapshot
 check "Page" -w alpha click 'role=button[name="inner"]'
 check "Page" -w alpha click 'text=Inner button'

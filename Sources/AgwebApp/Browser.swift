@@ -403,8 +403,12 @@ final class Browser {
         if request.command != "goto" { try await tab.loadIfPending() }
         let webView = tab.webView
         let instant = options["instant"] != nil
-        let targets = request.command == "drag" ? Array(args.prefix(2)) : Self.actsOnTarget.contains(request.command) ? Array(args.prefix(1)) : []
-        for target in targets { try await awaitTarget(tab, target, options) }
+        if options["js"] == nil {
+            let targets = request.command == "drag" ? Array(args.prefix(2)) : Self.actsOnTarget.contains(request.command) ? Array(args.prefix(1)) : []
+            for target in targets { try await awaitTarget(tab, target, request.command, options) }
+            // Calls the page made while the action waited are not the action's.
+            tab.commandStart = Date().timeIntervalSince1970 * 1000
+        }
         let urlBefore = tab.currentURL
 
         switch request.command {
@@ -421,11 +425,13 @@ final class Browser {
             await tab.settle()
         case "snapshot":
             let target = args.first ?? ""
-            let tree = try await snapshotTree(tab, target)
+            let snapshot = try await snapshotTree(tab, target)
             let last = tab.snapshots[target]
-            tab.snapshots[target] = (tab.currentURL, tree)
+            if tab.snapshots.count > 8 { tab.snapshots = tab.snapshots.filter { $0.key.isEmpty } }
+            tab.snapshots[target] = snapshot
+            let tree = snapshot.tree
             // Refs last as long as their element, so a line that didn't change is the same element.
-            if options["diff"] != nil, let last, last.url == tab.currentURL {
+            if options["diff"] != nil, let last, last.doc == snapshot.doc {
                 return describe(tab) + "\n### Changes\n" + (Snapshot.diff(from: last.tree, to: tree) ?? "no changes since the last snapshot")
             }
             let note = options["diff"] != nil ? "no earlier snapshot of this page, so this is all of it" : nil
@@ -433,8 +439,10 @@ final class Browser {
         case "find":
             let query = try arg(0, "text")
             guard let max = Int(options["max-results"] ?? "20"), max > 0 else { throw Failure("--max-results is a number above 0") }
-            guard let found = Snapshot.find(query, in: try await snapshotTree(tab, ""), max: max) else {
-                throw Failure("nothing on the page matches \(query.debugDescription); snapshot to see it all")
+            let tree = try await snapshotTree(tab, "").tree
+            guard let found = Snapshot.find(query, in: tree, max: max) else {
+                let cut = tree.contains("(truncated at \(PageScripts.maxSnapshotLines) lines")
+                throw Failure("nothing on the page matches \(query.debugDescription)" + (cut ? " in its first \(PageScripts.maxSnapshotLines) snapshot lines; eval to search the rest" : ""))
             }
             return describe(tab) + "\n### Found\n\(found.matches) line\(found.matches == 1 ? "" : "s") matching \(query.debugDescription)\n" + found.tree
         case "text":
@@ -682,7 +690,7 @@ final class Browser {
         if let target = arg {
             let gone = options["gone"] != nil
             what = gone ? "\(target) to go" : target
-            check = { try await tab.call(PageScripts.present, ["target": target, "gone": gone]) == "true" }
+            check = { try await tab.call(PageScripts.present, ["target": target, "gone": gone, "attached": false]) == "true" }
         } else if let text = options["text"] {
             what = "text \(text.debugDescription)"
             check = { try await tab.call(PageScripts.hasText, ["text": text]) == "true" }
@@ -734,20 +742,24 @@ final class Browser {
 
     /// Actions wait for their target to show, as Playwright's do: up to --timeout ms (5000 by default; 0 doesn't
     /// wait). Past that the action runs anyway, so its own error says what is wrong with the target.
-    private func awaitTarget(_ tab: Tab, _ target: String, _ options: [String: String]) async throws {
+    /// Fields only need to be there: a styled select or checkbox hides the native one it drives.
+    private func awaitTarget(_ tab: Tab, _ target: String, _ command: String, _ options: [String: String]) async throws {
         guard let ms = Double(options["timeout"] ?? "5000"), (0...600_000).contains(ms) else { throw Failure("--timeout is milliseconds, up to 600000") }
         guard ms > 0 else { return }
+        let attached = ["fill", "select", "check", "uncheck"].contains(command)
         do {
-            _ = try await poll(ms / 1000, target) { try await tab.call(PageScripts.present, ["target": target, "gone": false]) == "true" }
+            _ = try await poll(ms / 1000, target) {
+                try await tab.call(PageScripts.present, ["target": target, "gone": false, "attached": attached]) == "true"
+            }
         } catch let error as Failure where error.description.hasPrefix("timed out") {}
     }
 
-    /// The page tree, numbering new elements on from the tab's last ref.
-    private func snapshotTree(_ tab: Tab, _ target: String) async throws -> String {
+    /// The page tree, and the document it came from; new elements number on from the workspace's last ref.
+    private func snapshotTree(_ tab: Tab, _ target: String) async throws -> (doc: String, tree: String) {
         let reply = try await tab.call(PageScripts.snapshot, ["target": target])
         let parsed = try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any]
-        if let next = parsed?["next"] as? Int { tab.refSeed = max(tab.refSeed, next) }
-        return parsed?["tree"] as? String ?? ""
+        if let next = parsed?["next"] as? Int { tab.workspace.refSeed = max(tab.workspace.refSeed, next) }
+        return (parsed?["doc"] as? String ?? "", parsed?["tree"] as? String ?? "")
     }
 
     /// Paginated like printing, with print styles, unless `singlePage`: then one page of the screen view.
@@ -1013,21 +1025,29 @@ final class Browser {
     private static let reportsChanges: Set = ["click", "dblclick", "check", "uncheck", "hover", "fill", "select", "type", "press", "drag"]
 
     /// The fetch/XHR calls an action started, and how the page tree differs from the one the agent last saw, so it
-    /// rarely needs a snapshot after acting. The tree is compared only once the agent has taken a snapshot of the
-    /// page, and becomes the new baseline unless the list was cut short (then `snapshot --diff` has the rest).
+    /// rarely needs a snapshot after acting. The tree is compared only once the agent has taken a snapshot of this
+    /// document; the new tree becomes the baseline, so the next action reports only its own changes.
     private func changes(_ tab: Tab, urlBefore: String) async -> String {
         var out: [String] = []
         for call in tab.requests where (call["start"] as? Double ?? 0) >= tab.commandStart {
             let status = (call["status"] as? Int).map(String.init) ?? "failed"
-            out.append("- call: \(call["method"] as? String ?? "GET") \(String((call["url"] as? String ?? "").prefix(120))) => \(status)")
+            // Hidden before it is cut, or a secret across the cut would show its first half.
+            let url = Self.hide(secrets, in: call["url"] as? String ?? "")
+            out.append("- call: \(call["method"] as? String ?? "GET") \(url.prefix(120)) => \(status)")
         }
-        if tab.currentURL != urlBefore {
+        if let last = tab.snapshots[""], let snapshot = try? await snapshotTree(tab, "") {
+            if snapshot.doc != last.doc {
+                tab.snapshots[""] = nil
+                out.append("- navigated: snapshot for the new page")
+            } else {
+                tab.snapshots[""] = snapshot
+                let lines = Snapshot.diff(from: last.tree, to: snapshot.tree)?.split(separator: "\n").map(String.init) ?? []
+                let limit = 20
+                out += lines.prefix(limit)
+                if lines.count > limit { out.append("- (\(lines.count - limit) more lines; snapshot to see the page)") }
+            }
+        } else if tab.currentURL != urlBefore {
             out.append("- navigated: snapshot for the new page")
-        } else if let last = tab.snapshots[""], last.url == tab.currentURL, let tree = try? await snapshotTree(tab, "") {
-            let lines = Snapshot.diff(from: last.tree, to: tree)?.split(separator: "\n").map(String.init) ?? []
-            let limit = 20
-            out += lines.prefix(limit)
-            if lines.count > limit { out.append("- (\(lines.count - limit) more lines; snapshot --diff)") } else { tab.snapshots[""] = (tab.currentURL, tree) }
         }
         return out.isEmpty ? "" : "\n### Changes\n" + out.joined(separator: "\n")
     }

@@ -42,3 +42,20 @@ private let page = """
     #expect(found.tree.hasSuffix("- (4 more; --max-results to see them)"))
     #expect(Snapshot.find("nothing", in: page, max: 2) == nil)
 }
+
+@Test func removedLinesSitUnderTheirOldParents() throws {
+    let after = page.replacingOccurrences(of: "  - form [ref=e4]\n    - textbox \"Email\" [ref=e5]\n    - button \"Save\" [ref=e6]", with: "  - text: \"Sent\"")
+    let diff = try #require(Snapshot.diff(from: page, to: after))
+    #expect(diff == """
+          - main [ref=e3]
+        -   - form [ref=e4]
+        -     - textbox "Email" [ref=e5]
+        -     - button "Save" [ref=e6]
+        +   - text: "Sent"
+        """)
+}
+
+@Test func focusMovingIsNoChange() {
+    let focused = page.replacingOccurrences(of: "[ref=e5]", with: "[ref=e5] [focused]")
+    #expect(Snapshot.diff(from: page, to: focused) == nil)
+}

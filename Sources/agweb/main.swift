@@ -78,7 +78,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   quit                          stop agweb
 
 --instant                       pointer verbs, upload and type act at once instead of at human speed
---timeout=MS                    actions wait this long for their target to show (default 5000; 0: don't wait)
+--timeout=MS                    actions wait this long for their target to show (default 5000; 0: don't wait); wait: 30000
 --filename=PATH                 snapshot, text, eval, request and response-body: write the answer to a file instead
 --download-dir=DIR              where downloads nobody named go (default $AGWEB_DOWNLOAD_DIR, else .agweb/)
 --raw                           print only the answer (eval's value, a snapshot), strings unquoted
@@ -301,7 +301,8 @@ if !isServing(socket) {
 // Commands time out inside the app (pages 30 s, scripts 30 s, downloads 120 s); this only catches a wedged app.
 // Typing at a person's pace averages about 0.25 s a key, so long text gets longer.
 // A wait gets its own timeout, or its fixed pause, plus room for the reply.
-let waitSeconds = command == "wait" ? max(Int(options["timeout"] ?? "") ?? 30_000, Int(args.first ?? "") ?? 0) / 1000 + 30 : 0
+// wait, and actions waiting for their target, may take up to --timeout before they answer.
+let waitSeconds = max(Int(options["timeout"] ?? "") ?? (command == "wait" ? 30_000 : 0), command == "wait" ? Int(args.first ?? "") ?? 0 : 0) / 1000 + 30
 let timeout = max(command == "download" ? 200 : 120, waitSeconds) + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
 guard let response = sendRequest(Request(workspace: workspace, command: command, args: args, options: options), path: socket, timeout: timeout) else {
     fail("no response from agweb on \(socket)")

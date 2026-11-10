@@ -24,8 +24,10 @@ enum SkillInstaller {
 
     static func status(_ folder: String) -> Status {
         let file = destination(folder), folderPath = file.deletingLastPathComponent().path
-        // lstat, so a link there counts as present even when it points nowhere.
-        guard (try? FileManager.default.attributesOfItem(atPath: folderPath)) != nil else { return .notInstalled }
+        // lstat, so a link there counts as present even when it points nowhere. A link is the person's own setup and
+        // is never read: following it into ~/Downloads or ~/Documents would ask them for access at every launch.
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: folderPath) else { return .notInstalled }
+        if attributes[.type] as? FileAttributeType == .typeSymbolicLink { return .foreign }
         guard let installed = try? String(contentsOf: file, encoding: .utf8), installed.contains(marker) else { return .foreign }
         return installed == bundled ? .installed : .outdated
     }

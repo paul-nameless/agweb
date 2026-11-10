@@ -56,6 +56,9 @@ final class Workspace: Identifiable {
     @ObservationIgnored var tabsShown: [Int] = []
     /// The running command's reply is printed --raw, without the tab list.
     @ObservationIgnored var rawReply = false
+    /// The highest ref any of the workspace's pages handed out, so every page, a popup's included, numbers on from
+    /// it (see PageScripts.find).
+    @ObservationIgnored var refSeed = 0
     /// Set when the running command woke a tab, so its current tab is kept awake after it.
     @ObservationIgnored var actedOn: Tab?
     /// What `dialog-accept <text>` answers prompt() with; nil answers with the prompt's default.
@@ -316,10 +319,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     @ObservationIgnored weak var browser: Browser?
     @ObservationIgnored weak var opener: Tab?
     @ObservationIgnored var console: [String] = []
-    /// The highest ref the tab's pages have handed out, so a new page numbers on from it (see PageScripts.find).
-    @ObservationIgnored var refSeed = 0
-    /// The last snapshot of each target ("" for the page), for `snapshot --diff`.
-    @ObservationIgnored var snapshots: [String: (url: String, tree: String)] = [:]
+    /// The last snapshot of each target ("" for the page) and the document it came from, for `snapshot --diff`
+    /// and `### Changes`.
+    @ObservationIgnored var snapshots: [String: (doc: String, tree: String)] = [:]
     /// Console errors since the last reply, for the hint under ### Page.
     @ObservationIgnored var unreadErrors = 0
     /// Documents, fetch and XHR calls since the page loaded: the hook's messages, as dictionaries.
@@ -765,14 +767,17 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     func call(_ body: String, _ arguments: [String: Any] = [:], world: WKContentWorld? = nil) async throws -> String {
         let world = world ?? Tab.agentWorld
         var arguments = arguments
-        if arguments["refSeed"] == nil { arguments["refSeed"] = refSeed }
-        return try await withTimeout(30, "page script") { [webView, arguments] in
+        if arguments["refSeed"] == nil { arguments["refSeed"] = workspace.refSeed }
+        return try await withTimeout(30, "page script") { [webView, arguments, workspace] in
             try await withCheckedThrowingContinuation { continuation in
                 webView.callAsyncJavaScript(body, arguments: arguments, in: nil, in: world) { result in
                     switch result {
                     case .success(let value): continuation.resume(returning: value as? String ?? "\(value)")
                     case .failure(let error):
                         let message = (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
+                        // An error listing matches hands out refs too; the next page must not reuse them.
+                        let refs = message.components(separatedBy: "ref=e").dropFirst().compactMap { Int($0.prefix { $0.isNumber }) }
+                        if let highest = refs.max() { MainActor.assumeIsolated { workspace.refSeed = max(workspace.refSeed, highest) } }
                         // Replies already start with "Error: ".
                         continuation.resume(throwing: Failure(message.hasPrefix("Error: ") ? String(message.dropFirst(7)) : message))
                     }

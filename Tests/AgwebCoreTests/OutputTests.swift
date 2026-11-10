@@ -28,3 +28,9 @@ let evalReply = "### Result\n\"a\\nb\"\n### Page\n- URL: https://example.com/\n-
     let error = try #require(JSONSerialization.jsonObject(with: Data(Output.json("Error: boom", ok: false).utf8)) as? [String: Any])
     #expect(error["ok"] as? Bool == false && error["error"] as? String == "boom")
 }
+
+@Test func changesStayAList() throws {
+    let reply = "### Page\n- URL: x\n### Changes\n- call: POST https://a/1 => 201\n- call: POST https://a/2 => 201"
+    let object = try #require(JSONSerialization.jsonObject(with: Data(Output.json(reply, ok: true).utf8)) as? [String: Any])
+    #expect(object["changes"] as? [String] == ["- call: POST https://a/1 => 201", "- call: POST https://a/2 => 201"])
+}

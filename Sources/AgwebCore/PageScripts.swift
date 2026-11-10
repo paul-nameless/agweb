@@ -4,10 +4,12 @@ public enum PageScripts {
     /// Targets: a snapshot ref (`e12`), `role=button[name="Save"]` (name: case-insensitive substring), `text=Save`
     /// (substring) or `text="Save"` (exact), else a CSS selector. Role and text targets must match exactly one
     /// visible element, so a click never lands on the wrong one of several.
-    /// An element keeps its ref while it lives. A new document numbers on from `refSeed` (the tab's highest ref so
-    /// far), so a ref from the page before fails instead of naming a different element.
+    /// An element keeps its ref while it lives. Every document numbers on from `refSeed` (the workspace's highest
+    /// ref so far, a page back from the cache included), so a ref from another page fails instead of naming a
+    /// different element. `doc` tells one document from the next at the same URL.
     public static let find = """
-    const W = window.__agweb || (window.__agweb = { refs: new Map(), ids: new WeakMap(), next: refSeed });
+    const W = window.__agweb || (window.__agweb = { refs: new Map(), ids: new WeakMap(), next: 0, doc: Math.random().toString(36).slice(2) });
+    if (W.next < refSeed) W.next = refSeed;
     const refOf = (el) => {
       let ref = W.ids.get(el);
       if (!ref) {
@@ -80,7 +82,8 @@ public enum PageScripts {
     const find = (target) => {
       if (/^e\\d+$/.test(target)) {
         const el = W.refs.get(target)?.deref();
-        if (!el || !el.isConnected) throw new Error(`ref ${target} not found: the page changed; take a new snapshot`);
+        // An element of an iframe that navigated away stays connected to its old document, which has no window.
+        if (!el || !el.isConnected || !el.ownerDocument.defaultView) throw new Error(`ref ${target} not found: the page changed; take a new snapshot`);
         return el;
       }
       let matches, m;
@@ -228,7 +231,7 @@ public enum PageScripts {
     };
     if (root) visit(root, 0); else walk(document.body || document.documentElement, 0);
     if (truncated) lines.push(`- (truncated at \(maxSnapshotLines) lines; use eval to read the rest)`);
-    return JSON.stringify({ tree: lines.join('\\n'), next: W.next });
+    return JSON.stringify({ tree: lines.join('\\n'), next: W.next, doc: W.doc });
     """
 
     /// Markdown through Defuddle (loaded into this world first): one element converted whole, or the page's main
@@ -301,12 +304,14 @@ public enum PageScripts {
     return 'ok';
     """
 
-    /// For wait: whether the target is on the page and visible, or with `gone` whether not.
-    /// Several matches fail the wait, as they would fail the action after it; with `gone` they count as present.
+    /// For wait: whether the target is on the page and visible (with `attached`, there at all), or with `gone`
+    /// whether not. Several matches fail the wait, as they would fail the action after it, and so does a ref that
+    /// is gone for good; with `gone` they count as present and gone.
     public static let present = find + """
     let present;
-    try { present = visible(find(target)); } catch (e) {
+    try { const el = find(target); present = attached || visible(el); } catch (e) {
       if (e.name === 'SyntaxError') throw new Error(`invalid selector ${target}`);
+      if (!gone && /take a new snapshot/.test(e.message)) throw e;
       present = /matches \\d+ elements/.test(e.message);
       if (present && !gone) throw e;
     }
