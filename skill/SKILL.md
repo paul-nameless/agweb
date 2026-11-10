@@ -14,11 +14,14 @@ A browser window you share with other agents. Each task gets its own **workspace
 agweb -w fix-login open https://app.example.com    # start your workspace (fresh profile, nothing saved)
 agweb -w fix-login snapshot                         # page tree with [ref=eN] handles
 agweb -w fix-login click e12                        # act on a ref
+agweb -w fix-login goto https://app.example.com/x   # navigate the same tab; waits for the page (open on a running workspace does the same)
 agweb -w fix-login snapshot                         # refs reset on every snapshot: take a new one after changes
 agweb -w fix-login close                            # always, when done: workspaces otherwise reopen after a restart
 ```
 
-- Name the workspace after your task and pass `-w` on every call. Never touch another agent's workspace (`agweb list` shows them).
+- Name the workspace after your task and pass `-w` on every call (or set `AGWEB_WORKSPACE`; a shell function `a() { agweb -w task "$@"; }` saves typing, a variable holding `agweb -w task` does not work in zsh). Never touch another agent's workspace (`agweb list` shows them).
+- Navigate with `goto`, `go-back` and `reload`, not `eval "location.href=…"`: they wait for the new page, so the next `wait` or target can't match the old one.
+- Don't send stderr to `/dev/null`: a failed `wait`, an ambiguous target or a bad option says why there.
 - Every reply ends with `### Page` (URL, title), and `### Events` when something happened: popups, dialogs, downloads, console errors.
 
 ## Logins: profiles
@@ -85,7 +88,7 @@ agweb -w t wait --text="Order confirmed" | wait --url=/dashboard
 agweb -w t wait --load                               # page loaded and no fetch/XHR for 0.5 s
 ```
 
-Each wait times out after 30 s by default; `--timeout=ms` changes that.
+Each wait times out after 30 s by default; `--timeout=ms` changes that, up to 10 minutes. `--text` matches anywhere in the page's text, including an earlier log line; `wait "text=…"` needs a visible element holding it.
 
 ## Tabs, network, state
 
@@ -113,4 +116,5 @@ Screenshots, PDFs, videos, saved state and downloads go to `.agweb/` in your cur
 - `-p name` replaces `--profile <dir>`, `--persistent` and `--config`. agweb is always WebKit and always visible.
 - There is no `run-code`. Use role and text targets, `eval`, `wait` and separate commands.
 - `--json` prints any reply as JSON. `list --json` lists workspaces.
+- `state-load` reads playwright-cli's storage-state files (`state-save` there), so logins carry over: `agweb -w t open -p work`, then `agweb -w t state-load state.json`.
 - Text starting with dashes goes after `--`: `agweb -w t type -- --verbose`.
