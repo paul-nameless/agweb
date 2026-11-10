@@ -2,12 +2,20 @@
 // Run: swift scripts/make-icon.swift (from the repo root; needs iconutil).
 import AppKit
 
-func render(_ pixels: Int) -> Data {
+func bitmap(_ pixels: Int, draw: () -> Void) -> NSBitmapImageRep {
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8, samplesPerPixel: 4,
                                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
     rep.size = NSSize(width: 1024, height: 1024)
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    NSGraphicsContext.current?.imageInterpolation = .high
+    draw()
+    NSGraphicsContext.restoreGraphicsState()
+    return rep
+}
+
+// Drawn once at 1024 and scaled down: the symbol rasterizes coarsely when drawn straight into a small bitmap.
+let master = bitmap(1024) {
     // Apple's icon grid: an 824-point rounded square centered on the 1024 canvas.
     let tile = NSRect(x: 100, y: 100, width: 824, height: 824)
     let shape = NSBezierPath(roundedRect: tile, xRadius: 185, yRadius: 185)
@@ -25,8 +33,10 @@ func render(_ pixels: Int) -> Data {
     let config = NSImage.SymbolConfiguration(pointSize: 520, weight: .regular).applying(.init(paletteColors: [.white]))
     let symbol = NSImage(systemSymbolName: "safari", accessibilityDescription: nil)!.withSymbolConfiguration(config)!
     symbol.draw(in: NSRect(x: 512 - symbol.size.width / 2, y: 512 - symbol.size.height / 2, width: symbol.size.width, height: symbol.size.height))
-    NSGraphicsContext.restoreGraphicsState()
-    return rep.representation(using: .png, properties: [:])!
+}
+
+func render(_ pixels: Int) -> Data {
+    bitmap(pixels) { master.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024)) }.representation(using: .png, properties: [:])!
 }
 
 let iconset = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("AppIcon.iconset")

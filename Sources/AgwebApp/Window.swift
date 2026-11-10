@@ -47,14 +47,20 @@ final class MainWindow: NSObject, NSWindowDelegate {
         super.init()
         window.delegate = self
         installToolbar()
-        // The autosave name only saves; restoring is explicit, and after the toolbar so it can't shift the frame.
-        // AppKit moves a frame saved on a display that is gone onto one that exists.
-        window.setFrameUsingName(Self.frameName)
-        window.setFrameAutosaveName(Self.frameName)
+        // After the toolbar so it can't shift the frame. Not `setFrameAutosaveName`: AppKit drops a frame saved on a
+        // secondary display whose visible height has since changed by a point, and recenters on the main one.
+        if let saved = UserDefaults.standard.string(forKey: Self.frameKey).map(NSRectFromString),
+           saved.width >= 400, NSScreen.screens.contains(where: { $0.visibleFrame.intersects(saved) }) {
+            window.setFrame(saved, display: false)
+        }
     }
 
     // Test instances on their own socket keep their own frame, so they never move the person's window.
-    private static let frameName = Agweb.customSocket ? "agwebTest" : "agwebMain"
+    private static let frameKey = Agweb.customSocket ? "agwebTestFrame" : "agwebMainFrame"
+
+    private func saveFrame() { UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.frameKey) }
+    func windowDidMove(_ notification: Notification) { saveFrame() }
+    func windowDidResize(_ notification: Notification) { saveFrame() }
 
     /// Closed (ordered out) or minimized windows don't render, so snapshots and recordings get nothing.
     static func isRendering(_ window: NSWindow) -> Bool { window.isVisible && !window.isMiniaturized }
