@@ -220,10 +220,11 @@ public enum PageScripts {
     /// Markdown through Defuddle (loaded into this world first): one element converted whole, or the page's main
     /// content. A page with little article in it (a web app) is converted whole instead.
     public static let text = find + """
-    if (target) return Defuddle.createMarkdownContent(find(target).outerHTML, location.href);
+    const reply = (markdown, whole = false) => JSON.stringify({ markdown, whole });
+    if (target) return reply(Defuddle.createMarkdownContent(find(target).outerHTML, location.href));
     const page = new Defuddle(document, { markdown: true, url: location.href }).parse();
-    if (page.wordCount < 50) return Defuddle.createMarkdownContent(document.body.innerHTML, location.href);
-    return (page.title ? `# ${page.title}\\n\\n` : '') + page.content;
+    if (page.wordCount < 50) return reply(Defuddle.createMarkdownContent(document.body.innerHTML, location.href), true);
+    return reply((page.title ? `# ${page.title}\\n\\n` : '') + page.content);
     """
 
     // Returns the element's center in CSS pixels after scrolling it into view, what actually sits there, and
@@ -286,12 +287,14 @@ public enum PageScripts {
     return 'ok';
     """
 
-    /// For wait: whether the target is on the page and visible (several matches count), or with `gone` whether not.
+    /// For wait: whether the target is on the page and visible, or with `gone` whether not.
+    /// Several matches fail the wait, as they would fail the action after it; with `gone` they count as present.
     public static let present = find + """
     let present;
     try { present = visible(find(target)); } catch (e) {
       if (e.name === 'SyntaxError') throw new Error(`invalid selector ${target}`);
       present = /matches \\d+ elements/.test(e.message);
+      if (present && !gone) throw e;
     }
     return String(gone ? !present : present);
     """

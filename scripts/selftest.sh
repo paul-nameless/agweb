@@ -103,6 +103,8 @@ check "Screenshot" -w alpha screenshot --full-page --filename="$dir/full.jpg"
 [ "$(sips -g pixelHeight "$dir/full.jpg" | awk '/pixelHeight/ {print $2}')" -gt 3000 ] || fail "screenshot --full-page is not the whole page"
 check '^\[Next page\](/index.html?next)$' -w alpha --raw text 'a'
 check "$dir/page.md" -w alpha text --filename="$dir/page.md"
+check "no article here" -w alpha text
+lacks "no article" -w alpha --raw text
 grep -q 'Press me' "$dir/page.md" || fail "text --filename did not write the page"
 check '"undefined"' -w alpha eval 'typeof Defuddle'
 check "Page" -w alpha fill '#q' again --submit
@@ -169,6 +171,8 @@ check "api" -w alpha requests --clear
 check "no requests" -w alpha requests --filter 'api$'
 check "$dir/dl/saved.html" -w alpha download '#dl' --filename="$dir/dl/saved.html"
 [ -s "$dir/dl/saved.html" ] || fail "download did not save the file"
+check "$dir/dl/saved.html" -w alpha download '#dl' --filename="$dir/dl/saved.html"
+[ -e "$dir/dl/saved (1).html" ] && fail "download --filename did not replace the file there"
 check "Page" -w alpha click '#dl' --download-dir="$dir/dd"
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$dir/dd/saved.html" ] && break; sleep 0.3; done
 [ -s "$dir/dd/saved.html" ] || fail "a download the click started did not go to --download-dir"
@@ -205,6 +209,7 @@ check "Page" -w st2 eval "() => { setTimeout(() => late.remove(), 300) }"
 check "#late to go" -w st2 wait '#late' --gone
 fails "timed out" -w st2 wait '#nothing' --timeout=300
 fails "invalid selector" -w st2 wait 'bad[[' --timeout=5000
+fails "matches [0-9]* elements" -w st2 wait 'role=button' --timeout=5000
 check "network to go quiet" -w st2 wait --load
 check "Page" -w st2 emulate --color-scheme light
 check 'false' -w st2 eval "matchMedia('(prefers-color-scheme: dark)').matches"
@@ -306,6 +311,8 @@ check "Safari/" -w alpha eval navigator.userAgent
 check '() => 1' -w alpha eval '() => () => 1'
 check '42' -w alpha eval '40 + 2 // trailing comment'
 fails "already uses profile selftest-alpha" -w alpha open -p other
+fails "not profile other" -w alpha eval 1 -p other
+check "Page" -w alpha eval 1 -p selftest-alpha
 fails "unknown command" -w alpha frobnicate
 fails "did you mean --submit" -w alpha fill '#q' x --sumbit
 check "Page" -w alpha eval "() => { q.value = ''; q.focus() }"
@@ -386,8 +393,8 @@ check "Page" -w beta eval "() => { document.body.style.background = '#c00' }"
 check "Screenshot" -w beta screenshot "$dir/beta2.png"
 cmp -s "$dir/beta1.png" "$dir/beta2.png" && fail "a hidden tab's screenshot did not change with the page"
 check "loaded ?parallel-b\|loaded ?beta" -w beta console
-check "Page" -w beta eval "() => { console.warn('careful'); console.error('bad') }"
-check "1 new error " -w beta eval 1
+check "1 new error " -w beta eval "async () => { console.warn('careful'); console.error('bad'); await new Promise(r => setTimeout(r, 100)) }"
+lacks "new error" -w beta eval 1
 check "error: bad" -w beta console error
 lacks "careful" -w beta console error
 lacks "new error" -w beta eval 1
@@ -396,6 +403,9 @@ check "pageerror: TypeError: null is not an object" -w beta console error
 check "warn: careful" -w beta console warning
 check "warn: careful" -w beta console --clear
 check "no console messages" -w beta console
+check "Page" -w beta eval "() => console.log('before-reload')"
+check "Page" -w beta reload
+lacks "before-reload" -w beta console
 check "Title" -w beta show
 check "beta (profile selftest-shared" list
 check "eph1 (fresh profile" list

@@ -314,7 +314,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     @ObservationIgnored weak var browser: Browser?
     @ObservationIgnored weak var opener: Tab?
     @ObservationIgnored var console: [String] = []
-    /// Console errors since the agent last read the console, for the hint under ### Page.
+    /// Console errors since the last reply, for the hint under ### Page.
     @ObservationIgnored var unreadErrors = 0
     /// Documents, fetch and XHR calls since the page loaded: the hook's messages, as dictionaries.
     @ObservationIgnored var requests: [[String: Any]] = []
@@ -593,7 +593,11 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         let http = navigationResponse.response as? HTTPURLResponse
         let attachment = http?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased().hasPrefix("attachment") ?? false
         let download = attachment || !navigationResponse.canShowMIMEType
-        if navigationResponse.isForMainFrame, !download { requests.removeAll() }
+        if navigationResponse.isForMainFrame, !download {
+            requests.removeAll()
+            console.removeAll()
+            unreadErrors = 0
+        }
         if let http {
             requests.append(["kind": navigationResponse.isForMainFrame ? "document" : "frame", "method": "GET", "url": http.url?.absoluteString ?? "",
                              "status": http.statusCode, "statusText": HTTPURLResponse.localizedString(forStatusCode: http.statusCode),
@@ -616,6 +620,11 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
                   completionHandler: @escaping @MainActor (URL?) -> Void) {
         let folder = workspace.downloadDir ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
         var url = downloadPath ?? folder.appendingPathComponent(suggestedFilename)
+        // An explicit --filename replaces the file there, as Playwright's saveAs does; WebKit refuses to write over one.
+        var isFolder: ObjCBool = false
+        if downloadPath != nil, FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder), !isFolder.boolValue {
+            try? FileManager.default.removeItem(at: url)
+        }
         downloadPath = nil
         let base = url.deletingPathExtension().lastPathComponent, ext = url.pathExtension
         var n = 1

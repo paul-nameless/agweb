@@ -292,6 +292,9 @@ final class Browser {
             guard Commands.all.contains(request.command) else { throw Failure(Commands.unknown(request.command)) }
             throw Failure("no workspace '\(request.workspace)'; start it with: agweb -w \(request.workspace) open [url]")
         }
+        if let profile = options["profile"], profile != workspace.profile {
+            throw Failure("workspace \(workspace.name) uses \(Self.describe(profile: workspace.profile)), not profile \(profile); close it and open it with -p \(profile)")
+        }
         workspace.downloadDir = options["download-dir"].map { URL(fileURLWithPath: $0) } ?? workspace.downloadDir
         workspace.rawReply = options["raw"] != nil
         workspace.lastCommand = Self.summary(request)
@@ -409,7 +412,8 @@ final class Browser {
             let tree = try await tab.call(PageScripts.snapshot, ["target": args.first ?? ""])
             return describe(tab) + "\n### Snapshot\n" + tree
         case "text":
-            return "### Result\n" + (try await pageText(tab, target: args.first)) + "\n" + describe(tab)
+            let text = try await pageText(tab, target: args.first)
+            return "### Result\n" + text.markdown + "\n" + describe(tab) + (text.whole ? "\n- Note: no article here, so this is the whole page" : "")
         case "click", "dblclick":
             try await click(tab, target: try arg(0, "target"), button: try MouseButton(args.count > 1 ? args[1] : nil), js: options["js"] != nil,
                             forUpload: false, instant: instant, clicks: request.command == "dblclick" ? 2 : 1)
@@ -672,7 +676,7 @@ final class Browser {
         let start = ProcessInfo.processInfo.systemUptime
         while true {
             // A navigation in progress makes page scripts fail; that is "not yet". A bad selector never will be.
-            do { if try await check() { break } } catch let error as Failure where error.description.contains("invalid selector") { throw error } catch {}
+            do { if try await check() { break } } catch let error as Failure where error.description.contains("invalid selector") || error.description.contains("Be more specific") { throw error } catch {}
             if ProcessInfo.processInfo.systemUptime - start > timeout { throw Failure("timed out after \(timeout < 10 ? String(format: "%.1f", timeout) : String(Int(timeout))) s waiting for \(what)") }
             try await Task.sleep(for: .milliseconds(100))
         }
@@ -900,7 +904,10 @@ final class Browser {
             out += "\n### Events\n" + tab.events.map { "- \($0)" }.joined(separator: "\n")
             tab.events.removeAll()
         }
-        if tab.unreadErrors > 0 { out += "\n- Console: \(tab.unreadErrors) new error\(tab.unreadErrors == 1 ? "" : "s") (agweb console error)" }
+        if tab.unreadErrors > 0 {
+            out += "\n- Console: \(tab.unreadErrors) new error\(tab.unreadErrors == 1 ? "" : "s") (agweb console error)"
+            if !workspace.rawReply { tab.unreadErrors = 0 }
+        }
         return out
     }
 

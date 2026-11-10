@@ -71,12 +71,12 @@ agweb -w t wait --url=/orders/ --timeout=60000 # default 30000, cap 600000
 agweb -w t wait 1500 # fixed pause; last resort
 ```
 
-`--text=` matches anywhere in the page's text, hidden log lines included; `wait "text=..."` needs a visible element. `wait` on a target succeeds when several match, so the `click` after it can still say "matches N": use the ref.
+`--text=` matches anywhere in the page's text, hidden log lines included; `wait "text=..."` needs a visible element. `wait` on a target fails when several match, as the `click` after it would: use more of the name, or the ref.
 
 **Reading data.**
 
 ```sh
-agweb -w t --raw text # an article as markdown (a web app comes back whole)
+agweb -w t --raw text # an article as markdown (a page with no article comes back whole; without --raw the reply says so)
 agweb -w t --raw text e12 # one element as markdown
 agweb -w t snapshot e12 # structure: rows, cells, links, with refs to act on
 agweb -w t --raw eval "[...document.querySelectorAll('table tr')].map(r => [...r.cells].map(c => c.innerText.trim()).join(' | ')).join('\n')"
@@ -118,7 +118,7 @@ agweb -w t tab-list # tab-select 0 to go back; tab-close 1 when done with it
 
 ```sh
 agweb -w t upload e7 ./report.pdf # the <input type=file> or the button that opens the chooser; several files allowed
-agweb -w t download e8 --filename=out.csv # clicks and waits for the file (up to 2 min)
+agweb -w t download e8 --filename=out.csv # clicks and waits for the file (up to 2 min); replaces out.csv
 ```
 
 Downloads a plain click starts go to `.agweb/` in your folder, or `--download-dir=DIR`, and appear under Events.
