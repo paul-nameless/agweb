@@ -25,7 +25,7 @@ agweb -w fix-login close # when done; otherwise the workspace reopens after a re
 - Actions (not `upload`) wait up to 5 s for their target to show (`--timeout=MS`, 0 to skip; fields only need to exist), so `click` right after the page changed is fine; `wait` for anything slower. A ref from an earlier page fails with `ref eN not found`.
 - After a snapshot, `click`, `fill`, `type`, `press`, `check`, `select`, `hover` and `drag` replies carry `### Changes`: the fetch/XHR calls they started and the tree lines added (`+`) or removed (`-`) under their parents, so read that before taking another snapshot. Over 20 lines it is cut; `snapshot --diff` has the rest.
 - Every reply ends with `### Page` (URL, title). `### Events` lists alerts, confirms, popups, downloads and redirects; `- Console: N new errors` means run `console error`.
-- Logins need a named profile (`-p`). If none exists and you have no credentials, ask the person to log in once in the window; never guess.
+- Logins need a named profile (`-p`). If none exists and you have no credentials, `ask` the person to log in once; never guess. `ask` is also for MFA codes, CAPTCHAs and anything only a person may click: it shows a bar with Done on the tab, without taking focus, and returns on Done, when the target, `--text` or `--url` appears, or after `--timeout` (default 10 min, up to 1 h).
 - Between commands your tab is hidden after 30 s and suspended after ~4 min; every command wakes it, so nothing is lost.
 
 ## Targets
@@ -43,7 +43,7 @@ agweb -w task snapshot # a login form? credentials come from the project (pass, 
 agweb -w task fill 'role=textbox[name="Email"]' "$EMAIL"
 agweb -w task fill 'role=textbox[name="Password"]' --secret-cmd 'pass show site'   # never "$(pass show site)": that puts it in your transcript
 agweb -w task click 'role=button[name="Sign in"]' && agweb -w task wait --url=/dashboard --timeout=60000
-agweb -w task show && agweb -w task wait --url=/dashboard --timeout=600000 # no credentials: ask the person, wait up to 10 min
+agweb -w task ask "Please sign in, then click Done" --url=/dashboard   # no credentials: hand the tab to the person (10 min)
 ```
 
 A profile can't change on an open workspace: `close` it, then `open -p`. `--secret-cmd CMD` takes the first line CMD prints (`pass show site`, `op read op://vault/site/password`, `bw get password site`); `--secret-file PATH` the first line of a file. The value is never in a reply: the field shows `[value=<hidden>]` in snapshots, and `eval`, `console` and `request-body` print `<hidden>` wherever it appears. Use them for passwords and tokens; a one-time code is short and expires, so fill it plainly.

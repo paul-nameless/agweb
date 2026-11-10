@@ -7,7 +7,7 @@ macOS only. It is built on WebKit, the engine behind Safari.
 ## Why
 
 - **It never steals focus.** No window comes to the front, nothing pops up. Dialogs, file pickers and downloads are answered in code, so you keep typing while agents browse.
-- **You can always see it.** The dashboard (⌘D) shows every tab of every agent at once, live, with each agent's last command; click one to jump in and take over. And it is always a real window: some sites block headless browsers, and headless leaves you guessing what went wrong.
+- **You can always see it.** The dashboard (⌘D) shows every tab of every agent at once, live, with each agent's last command; click one to jump in and take over. When an agent needs you (a login, an MFA code, a CAPTCHA), `ask` puts a request with a Done button on its tab and waits. And it is always a real window: some sites block headless browsers, and headless leaves you guessing what went wrong.
 - **Many agents at once.** Each agent works in its own workspace with its own tabs, grouped by agent in the sidebar.
 - **Log in once.** A named profile (`-p work`) keeps its logins and is shared by every agent using it, at the same time. Chrome can't share one profile between processes. Logins and tabs survive a restart.
 - **Light on your Mac.** It uses less memory and CPU than Chrome-based tools: idle tabs are throttled and then suspended, so five idle pages take about 0% CPU and 560 MB.
