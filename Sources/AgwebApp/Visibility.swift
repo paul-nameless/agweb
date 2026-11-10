@@ -16,16 +16,23 @@ extension Browser {
     }
 
     func updateVisibility() {
-        for tab in model.workspaces.lazy.flatMap(\.tabs) { mainWindow.setHidden(tab.webView, !needsVisible(tab)) }
+        for tab in model.workspaces.lazy.flatMap(\.tabs) { setHidden(tab, !needsVisible(tab)) }
     }
 
     /// Before a command: shown, and WebKit has applied it (about 1 ms), so rAF, hover and rendering run again.
     func wake(_ tab: Tab) async {
         guard mainWindow.isHidden(tab.webView) else { return }
-        mainWindow.setHidden(tab.webView, false)
+        setHidden(tab, false)
         await tab.activityStateApplied()
     }
 
+    /// Hidden tabs are muted too: a page playing audio holds its process in the foreground, so it would never be
+    /// suspended, and nobody is listening to a tab nobody sees.
+    private func setHidden(_ tab: Tab, _ hidden: Bool) {
+        guard mainWindow.isHidden(tab.webView) != hidden else { return }
+        mainWindow.setHidden(tab.webView, hidden)
+        tab.setMuted(hidden)
+    }
 
     func keepAwakeAfterCommand(_ tab: Tab) {
         tab.awakeUntil = Date().addingTimeInterval(Self.awakeAfterCommand)

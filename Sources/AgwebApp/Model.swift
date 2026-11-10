@@ -420,6 +420,14 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     /// The tab stays visible until then after its agent's last command; see Visibility.swift.
     @ObservationIgnored var awakeUntil = Date.distantPast
 
+    func setMuted(_ muted: Bool) {
+        // _WKMediaAudioMuted is 1; 0 unmutes.
+        let selector = NSSelectorFromString("_setPageMuted:")
+        guard webView.responds(to: selector) else { return }
+        typealias SetMuted = @convention(c) (AnyObject, Selector, Int) -> Void
+        unsafeBitCast(webView.method(for: selector), to: SetMuted.self)(webView, selector, muted ? 1 : 0)
+    }
+
     /// Waits until the web process has applied a visibility change, so the next script sees the page visible.
     func activityStateApplied() async {
         let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
