@@ -43,7 +43,7 @@ The `.plist` and `.json` files are 0600, since URLs and cookies can carry tokens
 
 ## How it stays quiet
 
-The app is a regular app launched with `open -g`, never calls `activate`, and first shows its window with `orderBack`. A reopen only brings the window forward when you activated the app yourself (Dock click). All tabs are stacked unhidden in the same frame with WebKit's window occlusion detection off, so rendering, timers and screenshots continue in every tab even when the window is covered.
+The app is a regular app launched with `open -g`, never calls `activate`, and first shows its window with `orderBack`. A reopen only brings the window forward when you activated the app yourself (Dock click). All tabs are stacked in the same frame with WebKit's window occlusion detection off, so a tab keeps rendering even when the window is covered. Only the tabs that need it are shown: the displayed one, the one a command is running on, a recorded one, and an agent's tab for 10 s after its last command. The rest are hidden and muted, so WebKit throttles them (no animation frames, slower timers, nothing painted) and after about 4 minutes suspends their process and frees its memory; a command wakes its tab in a few milliseconds. Reopened tabs get no web process until they load. `tab-list` and `list --json` show each tab as visible, hidden, suspended or not loaded.
 
 ## Not here (yet)
 
