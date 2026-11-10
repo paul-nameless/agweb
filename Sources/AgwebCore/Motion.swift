@@ -97,6 +97,9 @@ public struct Motion {
         return min(max(delay, 0.06), 2)
     }
 
+    /// The pause between the pointer stopping and the button going down: usually short, now and then a long look.
+    public mutating func dwell() -> Double { min(max(logNormal(median: 0.16, sigma: 0.6), 0.04), 1) }
+
     /// How long a key stays down: about 116 ms, rarely under 80 or over 150.
     public mutating func keyHold() -> Double { min(max(0.116 + 0.024 * gaussian(), 0.06), 0.2) }
 

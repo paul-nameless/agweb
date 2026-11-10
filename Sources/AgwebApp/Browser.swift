@@ -884,7 +884,7 @@ final class Browser {
         }
         let (point, landed) = try await glide(tab, onto: target, from: spot, instant: instant)
         if let covered = landed.covered { tab.events.append("click target was covered by <\(covered)>") }
-        if !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.12, 0.04))) }
+        if !instant { try await Task.sleep(for: .seconds(tab.motion.dwell())) }
         if button == .right { suppressMenus(tab) }
         for count in 1...clicks {
             if count > 1, !instant { try await Task.sleep(for: .seconds(tab.motion.jitter(0.09, 0.02))) }
