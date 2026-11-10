@@ -45,7 +45,7 @@ agweb -w task click 'role=button[name="Sign in"]' && agweb -w task wait --url=/d
 agweb -w task show && agweb -w task wait --url=/dashboard --timeout=600000 # no credentials: ask the person, wait up to 10 min
 ```
 
-A profile can't change on an open workspace: `close` it, then `open -p`. `--secret-cmd CMD` takes the first line CMD prints (`pass show site`, `op read op://vault/site/password`, `bw get password site`); `--secret-file PATH` the first line of a file. The value is never in a reply: the field shows `[value=<hidden>]` in snapshots, and `eval`, `console` and `request-body` print `<hidden>` wherever it appears. Use them for passwords, tokens and one-time codes.
+A profile can't change on an open workspace: `close` it, then `open -p`. `--secret-cmd CMD` takes the first line CMD prints (`pass show site`, `op read op://vault/site/password`, `bw get password site`); `--secret-file PATH` the first line of a file. The value is never in a reply: the field shows `[value=<hidden>]` in snapshots, and `eval`, `console` and `request-body` print `<hidden>` wherever it appears. Use them for passwords and tokens; a one-time code is short and expires, so fill it plainly.
 
 **Filling a form and verifying it.**
 

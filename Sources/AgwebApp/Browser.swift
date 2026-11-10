@@ -7,6 +7,9 @@ final class Browser {
     let model = BrowserModel()
     private(set) lazy var mainWindow = MainWindow(model: model)
     private let console = ConsoleSink()
+    /// Values filled with --secret-cmd or --secret-file, in memory only; every workspace's replies hide them,
+    /// since a profile's pages are shared.
+    private var secrets: Set<String> = []
     private var queues: [String: Task<Response, Never>] = [:]
     private var nextTabID = 1
     var saveTask: Task<Void, Never>?
@@ -205,12 +208,11 @@ final class Browser {
             }
             scheduleSave()
         }
-        let secrets = { self.model.workspaces.first(where: { $0.name == request.workspace })?.secrets ?? [] }
         do {
             let output = try await run(request)
-            return Response(ok: true, output: Self.hide(secrets(), in: output))
+            return Response(ok: true, output: Self.hide(secrets, in: output))
         } catch {
-            return Response(ok: false, output: Self.hide(secrets(), in: "Error: \(error)"))
+            return Response(ok: false, output: Self.hide(secrets, in: "Error: \(error)"))
         }
     }
 
@@ -278,6 +280,7 @@ final class Browser {
         case "open":
             let workspace = try existingOrNewWorkspace(named: request.workspace, profile: options["profile"])
             workspace.downloadDir = options["download-dir"].map { URL(fileURLWithPath: $0) } ?? workspace.downloadDir
+            workspace.rawReply = options["raw"] != nil
             workspace.lastCommand = Self.summary(request)
             workspace.lastCommandAt = Date()
             workspace.busy = true
@@ -415,7 +418,7 @@ final class Browser {
             return describe(tab) + "\n### Snapshot\n" + tree
         case "text":
             let text = try await pageText(tab, target: args.first)
-            return "### Result\n" + text.markdown + "\n" + describe(tab) + (text.whole ? "\n- Note: no article here, so this is the whole page" : "")
+            return "### Result\n" + text.markdown + "\n" + describe(tab, note: text.whole ? "no article here, so this is the whole page" : nil)
         case "click", "dblclick":
             try await click(tab, target: try arg(0, "target"), button: try MouseButton(args.count > 1 ? args[1] : nil), js: options["js"] != nil,
                             forUpload: false, instant: instant, clicks: request.command == "dblclick" ? 2 : 1)
@@ -475,7 +478,7 @@ final class Browser {
             return "### Download\n" + (try await download(tab, target: try arg(0, "target"), to: options["filename"], js: options["js"] != nil, instant: instant)) + "\n" + describe(tab)
         case "fill", "select":
             let secret = options["secret"] != nil
-            if secret { tab.workspace.secrets.insert(try arg(1, "text")) }
+            if secret { secrets.insert(try arg(1, "text")) }
             _ = try await tab.call(PageScripts.fill, ["target": try arg(0, "target"), "text": try arg(1, request.command == "select" ? "value" : "text"),
                                                       "onlySelect": request.command == "select", "secret": secret])
             if options["submit"] != nil { try await pressKey(tab, "Enter") }
@@ -678,9 +681,22 @@ final class Browser {
             throw Failure("use: agweb wait <ms> | <target> [--gone] | --text=… | --url=… | --load  [--timeout=ms]")
         }
         let start = ProcessInfo.processInfo.systemUptime
+        var ambiguousSince: Double?
         while true {
-            // A navigation in progress makes page scripts fail; that is "not yet". A bad selector never will be.
-            do { if try await check() { break } } catch let error as Failure where error.description.contains("invalid selector") || error.description.contains("Be more specific") { throw error } catch {}
+            // A navigation in progress makes page scripts fail; that is "not yet". A bad selector never will be, and
+            // several matches fail once they outlast a re-render (an old and a new dialog during a fade).
+            do {
+                if try await check() { break }
+                ambiguousSince = nil
+            } catch let error as Failure where error.description.contains("invalid selector") {
+                throw error
+            } catch let error as Failure where error.description.contains("Be more specific") {
+                let now = ProcessInfo.processInfo.systemUptime
+                if now - (ambiguousSince ?? now) >= 1 { throw error }
+                ambiguousSince = ambiguousSince ?? now
+            } catch {
+                ambiguousSince = nil
+            }
             if ProcessInfo.processInfo.systemUptime - start > timeout { throw Failure("timed out after \(timeout < 10 ? String(format: "%.1f", timeout) : String(Int(timeout))) s waiting for \(what)") }
             try await Task.sleep(for: .milliseconds(100))
         }
@@ -893,8 +909,9 @@ final class Browser {
 
     // MARK: Output
 
-    private func describe(_ tab: Tab) -> String {
+    private func describe(_ tab: Tab, note: String? = nil) -> String {
         var out = "### Page\n- URL: \(tab.currentURL)\n- Title: \(tab.currentTitle)"
+        if let note { out += "\n- Note: \(note)" }
         if windowHidden { out += "\n- Note: the window is closed or minimized; pages are frozen between commands (agweb show)" }
         // Only when the tabs changed since the agent last saw them: a popup opened, a tab closed, another is current.
         // A --raw reply drops the list, so it doesn't count as seen.
@@ -924,15 +941,25 @@ final class Browser {
         }
     }
 
-    /// Secrets filled in the workspace, as written, JSON-escaped or URL-encoded, wherever a reply carries them
-    /// (eval, console, request-body, errors). Very short ones would mangle unrelated text.
+    /// Secrets as written, JSON-escaped (with and without `\/`, once or twice) and URL-encoded the way `encodeURIComponent` and
+    /// form bodies do it, wherever a reply carries them (eval, console, request-body, errors), longest first so a
+    /// secret inside another doesn't leave the rest of it showing. Very short ones would mangle unrelated text.
     static func hide(_ secrets: Set<String>, in output: String) -> String {
-        secrets.filter { $0.count >= 4 }.reduce(output) { output, secret in
-            let escaped = (try? JSONEncoder().encode(secret)).map { String(decoding: $0.dropFirst().dropLast(), as: UTF8.self) }
-            let encoded = secret.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
-            return Set([secret, escaped, encoded, encoded?.replacingOccurrences(of: "%20", with: "+")].compactMap { $0 })
-                .reduce(output) { $0.replacingOccurrences(of: $1, with: "<hidden>") }
+        let ascii = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+        let uri = ascii.union(CharacterSet(charactersIn: "-_.!~*'()")), form = ascii.union(CharacterSet(charactersIn: "*-._ "))
+        func json(_ secret: String, _ formatting: JSONEncoder.OutputFormatting) -> String? {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = formatting
+            return (try? encoder.encode(secret)).map { String(decoding: $0.dropFirst().dropLast(), as: UTF8.self) }
         }
+        let forms = secrets.filter { $0.count >= 4 }.flatMap { secret in
+            // Twice escaped too: eval prints a JSON.stringify result as JSON.
+            let escaped = [json(secret, []), json(secret, .withoutEscapingSlashes)].compactMap { $0 }
+            return [secret, secret.addingPercentEncoding(withAllowedCharacters: uri),
+                    secret.addingPercentEncoding(withAllowedCharacters: form)?.replacingOccurrences(of: " ", with: "+")].compactMap { $0 }
+                + escaped + escaped.compactMap { json($0, .withoutEscapingSlashes) }
+        }
+        return Set(forms).sorted { $0.count > $1.count }.reduce(output) { $0.replacingOccurrences(of: $1, with: "<hidden>") }
     }
 
     static func describe(profile: String?) -> String { profile.map { "profile \($0)" } ?? "fresh profile" }

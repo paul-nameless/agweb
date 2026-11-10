@@ -134,7 +134,8 @@ while let arg = input.popFirst() {
     }
 }
 if let name = options.removeValue(forKey: "workspace") { workspace = name }
-if options["profile"] == nil, let profile = env["AGWEB_PROFILE"], !profile.isEmpty { options["profile"] = profile }
+// Only open picks a profile; elsewhere -p must match the workspace's, and an exported default must not fail that.
+if positional.first == "open", options["profile"] == nil, let profile = env["AGWEB_PROFILE"], !profile.isEmpty { options["profile"] = profile }
 if options["instant"] == nil, env["AGWEB_INSTANT"].map({ !$0.isEmpty }) == true { options["instant"] = "" }
 
 guard let command = positional.first, command != "help", options["help"] == nil else {
@@ -176,16 +177,25 @@ func secret(command: String?, file: String?) -> String {
         process.arguments = ["-c", command]
         process.standardOutput = out
         do { try process.run() } catch { fail("cannot run --secret-cmd: \(error.localizedDescription)") }
-        let timer = DispatchWorkItem { process.terminate() }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 60, execute: timer)
-        data = (try? out.fileHandleForReading.read(upToCount: limit + 1)) ?? Data()
+        // Read off the main thread: a grandchild (gpg under pass, waiting on pinentry) can hold the pipe open
+        // after the shell is gone, and only exiting ends that wait.
+        final class Box: @unchecked Sendable { var data = Data() }
+        let box = Box(), done = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            box.data = (try? out.fileHandleForReading.read(upToCount: limit + 1)) ?? Data()
+            done.signal()
+        }
+        if done.wait(timeout: .now() + 60) == .timedOut {
+            process.terminate()
+            fail("--secret-cmd timed out after 60 s")
+        }
+        data = box.data
         // A long entry (pass with notes) is cut here; only its first line matters.
         let cut = data.count > limit
         if cut { process.terminate() }
         process.waitUntilExit()
-        timer.cancel()
         guard cut || process.terminationReason == .exit && process.terminationStatus == 0 else {
-            fail(process.terminationReason == .exit ? "--secret-cmd exited with status \(process.terminationStatus)" : "--secret-cmd timed out after 60 s")
+            fail(process.terminationReason == .exit ? "--secret-cmd exited with status \(process.terminationStatus)" : "--secret-cmd was killed")
         }
     }
     guard data.prefix(limit).contains(UInt8(ascii: "\n")) || data.count <= limit else { fail("the secret is over \(limit) bytes") }

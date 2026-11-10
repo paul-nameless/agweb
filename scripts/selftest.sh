@@ -83,6 +83,11 @@ check "Page" -w alpha eval "async () => { await fetch('/index.html?sec', { metho
 sleep 0.3
 n=$("$agweb" -w alpha requests --filter 'sec$' | sed -n 's/^\([0-9]*\)\. .*/\1/p' | tail -1)
 check '^<hidden>$' -w alpha --raw request-body "${n:-0}"
+check "Page" -w alpha fill '#q' --secret-cmd "printf '%s' 'Str0ng-P@ss/\"x'"
+check '^<hidden>$' -w alpha --raw eval 'encodeURIComponent(q.value)'
+check '^p=<hidden>$' -w alpha --raw eval 'new URLSearchParams({ p: q.value }).toString()'
+lacks "Str0ng" -w alpha eval 'JSON.stringify(q.value)'
+lacks "Str0ng" -w alpha --json eval 'q.value'
 check "Page" -w alpha fill '#q' ''
 check "Page" -w alpha fill '#q' --secret-file "$dir/secret.txt"
 check '^12$' -w alpha --raw eval 'q.value.length'
@@ -340,6 +345,9 @@ check '42' -w alpha eval '40 + 2 // trailing comment'
 fails "already uses profile selftest-alpha" -w alpha open -p other
 fails "not profile other" -w alpha eval 1 -p other
 check "Page" -w alpha eval 1 -p selftest-alpha
+export AGWEB_PROFILE=other
+check "Page" -w alpha eval 1
+unset AGWEB_PROFILE
 fails "unknown command" -w alpha frobnicate
 fails "did you mean --submit" -w alpha fill '#q' x --sumbit
 check "Page" -w alpha eval "() => { q.value = ''; q.focus() }"

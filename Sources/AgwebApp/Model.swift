@@ -54,8 +54,6 @@ final class Workspace: Identifiable {
     @ObservationIgnored var tabsShown: [Int] = []
     /// The running command's reply is printed --raw, without the tab list.
     @ObservationIgnored var rawReply = false
-    /// Values filled with --secret-cmd or --secret-file, kept in memory only, to hide them in replies.
-    @ObservationIgnored var secrets: Set<String> = []
     /// Set when the running command woke a tab, so its current tab is kept awake after it.
     @ObservationIgnored var actedOn: Tab?
     /// What `dialog-accept <text>` answers prompt() with; nil answers with the prompt's default.
@@ -334,7 +332,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     @ObservationIgnored var downloadsStarted = 0
     /// Saved paths, or why a download failed, in the order they ended.
     @ObservationIgnored var downloadsEnded: [Result<String, Failure>] = []
-    @ObservationIgnored private var downloads: [ObjectIdentifier: URL] = [:]
+    /// Where each download is written, and the file it replaces once it finishes (`download --filename`).
+    @ObservationIgnored private var downloads: [ObjectIdentifier: (url: URL, replaces: URL?)] = [:]
     @ObservationIgnored var pendingUpload: [URL]?
     @ObservationIgnored var chooserOpened = false
     /// Where the agent's pointer last went, in CSS pixels of the viewport; nil until the first move.
@@ -557,6 +556,11 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
 
     private func isExpected(_ navigation: WKNavigation?) -> Bool { expected == nil || navigation === expected }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        console.removeAll()
+        unreadErrors = 0
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         if isExpected(navigation) { finishLoad(nil) }
     }
@@ -595,11 +599,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         let http = navigationResponse.response as? HTTPURLResponse
         let attachment = http?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased().hasPrefix("attachment") ?? false
         let download = attachment || !navigationResponse.canShowMIMEType
-        if navigationResponse.isForMainFrame, !download {
-            requests.removeAll()
-            console.removeAll()
-            unreadErrors = 0
-        }
+        if navigationResponse.isForMainFrame, !download { requests.removeAll() }
         if let http {
             requests.append(["kind": navigationResponse.isForMainFrame ? "document" : "frame", "method": "GET", "url": http.url?.absoluteString ?? "",
                              "status": http.statusCode, "statusText": HTTPURLResponse.localizedString(forStatusCode: http.statusCode),
@@ -622,11 +622,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
                   completionHandler: @escaping @MainActor (URL?) -> Void) {
         let folder = workspace.downloadDir ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
         var url = downloadPath ?? folder.appendingPathComponent(suggestedFilename)
-        // An explicit --filename replaces the file there, as Playwright's saveAs does; WebKit refuses to write over one.
+        // An explicit --filename replaces the file there, as Playwright's saveAs does, but only once the new one is
+        // complete; WebKit refuses to write over a file, so it goes to a free name first.
         var isFolder: ObjCBool = false
-        if downloadPath != nil, FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder), !isFolder.boolValue {
-            try? FileManager.default.removeItem(at: url)
-        }
+        let replaces = downloadPath != nil && FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) && !isFolder.boolValue ? url : nil
         downloadPath = nil
         let base = url.deletingPathExtension().lastPathComponent, ext = url.pathExtension
         var n = 1
@@ -635,19 +634,21 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
             n += 1
         }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        downloads[ObjectIdentifier(download)] = url
+        downloads[ObjectIdentifier(download)] = (url, replaces)
         downloadsStarted += 1
         completionHandler(url)
     }
 
     func downloadDidFinish(_ download: WKDownload) {
-        guard let url = downloads.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        guard let entry = downloads.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        var url = entry.url
+        if let target = entry.replaces, (try? FileManager.default.replaceItemAt(target, withItemAt: url)) != nil { url = target }
         events.append("downloaded \(url.path)")
         downloadsEnded.append(.success(url.path))
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-        let url = downloads.removeValue(forKey: ObjectIdentifier(download))
+        let url = downloads.removeValue(forKey: ObjectIdentifier(download))?.url
         events.append("download of \(url?.lastPathComponent ?? "a file") failed: \(error.localizedDescription)")
         downloadsEnded.append(.failure(Failure("download failed: \(error.localizedDescription)")))
     }
