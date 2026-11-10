@@ -107,3 +107,26 @@ func pathEndsExactlyOnTarget(distance: Double) {
     #expect(offsets.allSatisfy { $0 < 30 })
     #expect(path.last?.point == CGPoint(x: 200, y: 0))
 }
+
+@Test func clickPausesVary() {
+    var motion = Motion(seed: 12)
+    let pauses = (0..<2000).map { _ in motion.dwell() }
+    #expect(pauses.allSatisfy { (0.04...1).contains($0) })
+    #expect(pauses.filter { $0 < 0.1 }.count > 100 && pauses.filter { $0 > 0.35 }.count > 50)
+}
+
+@Test func pointerEntersAtAnEdge() {
+    var motion = Motion(seed: 13)
+    let viewport = CGSize(width: 800, height: 600)
+    for _ in 0..<200 {
+        let p = motion.entry(viewport: viewport)
+        #expect(p.x <= 2 || p.x >= 798 || p.y >= 598)
+    }
+}
+
+@Test func wheelTicksAddUpAndRamp() {
+    var motion = Motion(seed: 14)
+    let ticks = motion.wheelTicks(600)
+    #expect(abs(ticks.map(\.delta).reduce(0, +) - 600) < 0.001)
+    #expect(ticks[ticks.count / 2].delta > ticks[0].delta && ticks[ticks.count / 2].delta > ticks[ticks.count - 1].delta)
+}
