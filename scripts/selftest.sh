@@ -22,6 +22,10 @@ server=$!
 trap '"$agweb" quit >/dev/null 2>&1; kill $server 2>/dev/null; wait $server 2>/dev/null; defaults delete $domain agwebTestFrame 2>/dev/null; rm -r "$dir"' EXIT
 for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 0.3; done
 u="http://127.0.0.1:$port/index.html"
+# Downloads and files nobody named land in the test's folder: the checkout may sit under ~/Downloads, which would
+# make every rebuilt (newly signed) test app ask for access to it.
+export AGWEB_DOWNLOAD_DIR="$dir/downloads"
+cd "$dir"
 
 failures=0
 fail() { printf 'FAIL  %s\n' "$1"; failures=$((failures + 1)); }
@@ -145,6 +149,21 @@ check "Page" -w alpha click '#b' --js
 check '"click trusted=false"' -w alpha eval 'log'
 
 echo "== locators, iframes, checkboxes, buttons and keys"
+ref=$("$agweb" -w alpha snapshot | sed -n 's/.*button "Press me" \[ref=\(e[0-9]*\)\].*/\1/p')
+check "button \"Press me\" \[ref=$ref\]" -w alpha snapshot
+check "no changes since the last snapshot" -w alpha snapshot --diff
+check "Page" -w alpha eval "() => { const b = document.createElement('button'); b.id = 'added'; b.textContent = 'Added later'; document.querySelector('#f').append(b) }"
+check '^+ *- button "Added later"' -w alpha --raw snapshot --diff
+check '^1 line matching "added later"' -w alpha --raw find 'added later'
+check '  - button "Added later" \[ref=' -w alpha find 'Added later'
+fails "nothing on the page matches" -w alpha find 'no such words'
+added=$("$agweb" -w alpha find 'Added later' | sed -n 's/.*"Added later" \[ref=\(e[0-9]*\)\].*/\1/p')
+check "Page" -w alpha eval "() => document.querySelector('#added').remove()"
+fails "ref $added not found: the page changed" -w alpha click "$added"
+fails 'visible buttons: button "Press me" \[ref=' -w alpha click 'role=button[name="Pres me"]' --timeout=0
+check "Page" -w alpha eval "() => { setTimeout(() => { const b = document.createElement('button'); b.id = 'later'; b.textContent = 'Later'; b.onclick = () => log.push('later'); document.body.append(b) }, 600) }"
+check "Page" -w alpha click '#later'
+check '"later"' -w alpha eval 'log'
 check '  - button "Inner button"' -w alpha snapshot
 check "Page" -w alpha click 'role=button[name="inner"]'
 check "Page" -w alpha click 'text=Inner button'

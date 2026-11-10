@@ -316,6 +316,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     @ObservationIgnored weak var browser: Browser?
     @ObservationIgnored weak var opener: Tab?
     @ObservationIgnored var console: [String] = []
+    /// The highest ref the tab's pages have handed out, so a new page numbers on from it (see PageScripts.find).
+    @ObservationIgnored var refSeed = 0
+    /// The last snapshot of each target ("" for the page), for `snapshot --diff`.
+    @ObservationIgnored var snapshots: [String: (url: String, tree: String)] = [:]
     /// Console errors since the last reply, for the hint under ### Page.
     @ObservationIgnored var unreadErrors = 0
     /// Documents, fetch and XHR calls since the page loaded: the hook's messages, as dictionaries.
@@ -760,7 +764,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     /// Runs a function body; the body must return a string.
     func call(_ body: String, _ arguments: [String: Any] = [:], world: WKContentWorld? = nil) async throws -> String {
         let world = world ?? Tab.agentWorld
-        return try await withTimeout(30, "page script") { [webView] in
+        var arguments = arguments
+        if arguments["refSeed"] == nil { arguments["refSeed"] = refSeed }
+        return try await withTimeout(30, "page script") { [webView, arguments] in
             try await withCheckedThrowingContinuation { continuation in
                 webView.callAsyncJavaScript(body, arguments: arguments, in: nil, in: world) { result in
                     switch result {

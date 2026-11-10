@@ -14,7 +14,7 @@ A browser window shared with other agents. Each task gets its own **workspace** 
 agweb -w fix-login open https://app.example.com # one workspace per task, named after it (fresh profile)
 agweb -w fix-login snapshot # page tree with [ref=eN] handles
 agweb -w fix-login click e12 # act; the reply waits for the navigation or fetch it caused
-agweb -w fix-login snapshot # refs reset on EVERY snapshot: take a new one before the next ref
+agweb -w fix-login snapshot --diff                  # only what changed; an element keeps its ref while it lives
 agweb -w fix-login goto https://app.example.com/x # navigate; never eval "location.href=..."
 agweb -w fix-login close # when done; otherwise the workspace reopens after a restart
 ```
@@ -22,7 +22,7 @@ agweb -w fix-login close # when done; otherwise the workspace reopens after a re
 - Pass `-w` on every call, or `export AGWEB_WORKSPACE=fix-login`. A shell function `a() { agweb -w fix-login "$@"; }` works; a variable holding `agweb -w fix-login` does not in zsh. Never touch a workspace you didn't open (`agweb list` shows them all).
 - `goto`, `go-back`, `reload` wait for the new page; `goto` and `open` also report `redirected to ...` under Events when a login or SSO bounce moved you. `eval "location.href=..."` tells you nothing.
 - Keep stderr. Errors say why and exit 1: an ambiguous target, a timeout over the cap, a misspelled option. Never `2>/dev/null`; chain dependent steps with `&&`, not `;`.
-- Actions don't wait for an element to appear. On a page still changing, `wait` for it first, then act.
+- Actions wait up to 5 s for their target to show (`--timeout=MS`, 0 to skip), so `click` right after the page changed is fine; `wait` for anything slower. A ref from an earlier page fails with `ref eN not found`.
 - Every reply ends with `### Page` (URL, title). `### Events` lists alerts, confirms, popups, downloads and redirects; `- Console: N new errors` means run `console error`.
 - Logins need a named profile (`-p`). If none exists and you have no credentials, ask the person to log in once in the window; never guess.
 - Between commands your tab is hidden after 30 s and suspended after ~4 min; every command wakes it, so nothing is lost.
@@ -55,7 +55,7 @@ agweb -w t fill e3 "Paul" # replaces the field's text at once
 agweb -w t select e4 "Green" # <select>: label or value; never click one
 agweb -w t check e5
 agweb -w t click 'role=button[name="Save"]' # the reply waits for the fetch/XHR the click started (up to 5 s)
-agweb -w t snapshot # verify: [value="..."], [checked], [disabled], new text
+agweb -w t snapshot --diff # verify: [value="..."], [checked], [disabled], new text
 agweb -w t wait --text="Saved" && agweb -w t console error # the result, then anything the page logged
 ```
 
@@ -83,7 +83,7 @@ agweb -w t --raw eval "[...document.querySelectorAll('table tr')].map(r => [...r
 agweb -w t --raw eval "(el) => el.value" e5 # what a snapshot hides: values, attributes, computed style
 agweb -w t --raw eval "(el) => el.closest('.form-field').innerText" e9 # a custom control's shown choice
 agweb -w t --json eval "document.title" # {ok, result, page} for scripts
-agweb -w t snapshot --filename=page.md # big pages to a file, then grep it
+agweb -w t find "Invoice"                              # just the lines holding the text, with refs and the lines above them
 ```
 
 `--raw` prints just the answer, strings unquoted. A snapshot stops at 2000 lines and says so: snapshot a subtree or use `eval`. Lists and tables: `snapshot` the container for refs, `eval` for clean rows. A ref also works as a function argument in `eval`.
@@ -92,11 +92,11 @@ agweb -w t snapshot --filename=page.md # big pages to a file, then grep it
 
 ```sh
 agweb -w t select e4 "Green" # native <select>; fill also works, and for date/colour/number inputs
-agweb -w t click e9 && agweb -w t wait 'role=option[name="Alpha"]' && agweb -w t click 'role=option[name="Alpha"]' # mat-select, headless UI
+agweb -w t click e9 && agweb -w t click 'role=option[name="Alpha"]' # mat-select, headless UI
 agweb -w t snapshot e9 # [value="Alpha"] confirms the choice
 ```
 
-A custom combobox is not a field: `fill` says "is not a field". Open it, wait for the option, click it.
+A custom combobox is not a field: `fill` says "is not a field". Open it, then click the option (the click waits for it to show).
 
 **Iframes and frames.** Same-origin frames are in the snapshot and every target reaches into them. A cross-origin frame shows as an empty `iframe`: open its URL in a tab instead.
 
@@ -165,9 +165,9 @@ Use `--instant` for pointer verbs and `type` when looking human doesn't matter. 
 
 ## Troubleshooting
 
-- `no visible element matches ...`: the page isn't there yet (`wait` for it), the name is wrong (it's a substring of the accessible name; `snapshot` to see it), or the element is hidden.
+- `no visible element matches ...`: the page isn't there yet (`wait` for it), the name is wrong (a `role=` miss lists that role's visible elements with refs; `find` the text), or the element is hidden.
 - `... matches N elements: ...`: the error lists them with refs; use the ref, or more of the name.
-- `ref eN not found; take a new snapshot`: refs reset on every snapshot, including `snapshot e5` of one element, and when the page re-rendered.
+- `ref eN not found: the page changed`: that element is gone (removed, re-rendered, or the page navigated); `snapshot --diff` or `find` for its new ref.
 - Empty or stale snapshot after navigating: `wait --load` or `wait` for a known element, then snapshot again.
 - `timed out after N s waiting for ...`: the condition never held; check `### Page` for where you are, `snapshot`, `console error`. `--timeout is milliseconds, up to 600000` means the value was over the cap.
 - `select opens a native picker; use: agweb select ...` / `fill ... is not a field`: see dropdowns.

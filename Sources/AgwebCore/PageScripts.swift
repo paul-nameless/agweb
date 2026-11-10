@@ -4,8 +4,19 @@ public enum PageScripts {
     /// Targets: a snapshot ref (`e12`), `role=button[name="Save"]` (name: case-insensitive substring), `text=Save`
     /// (substring) or `text="Save"` (exact), else a CSS selector. Role and text targets must match exactly one
     /// visible element, so a click never lands on the wrong one of several.
+    /// An element keeps its ref while it lives. A new document numbers on from `refSeed` (the tab's highest ref so
+    /// far), so a ref from the page before fails instead of naming a different element.
     public static let find = """
-    const W = window.__agweb || (window.__agweb = { refs: new Map() });
+    const W = window.__agweb || (window.__agweb = { refs: new Map(), ids: new WeakMap(), next: refSeed });
+    const refOf = (el) => {
+      let ref = W.ids.get(el);
+      if (!ref) {
+        ref = `e${++W.next}`;
+        W.ids.set(el, ref);
+        W.refs.set(ref, new WeakRef(el));
+      }
+      return ref;
+    };
     const clean = (s) => (s || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
     const roleOf = (el) => {
       const explicit = el.getAttribute('role');
@@ -68,8 +79,8 @@ public enum PageScripts {
     };
     const find = (target) => {
       if (/^e\\d+$/.test(target)) {
-        const el = W.refs.get(target);
-        if (!el || !el.isConnected) throw new Error(`ref ${target} not found; take a new snapshot`);
+        const el = W.refs.get(target)?.deref();
+        if (!el || !el.isConnected) throw new Error(`ref ${target} not found: the page changed; take a new snapshot`);
         return el;
       }
       let matches, m;
@@ -90,11 +101,16 @@ public enum PageScripts {
         if (!el) throw new Error(`no element matches ${target}`);
         return el;
       }
-      if (matches.length === 0) throw new Error(`no visible element matches ${target}`);
+      const label = (el) => `${roleOf(el) || el.tagName.toLowerCase()} ${JSON.stringify(nameOf(el) || clean(el.innerText).slice(0, 40))} [ref=${refOf(el)}]`;
+      const list = (els) => els.slice(0, 5).map(label).join('; ') + (els.length > 5 ? `; and ${els.length - 5} more` : '');
+      if (matches.length === 0) {
+        // A near miss: the elements of that role and their names, so the next try needs no snapshot.
+        const role = m && target.startsWith('role=') ? m[1] : null;
+        const near = role ? [...all(document)].filter(el => roleOf(el) === role && visible(el)) : [];
+        throw new Error(`no visible element matches ${target}` + (near.length ? `; visible ${role}s: ${list(near)}` : ''));
+      }
       if (matches.length > 1) {
-        const ref = (el) => [...W.refs].find(([, v]) => v === el)?.[0];
-        const label = (el) => `${roleOf(el) || el.tagName.toLowerCase()} ${JSON.stringify(nameOf(el) || clean(el.innerText).slice(0, 40))}` + (ref(el) ? ` [ref=${ref(el)}]` : '');
-        const listed = matches.slice(0, 5).map(label).join('; ') + (matches.length > 5 ? `; and ${matches.length - 5} more` : '');
+        const listed = list(matches);
         throw new Error(`${target} matches ${matches.length} elements: ${listed}. Be more specific or use a ref from snapshot`);
       }
       return matches[0];
@@ -117,8 +133,7 @@ public enum PageScripts {
     /// The whole page, or with `target` only that element and what is inside it.
     public static let snapshot = find + """
     const root = target ? find(target) : null;
-    W.refs = new Map();
-    let n = 0;
+    for (const [ref, weak] of W.refs) if (!weak.deref()) W.refs.delete(ref);
     const lines = [];
     let truncated = false;
     const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'svg', 'HEAD']);
@@ -156,8 +171,7 @@ public enum PageScripts {
       if (node.getClientRects().length === 0 || style.visibility === 'hidden') return;
       const role = controlRole(node);
       if (!role) { walk(node, depth); return; }
-      const ref = `e${++n}`;
-      W.refs.set(ref, node);
+      const ref = refOf(node);
       let line = `${'  '.repeat(depth)}- ${role}`;
       // A container's text shows as its children, so only a leaf is named by its content.
       const name = nameOf(node, leaf.has(role) ? role : null);
@@ -214,7 +228,7 @@ public enum PageScripts {
     };
     if (root) visit(root, 0); else walk(document.body || document.documentElement, 0);
     if (truncated) lines.push(`- (truncated at \(maxSnapshotLines) lines; use eval to read the rest)`);
-    return lines.join('\\n');
+    return JSON.stringify({ tree: lines.join('\\n'), next: W.next });
     """
 
     /// Markdown through Defuddle (loaded into this world first): one element converted whole, or the page's main

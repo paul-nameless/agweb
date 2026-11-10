@@ -15,6 +15,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   open [url]                    start the workspace (-p to reuse a named profile's logins)
   goto <url> | reload | go-back | go-forward
   snapshot [target]             page (or one element) as a tree with [ref=eN] handles; same-origin iframes included
+                                (--diff: only what changed since the last snapshot; an element keeps its ref)
+  find <text>                   the snapshot lines containing text, with the lines around them (--max-results=20)
   text [target]                 the page's main content (an article) or one element as markdown
   click <target> [right|middle] native trusted click: the pointer glides there like a person's (--js: element.click())
   dblclick <target>             native double click
@@ -76,6 +78,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   quit                          stop agweb
 
 --instant                       pointer verbs, upload and type act at once instead of at human speed
+--timeout=MS                    actions wait this long for their target to show (default 5000; 0: don't wait)
 --filename=PATH                 snapshot, text, eval, request and response-body: write the answer to a file instead
 --download-dir=DIR              where downloads nobody named go (default $AGWEB_DOWNLOAD_DIR, else .agweb/)
 --raw                           print only the answer (eval's value, a snapshot), strings unquoted
@@ -98,11 +101,11 @@ var options: [String: String] = [:]
 var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
 // --headed and --browser are accepted for playwright-cli habits; agweb is always headed WebKit.
-let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw", "json", "static", "clear", "hide",
+let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw", "json", "static", "clear", "hide", "diff",
                   "httpOnly", "secure", "gone", "load", "single-page"]
 let valued: Set = ["profile", "workspace", "max-idle", "filename", "size", "filter", "status", "body", "content-type",
                    "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser", "text", "url",
-                   "timeout", "color-scheme", "format", "download-dir", "secret-cmd", "secret-file"]
+                   "timeout", "color-scheme", "format", "download-dir", "secret-cmd", "secret-file", "max-results"]
 let short = ["-w": "workspace", "-p": "profile"]
 func setOption(_ name: String, _ value: String) {
     // --header repeats; the app splits on newlines.

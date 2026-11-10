@@ -5,7 +5,7 @@ public enum Output {
     /// Sections that describe the tab rather than answer the command.
     static let context: Set = ["Page", "Tabs", "Events"]
     /// Every title the app emits; a `### Heading` in an answer (an article from `text`, a response body) is content.
-    static let titles: Set = context.union(["Result", "Snapshot", "Download", "PDF", "Screenshot", "Video", "Routes", "Static"])
+    static let titles: Set = context.union(["Result", "Snapshot", "Changes", "Found", "Download", "PDF", "Screenshot", "Video", "Routes", "Static"])
 
     static func isTitle(_ title: Substring) -> Bool {
         titles.contains(String(title)) || title.hasPrefix("Request ") || title.hasPrefix("Static ")

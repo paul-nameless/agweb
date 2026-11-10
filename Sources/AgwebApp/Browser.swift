@@ -403,6 +403,8 @@ final class Browser {
         if request.command != "goto" { try await tab.loadIfPending() }
         let webView = tab.webView
         let instant = options["instant"] != nil
+        let targets = request.command == "drag" ? Array(args.prefix(2)) : Self.actsOnTarget.contains(request.command) ? Array(args.prefix(1)) : []
+        for target in targets { try await awaitTarget(tab, target, options) }
 
         switch request.command {
         case "goto":
@@ -417,8 +419,23 @@ final class Browser {
             webView.goForward()
             await tab.settle()
         case "snapshot":
-            let tree = try await tab.call(PageScripts.snapshot, ["target": args.first ?? ""])
-            return describe(tab) + "\n### Snapshot\n" + tree
+            let target = args.first ?? ""
+            let tree = try await snapshotTree(tab, target)
+            let last = tab.snapshots[target]
+            tab.snapshots[target] = (tab.currentURL, tree)
+            // Refs last as long as their element, so a line that didn't change is the same element.
+            if options["diff"] != nil, let last, last.url == tab.currentURL {
+                return describe(tab) + "\n### Changes\n" + (Snapshot.diff(from: last.tree, to: tree) ?? "no changes since the last snapshot")
+            }
+            let note = options["diff"] != nil ? "no earlier snapshot of this page, so this is all of it" : nil
+            return describe(tab, note: note) + "\n### Snapshot\n" + tree
+        case "find":
+            let query = try arg(0, "text")
+            guard let max = Int(options["max-results"] ?? "20"), max > 0 else { throw Failure("--max-results is a number above 0") }
+            guard let found = Snapshot.find(query, in: try await snapshotTree(tab, ""), max: max) else {
+                throw Failure("nothing on the page matches \(query.debugDescription); snapshot to see it all")
+            }
+            return describe(tab) + "\n### Found\n\(found.matches) line\(found.matches == 1 ? "" : "s") matching \(query.debugDescription)\n" + found.tree
         case "text":
             let text = try await pageText(tab, target: args.first)
             return "### Result\n" + text.markdown + "\n" + describe(tab, note: text.whole ? "no article here, so this is the whole page" : nil)
@@ -683,15 +700,22 @@ final class Browser {
         } else {
             throw Failure("use: agweb wait <ms> | <target> [--gone] | --text=… | --url=… | --load  [--timeout=ms]")
         }
+        let waited = try await poll(timeout, what, check)
+        return "### Result\nwaited \(String(format: "%.1f", waited)) s for \(what)"
+    }
+
+    /// Checks every 100 ms until `check` holds; the seconds it took.
+    private func poll(_ timeout: Double, _ what: String, _ check: () async throws -> Bool) async throws -> Double {
         let start = ProcessInfo.processInfo.systemUptime
         var ambiguousSince: Double?
         while true {
-            // A navigation in progress makes page scripts fail; that is "not yet". A bad selector never will be, and
-            // several matches fail once they outlast a re-render (an old and a new dialog during a fade).
+            // A navigation in progress makes page scripts fail; that is "not yet". A bad selector or a ref from an
+            // old page never will be, and several matches fail once they outlast a re-render (an old and a new
+            // dialog during a fade).
             do {
                 if try await check() { break }
                 ambiguousSince = nil
-            } catch let error as Failure where error.description.contains("invalid selector") {
+            } catch let error as Failure where error.description.contains("invalid selector") || error.description.contains("take a new snapshot") {
                 throw error
             } catch let error as Failure where error.description.contains("Be more specific") {
                 let now = ProcessInfo.processInfo.systemUptime
@@ -703,7 +727,25 @@ final class Browser {
             if ProcessInfo.processInfo.systemUptime - start > timeout { throw Failure("timed out after \(timeout < 10 ? String(format: "%.1f", timeout) : String(Int(timeout))) s waiting for \(what)") }
             try await Task.sleep(for: .milliseconds(100))
         }
-        return "### Result\nwaited \(String(format: "%.1f", ProcessInfo.processInfo.systemUptime - start)) s for \(what)"
+        return ProcessInfo.processInfo.systemUptime - start
+    }
+
+    /// Actions wait for their target to show, as Playwright's do: up to --timeout ms (5000 by default; 0 doesn't
+    /// wait). Past that the action runs anyway, so its own error says what is wrong with the target.
+    private func awaitTarget(_ tab: Tab, _ target: String, _ options: [String: String]) async throws {
+        guard let ms = Double(options["timeout"] ?? "5000"), (0...600_000).contains(ms) else { throw Failure("--timeout is milliseconds, up to 600000") }
+        guard ms > 0 else { return }
+        do {
+            _ = try await poll(ms / 1000, target) { try await tab.call(PageScripts.present, ["target": target, "gone": false]) == "true" }
+        } catch let error as Failure where error.description.hasPrefix("timed out") {}
+    }
+
+    /// The page tree, numbering new elements on from the tab's last ref.
+    private func snapshotTree(_ tab: Tab, _ target: String) async throws -> String {
+        let reply = try await tab.call(PageScripts.snapshot, ["target": target])
+        let parsed = try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any]
+        if let next = parsed?["next"] as? Int { tab.refSeed = max(tab.refSeed, next) }
+        return parsed?["tree"] as? String ?? ""
     }
 
     /// Paginated like printing, with print styles, unless `singlePage`: then one page of the screen view.
@@ -964,6 +1006,9 @@ final class Browser {
         }
         return Set(forms).sorted { $0.count > $1.count }.reduce(output) { $0.replacingOccurrences(of: $1, with: "<hidden>") }
     }
+
+    /// Commands whose first argument is an element to act on (drag: both), which they wait for.
+    private static let actsOnTarget: Set = ["click", "dblclick", "check", "uncheck", "hover", "fill", "select", "download"]
 
     static func describe(profile: String?) -> String { profile.map { "profile \($0)" } ?? "fresh profile" }
 
