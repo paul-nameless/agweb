@@ -38,8 +38,11 @@ public enum PageScripts {
       'gridcell', 'columnheader', 'rowheader', 'row']);
     const nameOf = (el, role = roleOf(el)) => {
       const root = el.getRootNode();
+      // Without aria-hidden parts: a required "*" and icon ligatures ("help") are not part of a name.
+      const spoken = (n) => n.nodeType === 3 ? n.textContent : n.nodeType !== 1 || n.getAttribute('aria-hidden') === 'true' ? ''
+        : [...n.childNodes].map(spoken).join(' ');
       const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\\s+/)
-        .map(id => id && (root.getElementById?.(id) || el.ownerDocument.getElementById(id))?.innerText).filter(Boolean).join(' ');
+        .map(id => id && root.getElementById?.(id) || el.ownerDocument.getElementById(id)).filter(Boolean).map(spoken).join(' ');
       const button = el.tagName === 'INPUT' && ['submit', 'button', 'reset'].includes(el.type);
       return clean(
         labelledBy || el.getAttribute('aria-label') || el.labels?.[0]?.innerText || el.getAttribute('alt') ||
@@ -161,6 +164,14 @@ public enum PageScripts {
       // A password someone typed by hand must not reach an agent's transcript.
       if (node.type === 'password') { if (node.value) line += ' [value=<hidden>]'; }
       else if (['textbox', 'searchbox', 'combobox'].includes(role) && node.tagName !== 'SELECT' && node.value) line += ` [value=${JSON.stringify(clean(node.value))}]`;
+      // A custom select (mat-select, a div with role=combobox) shows its choice as its text, not a value.
+      else if (role === 'combobox' && !('value' in node)) {
+        // Not the options of a list it holds open.
+        const own = (n) => n.nodeType === 3 ? n.textContent : n.nodeType !== 1 || ['listbox', 'option', 'menu'].includes(n.getAttribute('role')) ? ''
+          : [...n.childNodes].map(own).join(' ');
+        const shown = clean(node.getAttribute('aria-valuetext') || own(node));
+        if (shown && shown !== name) line += ` [value=${JSON.stringify(shown)}]`;
+      }
       line += ` [ref=${ref}]`;
       if (node === document.activeElement) line += ' [focused]';
       if (!emit(line)) return;
