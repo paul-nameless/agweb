@@ -405,6 +405,7 @@ final class Browser {
         let instant = options["instant"] != nil
         let targets = request.command == "drag" ? Array(args.prefix(2)) : Self.actsOnTarget.contains(request.command) ? Array(args.prefix(1)) : []
         for target in targets { try await awaitTarget(tab, target, options) }
+        let urlBefore = tab.currentURL
 
         switch request.command {
         case "goto":
@@ -587,6 +588,7 @@ final class Browser {
         default:
             throw Failure(Commands.unknown(request.command))
         }
+        if Self.reportsChanges.contains(request.command) { return describe(tab) + (await changes(tab, urlBefore: urlBefore)) }
         return describe(tab)
     }
 
@@ -1005,6 +1007,29 @@ final class Browser {
                 + escaped + escaped.compactMap { json($0, .withoutEscapingSlashes) }
         }
         return Set(forms).sorted { $0.count > $1.count }.reduce(output) { $0.replacingOccurrences(of: $1, with: "<hidden>") }
+    }
+
+    /// Actions whose reply says what they changed.
+    private static let reportsChanges: Set = ["click", "dblclick", "check", "uncheck", "hover", "fill", "select", "type", "press", "drag"]
+
+    /// The fetch/XHR calls an action started, and how the page tree differs from the one the agent last saw, so it
+    /// rarely needs a snapshot after acting. The tree is compared only once the agent has taken a snapshot of the
+    /// page, and becomes the new baseline unless the list was cut short (then `snapshot --diff` has the rest).
+    private func changes(_ tab: Tab, urlBefore: String) async -> String {
+        var out: [String] = []
+        for call in tab.requests where (call["start"] as? Double ?? 0) >= tab.commandStart {
+            let status = (call["status"] as? Int).map(String.init) ?? "failed"
+            out.append("- call: \(call["method"] as? String ?? "GET") \(String((call["url"] as? String ?? "").prefix(120))) => \(status)")
+        }
+        if tab.currentURL != urlBefore {
+            out.append("- navigated: snapshot for the new page")
+        } else if let last = tab.snapshots[""], last.url == tab.currentURL, let tree = try? await snapshotTree(tab, "") {
+            let lines = Snapshot.diff(from: last.tree, to: tree)?.split(separator: "\n").map(String.init) ?? []
+            let limit = 20
+            out += lines.prefix(limit)
+            if lines.count > limit { out.append("- (\(lines.count - limit) more lines; snapshot --diff)") } else { tab.snapshots[""] = (tab.currentURL, tree) }
+        }
+        return out.isEmpty ? "" : "\n### Changes\n" + out.joined(separator: "\n")
     }
 
     /// Commands whose first argument is an element to act on (drag: both), which they wait for.

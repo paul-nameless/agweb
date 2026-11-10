@@ -13,8 +13,8 @@ A browser window shared with other agents. Each task gets its own **workspace** 
 ```sh
 agweb -w fix-login open https://app.example.com # one workspace per task, named after it (fresh profile)
 agweb -w fix-login snapshot # page tree with [ref=eN] handles
-agweb -w fix-login click e12 # act; the reply waits for the navigation or fetch it caused
-agweb -w fix-login snapshot --diff                  # only what changed; an element keeps its ref while it lives
+agweb -w fix-login click e12 # act; the reply waits for the fetch it caused and lists it under ### Changes
+agweb -w fix-login snapshot --diff                  # only what changed; often unneeded, see below
 agweb -w fix-login goto https://app.example.com/x # navigate; never eval "location.href=..."
 agweb -w fix-login close # when done; otherwise the workspace reopens after a restart
 ```
@@ -23,6 +23,7 @@ agweb -w fix-login close # when done; otherwise the workspace reopens after a re
 - `goto`, `go-back`, `reload` wait for the new page; `goto` and `open` also report `redirected to ...` under Events when a login or SSO bounce moved you. `eval "location.href=..."` tells you nothing.
 - Keep stderr. Errors say why and exit 1: an ambiguous target, a timeout over the cap, a misspelled option. Never `2>/dev/null`; chain dependent steps with `&&`, not `;`.
 - Actions wait up to 5 s for their target to show (`--timeout=MS`, 0 to skip), so `click` right after the page changed is fine; `wait` for anything slower. A ref from an earlier page fails with `ref eN not found`.
+- After a snapshot, `click`, `fill`, `type`, `press`, `check`, `select`, `hover` and `drag` replies carry `### Changes`: the fetch/XHR calls they started and the tree lines added (`+`) or removed (`-`) under their parents, so read that before taking another snapshot. Over 20 lines it is cut; `snapshot --diff` has the rest.
 - Every reply ends with `### Page` (URL, title). `### Events` lists alerts, confirms, popups, downloads and redirects; `- Console: N new errors` means run `console error`.
 - Logins need a named profile (`-p`). If none exists and you have no credentials, ask the person to log in once in the window; never guess.
 - Between commands your tab is hidden after 30 s and suspended after ~4 min; every command wakes it, so nothing is lost.
@@ -55,7 +56,7 @@ agweb -w t fill e3 "Paul" # replaces the field's text at once
 agweb -w t select e4 "Green" # <select>: label or value; never click one
 agweb -w t check e5
 agweb -w t click 'role=button[name="Save"]' # the reply waits for the fetch/XHR the click started (up to 5 s)
-agweb -w t snapshot --diff # verify: [value="..."], [checked], [disabled], new text
+agweb -w t snapshot --diff # verify, when ### Changes was cut short: [value="..."], [checked], [disabled], new text
 agweb -w t wait --text="Saved" && agweb -w t console error # the result, then anything the page logged
 ```
 

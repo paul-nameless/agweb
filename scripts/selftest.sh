@@ -164,6 +164,10 @@ fails 'visible buttons: button "Press me" \[ref=' -w alpha click 'role=button[na
 check "Page" -w alpha eval "() => { setTimeout(() => { const b = document.createElement('button'); b.id = 'later'; b.textContent = 'Later'; b.onclick = () => log.push('later'); document.body.append(b) }, 600) }"
 check "Page" -w alpha click '#later'
 check '"later"' -w alpha eval 'log'
+check "Page" -w alpha eval "() => { const b = document.createElement('button'); b.id = 'grow'; b.textContent = 'Grow'; b.onclick = () => { const p = document.createElement('p'); p.textContent = 'Grown by a click'; b.after(p) }; document.body.append(b) }"
+check "Snapshot" -w alpha snapshot
+check '^+ *- text: "Grown by a click"' -w alpha --raw click '#grow'
+check '^- call: POST http.*index.html?api => 501' -w alpha --raw click '#api'
 check '  - button "Inner button"' -w alpha snapshot
 check "Page" -w alpha click 'role=button[name="inner"]'
 check "Page" -w alpha click 'text=Inner button'
