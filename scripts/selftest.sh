@@ -54,6 +54,7 @@ stopped() {
 video_seconds() { sed -n 's/.* frames, \([0-9.]*\) s.*/\1/p'; }
 
 check "Title: agweb test" -w alpha open "$u" -p selftest-alpha
+alpha_store=$(/usr/bin/python3 -c 'import hashlib, uuid; print(uuid.UUID(bytes=hashlib.sha256(b"agweb.profile.selftest-alpha").digest()[:16]))')
 check "Title: agweb test" -w beta open "$u?beta" -p selftest-shared
 check 'button "Press me" \[ref=e2\]' -w alpha snapshot
 check 'option "Two"' -w alpha snapshot
@@ -405,6 +406,7 @@ check '^""$' -w zeta eval 'document.cookie'
 check "workspace zeta closed" -w zeta close
 check "profile selftest-shared deleted" profile-delete selftest-shared
 check "profile selftest-alpha deleted" profile-delete selftest-alpha
+ls ~/Library/WebKit/$domain/WebsiteDataStore/ 2>/dev/null | grep -qx "$alpha_store" && fail "profile-delete left selftest-alpha's WebKit folder"
 lacks "selftest" profile-list
 fails "no profile selftest-alpha" profile-delete selftest-alpha
 

@@ -141,11 +141,13 @@ enum Profiles {
             throw Failure("profile \(name) is open in another agweb instance; quit it or close its workspaces first")
         }
         // WebKit refuses to remove a store it still holds, which it does for a while after the store's last tab
-        // closes, and crashes removing one before any web view exists. Wiping its data works in both cases;
-        // removing the emptied store itself is a bonus.
+        // closes, and crashes removing one before any web view exists. Wiping its data works in both cases.
         let store = stores.removeValue(forKey: name) ?? WKWebsiteDataStore(forIdentifier: identifier(name))
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         try? await WKWebsiteDataStore.remove(forIdentifier: identifier(name))
+        // When WebKit still holds the store it keeps the folder, with databases that list the sites visited.
+        try? FileManager.default.removeItem(at: FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/WebKit/\(Agweb.bundleIdentifier)/WebsiteDataStore/\(identifier(name).uuidString.lowercased())"))
         try? FileManager.default.removeItem(at: sessionCookies(name))
         try? FileManager.default.removeItem(at: inUseFile(name))
         update { $0.filter { $0 != name } }
