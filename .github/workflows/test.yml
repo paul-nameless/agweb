@@ -1,0 +1,20 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    # GitHub's macOS runners have a logged-in desktop session, so the app can open its window and run pages.
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: swift test
+      - name: Build
+        run: echo "AGWEB_CLI=$(scripts/build.sh --test)" >> "$GITHUB_ENV"
+      - name: Self-test
+        run: scripts/selftest.sh

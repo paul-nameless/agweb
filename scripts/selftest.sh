@@ -16,11 +16,18 @@ domain=dev.playground.agweb
 person_frame=$(defaults read $domain agwebMainFrame 2>/dev/null)
 defaults write $domain agwebTestFrame -string "{{200, 200}, {900, 600}}"
 
-port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
-(server="$PWD/server.py"; cd "$dir" && exec /usr/bin/python3 "$server" "$port" >"$dir/server.log" 2>&1) &
-server=$!
-trap '"$agweb" quit >/dev/null 2>&1; kill $server 2>/dev/null; wait $server 2>/dev/null; defaults delete $domain agwebTestFrame 2>/dev/null; rm -r "$dir"' EXIT
-for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 0.3; done
+# A free port the server really answers on, or stop: without it every check fails for the same reason.
+server=
+trap '"$agweb" quit >/dev/null 2>&1; [ -n "$server" ] && kill $server 2>/dev/null; wait 2>/dev/null; defaults delete $domain agwebTestFrame 2>/dev/null; rm -r "$dir"' EXIT
+for _ in 1 2 3; do
+    port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+    (script="$PWD/server.py"; cd "$dir" && exec /usr/bin/python3 "$script" "$port" >"$dir/server.log" 2>&1) &
+    server=$!
+    for _ in 1 2 3 4 5 6 7 8 9 10; do curl -sf -o /dev/null "http://127.0.0.1:$port/index.html" && break 2; sleep 0.3; done
+    kill $server 2>/dev/null
+    server=
+done
+[ -n "$server" ] || { echo "the test server did not start; see $dir/server.log"; cat "$dir/server.log"; exit 1; }
 u="http://127.0.0.1:$port/index.html"
 # Downloads and files nobody named land in the test's folder: the checkout may sit under ~/Downloads, which would
 # make every rebuilt (newly signed) test app ask for access to it.
@@ -498,7 +505,7 @@ check "Page" -w eph1 eval "() => { sessionStorage.setItem('fresh', 'F') }"
 sleep 2
 check "dashboard shown" dashboard
 check "recording" -w beta video-start "$dir/quit.mp4"
-check "### Video" quit
+check "quit.mp4" quit
 LC_ALL=C grep -qa moov "$dir/quit.mp4" || fail "quit left the video without its index"
 stopped
 # goto as the first command of a run must still bring the profile's session cookies back, and a detour through
