@@ -13,8 +13,6 @@ extension Browser {
         updateVisibility()
         scheduleSave()
         guard open else { return }
-        // Fixed while it is open, so tiles don't jump around as agents work; new tabs go last.
-        model.dashboardOrder = model.workspaces.flatMap(\.tabs).sorted { $0.lastActivity > $1.lastActivity }.map(\.id)
         dashboardTask = Task { [weak self] in
             while !Task.isCancelled, let self {
                 await self.refreshThumbnails()
@@ -45,10 +43,14 @@ extension Browser {
 
 struct DashboardView: View {
     let model: BrowserModel
+    /// The order while the pointer is over the grid, so a tile doesn't move away just as it is clicked.
+    @State private var frozen: [Int]?
 
     var body: some View {
-        let order = Dictionary(uniqueKeysWithValues: model.dashboardOrder.enumerated().map { ($1, $0) })
-        let tabs = model.workspaces.flatMap(\.tabs).sorted { (order[$0.id] ?? .max, $0.id) < (order[$1.id] ?? .max, $1.id) }
+        let recent = model.workspaces.flatMap(\.tabs).sorted { ($0.lastActivity, $1.id) > ($1.lastActivity, $0.id) }
+        let place = Dictionary(uniqueKeysWithValues: (frozen ?? recent.map(\.id)).enumerated().map { ($1, $0) })
+        // New tabs go last while frozen.
+        let tabs = recent.sorted { (place[$0.id] ?? .max) < (place[$1.id] ?? .max) }
         ScrollView {
             if tabs.isEmpty {
                 Text("No tabs yet").foregroundStyle(.secondary).padding(40)
@@ -64,7 +66,9 @@ struct DashboardView: View {
                 }
             }
             .padding(16)
+            .animation(.default, value: tabs.map(\.id))
         }
+        .onHover { inside in frozen = inside ? tabs.map(\.id) : nil }
         .background(Color(nsColor: .windowBackgroundColor))
     }
 }

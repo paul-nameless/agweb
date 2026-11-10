@@ -17,6 +17,8 @@ struct SavedWorkspaces: Codable {
         var title: String
         /// sessionStorage by origin; 0600 like the rest, since it holds tokens.
         var session: [String: [String: String]]?
+        /// For the dashboard's order.
+        var lastActivity: Date?
     }
 
     var workspaces: [Workspace]
@@ -48,7 +50,8 @@ extension Browser {
             workspaces: model.workspaces.map { workspace in
                 .init(name: workspace.name, profile: workspace.profile, current: workspace.tabs.firstIndex { $0.id == workspace.currentID },
                       tabs: workspace.tabs.map { .init(url: $0.currentURL, title: $0.currentTitle,
-                                                       session: workspace.profile == nil || $0.session.isEmpty ? nil : $0.session) })
+                                                       session: workspace.profile == nil || $0.session.isEmpty ? nil : $0.session,
+                                                       lastActivity: $0.lastActivity) })
             },
             displayed: displayed?.workspace.name, displayedIndex: displayed.flatMap { tab in tab.workspace.tabs.firstIndex { $0 === tab } },
             dashboard: model.dashboardOpen ? true : nil)
@@ -71,12 +74,16 @@ extension Browser {
                 tab.pendingURL = url
                 tab.url = savedTab.url
                 tab.title = savedTab.title
+                tab.lastActivity = savedTab.lastActivity ?? .distantPast
             }
             if let index = saved.current, workspace.tabs.indices.contains(index) { workspace.currentID = workspace.tabs[index].id }
         }
         if let name = state.displayed, let index = state.displayedIndex,
            let tabs = model.workspaces.first(where: { $0.name == name })?.tabs, tabs.indices.contains(index) {
+            // Showing it at launch is not activity; the dashboard's order stays as it was.
+            let kept = tabs[index].lastActivity
             model.display(tabs[index].id)
+            tabs[index].lastActivity = kept
         }
         if state.dashboard == true { model.dashboardOpen = true }
     }

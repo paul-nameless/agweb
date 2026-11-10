@@ -11,8 +11,6 @@ final class BrowserModel {
     var dashboardOpen = false {
         didSet { if dashboardOpen != oldValue { onDashboard?(dashboardOpen) } }
     }
-    /// Tab ids in the order the dashboard shows them, most recently active first when it opened.
-    var dashboardOrder: [Int] = []
     @ObservationIgnored var onDashboard: ((Bool) -> Void)?
     @ObservationIgnored var onDisplay: ((Int) -> Void)?
     @ObservationIgnored var onCloseTab: ((Tab) -> Void)?
