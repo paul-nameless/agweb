@@ -159,6 +159,9 @@ check "api" -w alpha requests --clear
 check "no requests" -w alpha requests --filter 'api$'
 check "$dir/dl/saved.html" -w alpha download '#dl' --filename="$dir/dl/saved.html"
 [ -s "$dir/dl/saved.html" ] || fail "download did not save the file"
+check "Page" -w alpha click '#dl' --download-dir="$dir/dd"
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$dir/dd/saved.html" ] && break; sleep 0.3; done
+[ -s "$dir/dd/saved.html" ] || fail "a download the click started did not go to --download-dir"
 check 'prompt() gets "Paul"' -w alpha dialog-accept Paul
 check 'answered with "Paul"' -w alpha click '#pr'
 check "will be dismissed" -w alpha dialog-dismiss

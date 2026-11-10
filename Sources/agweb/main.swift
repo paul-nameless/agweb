@@ -71,6 +71,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
 
 --instant                       pointer verbs, upload and type act at once instead of at human speed
 --filename=PATH                 snapshot, eval, request and response-body: write the answer to a file instead
+--download-dir=DIR              where downloads nobody named go (default $AGWEB_DOWNLOAD_DIR, else .agweb/)
 --raw                           print only the answer (eval's value, a snapshot), strings unquoted
 --json                          print the reply as one JSON object
 -w NAME, --workspace=NAME       default $AGWEB_WORKSPACE, else "default"
@@ -94,7 +95,7 @@ let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw
                   "httpOnly", "secure", "gone", "load", "single-page"]
 let valued: Set = ["profile", "workspace", "max-idle", "filename", "size", "filter", "status", "body", "content-type",
                    "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser", "text", "url",
-                   "timeout", "color-scheme", "format"]
+                   "timeout", "color-scheme", "format", "download-dir"]
 let short = ["-w": "workspace", "-p": "profile"]
 func setOption(_ name: String, _ value: String) {
     // --header repeats; the app splits on newlines.
@@ -146,6 +147,9 @@ func finish(_ output: String, ok: Bool) -> Never {
     if ok { print(text) } else if json { print(text) } else { fail(text) }
     exit(ok ? 0 : 1)
 }
+
+// Downloads nobody named land next to the agent's work, like screenshots, not in ~/Downloads.
+options["download-dir"] = absolute(options["download-dir"] ?? env["AGWEB_DOWNLOAD_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? ".agweb")
 
 let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
 // The CLI writes the files it can, so the app never needs access to the caller's folders.

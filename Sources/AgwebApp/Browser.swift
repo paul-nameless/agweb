@@ -224,6 +224,7 @@ final class Browser {
             return (["bye"] + videos).joined(separator: "\n")
         case "open":
             let workspace = try existingOrNewWorkspace(named: request.workspace, profile: options["profile"])
+            workspace.downloadDir = options["download-dir"].map { URL(fileURLWithPath: $0) } ?? workspace.downloadDir
             workspace.busy = true
             mainWindow.showQuietly()
             let tab = workspace.current ?? addTab(to: workspace)
@@ -237,6 +238,7 @@ final class Browser {
             guard Commands.all.contains(request.command) else { throw Failure(Commands.unknown(request.command)) }
             throw Failure("no workspace '\(request.workspace)'; start it with: agweb -w \(request.workspace) open [url]")
         }
+        workspace.downloadDir = options["download-dir"].map { URL(fileURLWithPath: $0) } ?? workspace.downloadDir
         workspace.busy = true
 
         switch request.command {

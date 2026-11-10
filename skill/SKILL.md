@@ -63,7 +63,7 @@ agweb -w t type "text" [--submit]                    # types into the focused el
 agweb -w t press Enter | press Shift+Tab | keydown Shift | keyup Shift
 agweb -w t drag e4 e9 | mousemove 200 300 | mousedown | mouseup | mousewheel 0 600
 agweb -w t upload e7 ./file.pdf                      # file inputs; no dialog appears
-agweb -w t download e8 [--filename=out.csv]          # waits for the file; other downloads go to ~/Downloads
+agweb -w t download e8 [--filename=out.csv]          # waits for the file; other downloads go to .agweb/
 agweb -w t dialog-accept ["answer"] | dialog-dismiss # how confirm()/prompt() are answered (default: dismiss)
 ```
 
@@ -98,6 +98,10 @@ agweb -w t video-start demo.mp4 | video-chapter "Step 2" | video-stop
 ```
 
 - `requests` and `route` cover fetch and XHR calls (plus documents in `requests`); images and scripts aren't intercepted.
+
+## Files
+
+Screenshots, PDFs, videos, saved state and downloads go to `.agweb/` in your current folder unless you name them: `--filename=PATH` for one file, `--download-dir=DIR` (or `AGWEB_DOWNLOAD_DIR`) for downloads a click starts.
 
 ## Coming from playwright-cli
 

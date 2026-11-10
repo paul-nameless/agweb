@@ -34,6 +34,8 @@ final class Workspace: Identifiable {
     /// True while an agent command runs. Commands on one workspace are serialized, so this is exact.
     var busy = false
     @ObservationIgnored var acceptDialogs = false
+    /// Where downloads nobody named go: the last command's `--download-dir`, by default its caller's `.agweb/`.
+    @ObservationIgnored var downloadDir: URL?
     /// What `dialog-accept <text>` answers prompt() with; nil answers with the prompt's default.
     @ObservationIgnored var promptText: String?
     @ObservationIgnored var recorder: Recorder?
@@ -248,7 +250,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     @ObservationIgnored var viewportSize: CGSize?
     /// While true, a context menu the page asks for is dropped: it would pop up on the person's screen.
     @ObservationIgnored var suppressMenus = false
-    /// Where the next download goes; nil is ~/Downloads.
+    /// Where the next download goes; nil is the workspace's download folder.
     /// A tab reopened at launch: where it was, loaded on first use.
     @ObservationIgnored var pendingURL: URL?
     @ObservationIgnored var downloadPath: URL?
@@ -438,11 +440,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         download.delegate = self
     }
 
-    // MARK: Downloads: saved without a panel, to `download --filename` or ~/Downloads.
+    // MARK: Downloads: saved without a panel, to `download --filename`, else the workspace's download folder.
 
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String,
                   completionHandler: @escaping @MainActor (URL?) -> Void) {
-        var url = downloadPath ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads/\(suggestedFilename)")
+        let folder = workspace.downloadDir ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+        var url = downloadPath ?? folder.appendingPathComponent(suggestedFilename)
         downloadPath = nil
         let base = url.deletingPathExtension().lastPathComponent, ext = url.pathExtension
         var n = 1
