@@ -22,6 +22,13 @@ public enum Commands {
         return "unknown command '\(name)'" + (suggestion.map { "; did you mean \($0)?" } ?? "; run agweb help")
     }
 
+    /// An unknown option: dropped silently, `fill e3 x --sumbit` would report success and never submit.
+    public static func unknownOption(_ name: String, known: some Sequence<String>) -> String {
+        let suggestion = known.map { ($0, distance($0, name)) }.filter { $0.1 <= 2 }.min { $0.1 < $1.1 }?.0
+        return "unknown option --\(name)" + (suggestion.map { "; did you mean --\($0)?" } ?? ".")
+            + " Text that starts with dashes goes after --: agweb type -- --\(name)"
+    }
+
     static func distance(_ a: String, _ b: String) -> Int {
         let b = Array(b)
         var row = Array(0...b.count)

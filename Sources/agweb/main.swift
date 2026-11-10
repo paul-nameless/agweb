@@ -115,13 +115,15 @@ while let arg = input.popFirst() {
         setOption(name, String(arg.dropFirst(3)))
     } else if arg.hasPrefix("--"), case let parts = arg.dropFirst(2).split(separator: "=", maxSplits: 1).map(String.init),
               let name = parts.first, flags.contains(name) || valued.contains(name) {
-        // Only known options are taken, so `agweb fill e3 --x` still types "--x".
         if valued.contains(name) && parts.count == 1 {
             guard let value = input.popFirst() else { fail("--\(name) needs a value") }
             setOption(name, value)
         } else {
             setOption(name, parts.count > 1 ? parts[1] : "")
         }
+    } else if arg.hasPrefix("--"), let name = arg.dropFirst(2).split(separator: "=", maxSplits: 1).first,
+              name.first?.isLetter == true {
+        fail(Commands.unknownOption(String(name), known: flags.union(valued)))
     } else {
         positional.append(arg)
     }
