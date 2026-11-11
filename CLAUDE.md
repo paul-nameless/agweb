@@ -18,6 +18,7 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 - `scripts/build.sh --test` builds a throwaway copy in `/tmp/agtest` instead; `AGWEB_CLI=$(scripts/build.sh --test) scripts/selftest.sh` tests it without touching the running app.
 - Builds need `CC=/usr/bin/clang`; a `cc` wrapper on PATH shadows the C compiler.
 - `CC=/usr/bin/clang swift test` runs the unit tests; `./scripts/selftest.sh` drives every verb in a separate instance (see its header).
+- Install Command Line Tool and Install Agent Skill link `/usr/local/bin/agweb` and `~/.claude|.codex/skills/agweb` into the running bundle (`LinkInstall.swift`); a link elsewhere is the person's and is left alone. An instance on its own socket never repairs them at launch, and `AGWEB_CLI_LINK`/`AGWEB_HOME` move them for the selftest.
 - Experiments go in an isolated instance (`AGWEB_SOCKET=/tmp/x.sock`), never in a standalone AppKit probe: an unbundled binary run from a terminal activates itself.
 
 ## WebKit facts that shaped the code
