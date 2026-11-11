@@ -149,7 +149,7 @@ agweb -w t unroute # all, or unroute "**/api/users"
 **Recording a demo.**
 
 ```sh
-agweb -w demo resize 1280 720 && agweb -w demo video-start demo.mp4 --size=1280x720
+agweb -w demo resize 1280 720 && agweb -w demo video-start demo.mp4 --size=1280x720 # about half the file of 1920x1080
 # ... act at human pace (no --instant); idle time between commands is cut to 1.5 s, wait 2000 shows 2 s
 agweb -w demo video-stop
 ```

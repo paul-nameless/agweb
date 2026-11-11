@@ -53,7 +53,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
                                 page has loaded with no fetch/XHR in flight
   video-start [path]            record the workspace's tab to MP4 (default .agweb/video-<time>.mp4), with the
               [--max-idle=S]    pointer drawn in; frames only when something changes; time between commands
-              [--size=WxH]      is cut to S seconds (default 1.5, 0 keeps real time); wait <ms> shows in full
+              [--size=WxH]      is cut to S seconds (default 1.5, 0 keeps real time); wait <ms> shows in full;
+                                resize 1280 720 with --size=1280x720 makes about half the file of 1920x1080
   video-stop                    finish the recording and print its path
   console [level]               page console since load: error, warning, info (default) or debug (--clear)
   requests                      fetch/XHR calls and loaded documents since the page loaded, numbered
