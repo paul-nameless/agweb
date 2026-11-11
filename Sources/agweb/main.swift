@@ -53,7 +53,6 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   video-start [path]            record the workspace's tab to MP4 (default .agweb/video-<time>.mp4), with the
               [--max-idle=S]    pointer drawn in; frames only when something changes; time between commands
               [--size=WxH]      is cut to S seconds (default 1.5, 0 keeps real time)
-  video-chapter <title>         show a title card in the recording (--description, --duration=ms, default 2000)
   video-stop                    finish the recording and print its path
   console [level]               page console since load: error, warning, info (default) or debug (--clear)
   requests                      fetch/XHR calls and loaded documents since the page loaded, numbered

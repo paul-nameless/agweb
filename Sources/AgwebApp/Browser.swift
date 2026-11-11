@@ -356,16 +356,6 @@ final class Browser {
             let recorder = try Recorder(workspace: workspace, url: URL(fileURLWithPath: try arg(0, "path")), maxIdle: maxIdle, frameSize: size)
             workspace.recorder = recorder
             return "recording \(workspace.name) to \(recorder.url.path)"
-        case "video-chapter":
-            guard let recorder = workspace.recorder else { throw Failure("not recording; run video-start") }
-            let seconds = try options["duration"].map { text -> Double in
-                guard let ms = Double(text), (0...60_000).contains(ms) else { throw Failure("--duration is milliseconds, up to 60000") }
-                return ms / 1000
-            } ?? 2
-            recorder.showChapter(try arg(0, "title"), description: options["description"], seconds: seconds)
-            // The card stays in the video only while the workspace is busy; idle time is cut.
-            try await Task.sleep(for: .seconds(seconds))
-            return "chapter \(args[0].debugDescription)"
         case "video-stop":
             guard let video = try await workspace.stopRecording() else { throw Failure("not recording; run video-start") }
             return video

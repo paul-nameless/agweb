@@ -2,7 +2,7 @@ public enum Commands {
     public static let all = [
         "open", "goto", "reload", "go-back", "go-forward", "snapshot", "find", "text", "click", "dblclick", "check", "uncheck", "drag",
         "hover", "mousemove", "mousedown", "mouseup", "mousewheel", "fill", "select", "type", "press", "keydown", "keyup",
-        "upload", "download", "eval", "highlight", "scroll-into-view", "screenshot", "pdf", "resize", "emulate", "wait", "video-start", "video-chapter", "video-stop",
+        "upload", "download", "eval", "highlight", "scroll-into-view", "screenshot", "pdf", "resize", "emulate", "wait", "video-start", "video-stop",
         "console", "requests", "request", "request-headers", "request-body", "response-headers", "response-body", "route",
         "route-list", "unroute", "cookie-list", "cookie-get", "cookie-set", "cookie-delete", "cookie-clear", "state-save",
         "state-load", "dialog-accept", "dialog-dismiss", "ask", "tab-list", "tab-new", "tab-select", "tab-close", "show", "close",
@@ -18,6 +18,7 @@ public enum Commands {
     ]
 
     public static func unknown(_ name: String) -> String {
+        if name == "video-chapter" { return "video-chapter is gone: recordings never put text over the page" }
         if name == "run-code" { return "no run-code: agweb has no Playwright engine; use role=/text= targets, eval and separate commands" }
         let suggestion = guesses[name] ?? all.map { ($0, distance($0, name)) }.filter { $0.1 <= 2 }.min { $0.1 < $1.1 }?.0
         return "unknown command '\(name)'" + (suggestion.map { "; did you mean \($0)?" } ?? "; run agweb help")

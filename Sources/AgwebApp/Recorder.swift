@@ -22,11 +22,9 @@ final class Recorder {
     private var lastPixels: Data?
     private var lastPointer: CGPoint?
     private var lastHadRing = false
-    private var lastHadCard = false
     private var finished = false
     private var frames = 0
     private var lastBusy = ProcessInfo.processInfo.systemUptime
-    private var chapter: (title: String, description: String?, until: Double)?
 
     /// `frameSize` defaults to the viewport; another size letterboxes it.
     init(workspace: Workspace, url: URL, maxIdle: Double, frameSize: CGSize? = nil) throws {
@@ -99,11 +97,6 @@ final class Recorder {
         return "### Video\n\(url.path)\n- \(frames) frames, \(String(format: "%.1f", clock + 1)) s, \(Int(size.width))x\(Int(size.height))"
     }
 
-    /// A title card over the page for `seconds`.
-    func showChapter(_ title: String, description: String?, seconds: Double) {
-        chapter = (title, description, ProcessInfo.processInfo.systemUptime + seconds)
-    }
-
     /// Also called by a click while the button is down, so the pressed state makes it into the video.
     func capture(timeout: Double = 5) async {
         let now = ProcessInfo.processInfo.systemUptime
@@ -117,8 +110,7 @@ final class Recorder {
             ring = ProcessInfo.processInfo.systemUptime - click.time
         }
         // A moving pointer or a ring means a new frame anyway; skip the bitmap copy then, it slows glides.
-        if let card = chapter, ProcessInfo.processInfo.systemUptime > card.until { chapter = nil }
-        let moved = tab.pointer != lastPointer || ring != nil || lastHadRing || chapter != nil || lastHadCard
+        let moved = tab.pointer != lastPointer || ring != nil || lastHadRing
         let pixels = moved ? nil : image.dataProvider?.data as Data?
         if !moved, let pixels, pixels == lastPixels { return }
         let wall = ProcessInfo.processInfo.systemUptime
@@ -139,7 +131,6 @@ final class Recorder {
         lastPixels = pixels
         lastPointer = tab.pointer
         lastHadRing = ring != nil
-        lastHadCard = chapter != nil
         frames += 1
     }
 
@@ -199,25 +190,7 @@ final class Recorder {
             context.strokeEllipse(in: circle)
         }
         if let pointer { Self.drawArrow(context, at: flip(pointer)) }
-        if let chapter { drawCard(context, title: chapter.title, description: chapter.description) }
         return buffer
-    }
-
-    private func drawCard(_ context: CGContext, title: String, description: String?) {
-        let text = NSMutableAttributedString(string: title, attributes: [.font: NSFont.boldSystemFont(ofSize: 30), .foregroundColor: NSColor.white])
-        if let description {
-            text.append(NSAttributedString(string: "\n" + description, attributes: [.font: NSFont.systemFont(ofSize: 17), .foregroundColor: NSColor(white: 0.85, alpha: 1)]))
-        }
-        let maxWidth = size.width * 0.8 - 48
-        let bounds = text.boundingRect(with: CGSize(width: maxWidth, height: size.height), options: [.usesLineFragmentOrigin])
-        let card = CGRect(x: (size.width - bounds.width) / 2 - 24, y: (size.height - bounds.height) / 2 - 18, width: bounds.width + 48, height: bounds.height + 36)
-        context.setFillColor(gray: 0.08, alpha: 0.82)
-        context.addPath(CGPath(roundedRect: card, cornerWidth: 14, cornerHeight: 14, transform: nil))
-        context.fillPath()
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-        text.draw(with: CGRect(x: card.minX + 24, y: card.minY + 18, width: maxWidth, height: bounds.height), options: [.usesLineFragmentOrigin])
-        NSGraphicsContext.restoreGraphicsState()
     }
 
     /// The qa-video skill's arrow: tip at the hotspot, black with a white rim and a soft shadow.

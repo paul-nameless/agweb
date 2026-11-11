@@ -14,4 +14,5 @@ func unknownCommandsSuggestTheRealOne(guess: String, real: String) {
 @Test func farOffNamesGetHelp() {
     #expect(Commands.unknown("frobnicate") == "unknown command 'frobnicate'; run agweb help")
     #expect(Commands.unknown("run-code").contains("no Playwright engine"))
+    #expect(Commands.unknown("video-chapter").contains("never put text over the page"))
 }

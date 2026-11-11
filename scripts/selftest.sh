@@ -357,12 +357,11 @@ fails "must end in .mp4" -w alpha video-start "$dir"
 fails "max-idle takes seconds" -w alpha video-start "$dir/v.mp4" --max-idle=soon
 fails "must end in .mp4" -w alpha video-start --filename="$dir/v.txt"
 fails "size is WIDTHxHEIGHT" -w alpha video-start "$dir/v.mp4" --size=big
-fails "not recording" -w alpha video-chapter x
+fails "video-chapter is gone" -w alpha video-chapter x
 check "recording alpha" -w alpha video-start "$dir/v.mp4"
 check "Page" -w alpha hover '#al'
 check "Page" -w alpha eval "async () => { for (const c of ['#fee', '#efe', '#eef']) { document.body.style.background = c; await new Promise(r => setTimeout(r, 150)) } }"
 fails "already recording" -w alpha video-start "$dir/w.mp4"
-check 'chapter "Step one"' -w alpha video-chapter "Step one" --description "The first part" --duration 300
 check "frames, " -w alpha video-stop
 LC_ALL=C grep -qa moov "$dir/v.mp4" || fail "the video has no index (moov)"
 fails "not recording" -w alpha video-stop
