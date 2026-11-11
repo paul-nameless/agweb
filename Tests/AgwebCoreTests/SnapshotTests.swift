@@ -31,6 +31,10 @@ private let page = """
     #expect(diff == "- - link \"Home\" [ref=e2]")
 }
 
+@Test func aFilledPageShowsOnlyAdditions() throws {
+    #expect(try #require(Snapshot.diff(from: "", to: "- link \"Home\" [ref=e2]")) == "+ - link \"Home\" [ref=e2]")
+}
+
 @Test func findKeepsTheEnclosingLines() throws {
     let found = try #require(Snapshot.find("save", in: page, max: 20))
     #expect(found.matches == 1)

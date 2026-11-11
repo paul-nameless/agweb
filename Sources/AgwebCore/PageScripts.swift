@@ -270,14 +270,22 @@ public enum PageScripts {
     return JSON.stringify({ x: r.x, y: r.y, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
     """
 
-    /// Scrolls the element to the middle of its viewport unless it is in view already, as Playwright's
-    /// scrollIntoViewIfNeeded does.
+    /// Scrolls the element to the middle of the viewport unless all of it shows already, as Playwright's
+    /// scrollIntoViewIfNeeded does. How much shows is the browser's own answer (an IntersectionObserver), so scroll
+    /// containers and iframes clip it too. One bigger than the viewport counts as shown when part of it is.
     public static let scrollIntoView = find + """
     const el = find(target);
-    const r = el.getBoundingClientRect(), view = el.ownerDocument.defaultView;
-    const inside = r.top >= 0 && r.left >= 0 && r.bottom <= view.innerHeight && r.right <= view.innerWidth;
-    if (!inside) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-    return inside ? 'already in view' : 'scrolled';
+    const r = rectOf(el);
+    if (!r.width || !r.height) throw new Error(`${target} has no size on screen`);
+    const shown = () => new Promise((resolve) => {
+      const io = new IntersectionObserver(([entry]) => { io.disconnect(); resolve(entry.intersectionRatio); });
+      io.observe(el);
+    });
+    const big = r.width > innerWidth || r.height > innerHeight;
+    const enough = (ratio) => big ? ratio > 0 : ratio > 0.99;
+    if (enough(await shown())) return 'already in view';
+    el.scrollIntoView({ block: big ? 'start' : 'center', inline: big ? 'start' : 'center', behavior: 'instant' });
+    return enough(await shown()) ? 'scrolled' : 'scrolled, but it is still not all in view: something clips or covers it';
     """
 
     /// Whether a checkbox, radio or ARIA switch is checked, or why it can't be.

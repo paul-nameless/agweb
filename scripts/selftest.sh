@@ -396,6 +396,9 @@ check 'dialog' -w alpha find "Far button"
 check "scrolled" -w alpha scroll-into-view '#far'
 check "already in view" -w alpha scroll-into-view '#far'
 check '"in view"' -w alpha js "(el) => el.getBoundingClientRect().bottom <= innerHeight ? 'in view' : 'not'" '#far'
+check "^scrolled" -w alpha scroll-into-view '#deep'
+check '"inner scrolled"' -w alpha js "() => box.scrollTop > 0 ? 'inner scrolled' : 'not'"
+fails "has no size on screen" -w alpha scroll-into-view '#gone' --timeout=0
 check "Page" -w alpha eval "scrollTo(0, 0)"
 check "popup opened as tab 1: .*index.html?deployed" -w alpha click 'text=deploy to TEST'
 check "0: (current)" -w alpha tab-close 1
