@@ -228,6 +228,13 @@ fails 'matches .* elements: button "Press me" \[ref=e2\]; ' -w alpha click 'role
 check '^- form' -w alpha snapshot '#f'
 lacks 'Press me' -w alpha snapshot '#f'
 check '^inner$' -w alpha --raw eval '(el) => el.id' 'role=button[name="inner"]'
+# eval hands over a target in a shadow root and in an iframe inside an iframe.
+check "Page" -w ev open "$u"
+check "Page" -w ev eval "() => { const h = document.createElement('div'); document.body.append(h); h.attachShadow({ mode: 'open' }).innerHTML = '<button>Shadow knob</button>'; const f = document.createElement('iframe'); f.srcdoc = \"<iframe srcdoc='<button>Nested knob</button>'></iframe>\"; document.body.append(f); }"
+check "Page" -w ev wait 'role=button[name="Nested knob"]'
+check '^Shadow knob$' -w ev --raw eval '(el) => el.textContent' 'role=button[name="Shadow knob"]'
+check '^Nested knob$' -w ev --raw eval '(el) => el.textContent' 'role=button[name="Nested knob"]'
+check "closed" -w ev close
 check "Page" -w alpha check 'text=Remember me'
 check "Page" -w alpha check '#r2'
 check '\[true,true\]' -w alpha eval '[cb.checked, r2.checked]'

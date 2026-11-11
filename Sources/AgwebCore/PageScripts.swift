@@ -470,12 +470,22 @@ public enum PageScripts {
     """
 
     // Page world: arbitrary expression or function, result as JSON text. A function gets the element tagged by
-    // `mark` (in the page or a same-origin iframe). The newline keeps a trailing line comment in `code` from
+    // `mark` (in the page, an open shadow root or a same-origin iframe, at any depth). The newline keeps a trailing line comment in `code` from
     // swallowing the closing parenthesis.
     public static func evaluate(_ code: String, mark: String? = nil) -> String {
         let element = mark.map { """
             const __sel = '[data-agweb-target="\($0)"]';
-            const __el = document.querySelector(__sel) ?? [...document.querySelectorAll('iframe')].map(f => { try { return f.contentDocument.querySelector(__sel); } catch {} }).find(Boolean);
+            const __find = (root) => {
+              const hit = root.querySelector(__sel);
+              if (hit) return hit;
+              for (const el of root.querySelectorAll('*')) {
+                let found;
+                if (el.shadowRoot) found = __find(el.shadowRoot);
+                if (!found && (el.tagName === 'IFRAME' || el.tagName === 'FRAME')) try { found = el.contentDocument && __find(el.contentDocument); } catch {}
+                if (found) return found;
+              }
+            };
+            const __el = __find(document);
             __el?.removeAttribute('data-agweb-target');
             """ } ?? "const __el = undefined;"
         return """
