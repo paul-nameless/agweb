@@ -52,7 +52,7 @@ struct DashboardView: View {
     let model: BrowserModel
     /// The order while the pointer is over the grid, so a tile doesn't move away just as it is clicked.
     @State private var frozen: [Int]?
-    @AppStorage(Settings.showUsage, store: Settings.store) private var showUsage = false
+    @AppStorage(Settings.showUsage, store: Settings.store) private var showUsage = true
     @AppStorage(Settings.columns, store: Settings.store) private var columns = 0
     @AppStorage(Settings.textSize, store: Settings.store) private var textSize = TextSize.medium
 
@@ -82,12 +82,7 @@ struct DashboardView: View {
                 }
             }
             .padding(16)
-            // Room to scroll the last row out from under the total.
-            .padding(.bottom, usage.isEmpty ? 0 : 32)
             .animation(.default, value: tabs.map(\.id))
-        }
-        .overlay(alignment: .bottomLeading) {
-            if !usage.isEmpty { total(usage).padding(12) }
         }
         .onHover { inside in frozen = inside ? tabs.map(\.id) : nil }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -97,9 +92,23 @@ struct DashboardView: View {
         columns > 0 ? Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: columns)
             : [GridItem(.adaptive(minimum: 260, maximum: 520), spacing: 16, alignment: .top)]
     }
+}
 
-    /// Every process counted once, with the split by kind in the tooltip.
-    private func total(_ usage: [pid_t: (name: String, usage: Usage)]) -> some View {
+/// The toolbar's middle while the dashboard is open: tab count and every process counted once, with the split by
+/// kind in the tooltip. Empty with Settings ▸ CPU and memory off.
+struct UsageTotal: View {
+    let model: BrowserModel
+    @AppStorage(Settings.showUsage, store: Settings.store) private var showUsage = true
+    @AppStorage(Settings.textSize, store: Settings.store) private var textSize = TextSize.medium
+
+    var body: some View {
+        let tabs = model.workspaces.reduce(0) { $0 + $1.tabs.count }
+        if showUsage, !model.processes.isEmpty {
+            total(model.processes, tabs: tabs)
+        }
+    }
+
+    private func total(_ usage: [pid_t: (name: String, usage: Usage)], tabs: Int) -> some View {
         func sum(_ list: some Sequence<(name: String, usage: Usage)>) -> Usage {
             list.reduce(Usage(cpu: 0, memory: 0)) { Usage(cpu: $0.cpu + $1.usage.cpu, memory: $0.memory + $1.usage.memory) }
         }
@@ -111,10 +120,12 @@ struct DashboardView: View {
             left.removeAll { matches($0.name) }
             return "\(kind): \(sum(mine).label)"
         }
-        return Label("Total " + sum(usage.values).label, systemImage: "gauge.with.dots.needle.33percent")
-            .font(.system(size: 11 * textSize.scale)).monospacedDigit().foregroundStyle(.secondary)
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(.regularMaterial, in: Capsule())
+        return Label("\(tabs) \(tabs == 1 ? "tab" : "tabs") · " + sum(usage.values).label, systemImage: "gauge.with.dots.needle.33percent")
+            .font(.system(size: 12 * textSize.scale)).monospacedDigit().foregroundStyle(.primary)
+            // The toolbar shows a Label as its icon alone.
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 10)
+            .fixedSize()
             .help(parts.joined(separator: "\n"))
     }
 }

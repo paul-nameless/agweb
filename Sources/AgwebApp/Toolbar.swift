@@ -1,9 +1,10 @@
 import AgwebCore
 import AppKit
 import Observation
+import SwiftUI
 
 /// Back, forward and reload on the left, the address field centered, new tab on the right; all act on the
-/// displayed tab.
+/// displayed tab. The dashboard swaps them for its CPU and memory total, keeping new tab.
 extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValidation {
     private static let back = NSToolbarItem.Identifier("back")
     private static let forward = NSToolbarItem.Identifier("forward")
@@ -11,6 +12,7 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
     private static let address = NSToolbarItem.Identifier("address")
     private static let newTabItem = NSToolbarItem.Identifier("newTab")
     private static let dashboardItem = NSToolbarItem.Identifier("dashboard")
+    private static let usage = NSToolbarItem.Identifier("usage")
 
     func installToolbar() {
         urlField.placeholderString = "Enter address"
@@ -23,7 +25,7 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
         let toolbar = NSToolbar(identifier: "main")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
-        toolbar.centeredItemIdentifiers = [Self.address]
+        toolbar.centeredItemIdentifiers = [Self.address, Self.usage]
         window.toolbar = toolbar
         window.toolbarStyle = .unified
         trackDisplayedURL()
@@ -31,7 +33,7 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [.toggleSidebar, Self.dashboardItem, .sidebarTrackingSeparator, Self.back, Self.forward, Self.reload,
-         .flexibleSpace, Self.address, .flexibleSpace, Self.newTabItem]
+         .flexibleSpace, Self.address, Self.usage, .flexibleSpace, Self.newTabItem]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -46,6 +48,13 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
             item.label = "Address"
             urlField.widthAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
             urlField.widthAnchor.constraint(lessThanOrEqualToConstant: 720).isActive = true
+            return item
+        case Self.usage:
+            let total = NSHostingView(rootView: UsageTotal(model: model))
+            total.sizingOptions = .intrinsicContentSize
+            item.view = total
+            item.label = "CPU and Memory"
+            item.isHidden = !model.dashboardOpen
             return item
         case Self.back: configure(item, "Back", "chevron.left", #selector(goBack(_:)))
         case Self.forward: configure(item, "Forward", "chevron.right", #selector(goForward(_:)))
@@ -102,14 +111,19 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
         }
     }
 
-    /// Mirrors the displayed tab's URL into the field, except while the user is typing in it.
+    /// Mirrors the displayed tab's URL into the field, except while the user is typing in it. The dashboard shows
+    /// no single tab, so it hides the address and the page buttons.
     private func trackDisplayedURL() {
-        let url = withObservationTracking {
-            model.displayedTab?.url
+        let (url, dashboard) = withObservationTracking {
+            (model.displayedTab?.url, model.dashboardOpen)
         } onChange: { [weak self] in
             DispatchQueue.main.async { self?.trackDisplayedURL() }
         }
         if urlField.currentEditor() == nil { urlField.stringValue = url ?? "" }
         urlField.isEnabled = model.displayedTab != nil
+        for item in window.toolbar?.items ?? [] where [Self.back, Self.forward, Self.reload, Self.address].contains(item.itemIdentifier) {
+            item.isHidden = dashboard
+        }
+        for item in window.toolbar?.items ?? [] where item.itemIdentifier == Self.usage { item.isHidden = !dashboard }
     }
 }

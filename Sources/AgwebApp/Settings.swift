@@ -6,7 +6,11 @@ import SwiftUI
 enum Settings {
     /// An instance on its own root (the selftest, a test build) keeps its own settings and window frame, so a test
     /// never changes or deletes the person's.
-    static let store = Agweb.isDefaultRoot ? .standard : UserDefaults(suiteName: Agweb.settingsSuite(root: Agweb.root))!
+    static let store: UserDefaults = {
+        let store = Agweb.isDefaultRoot ? .standard : UserDefaults(suiteName: Agweb.settingsSuite(root: Agweb.root))!
+        store.register(defaults: [showUsage: true])
+        return store
+    }()
     static let showUsage = "dashboardShowsUsage"
     /// 0 fits as many as the width allows.
     static let columns = "dashboardColumns"
@@ -24,7 +28,7 @@ enum TextSize: Int, CaseIterable {
 }
 
 struct SettingsView: View {
-    @AppStorage(Settings.showUsage, store: Settings.store) private var showUsage = false
+    @AppStorage(Settings.showUsage, store: Settings.store) private var showUsage = true
     @AppStorage(Settings.columns, store: Settings.store) private var columns = 0
     @AppStorage(Settings.textSize, store: Settings.store) private var textSize = TextSize.medium
     @State private var skill: [String] = []
