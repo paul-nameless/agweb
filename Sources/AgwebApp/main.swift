@@ -7,6 +7,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsWindow()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if Agweb.isTestBuild(Agweb.bundleIdentifier) && Agweb.isDefaultRoot {
+            FileHandle.standardError.write(Data("a test build runs only with AGWEB_ROOT set to a folder of its own\n".utf8))
+            exit(1)
+        }
         let path = Agweb.socketPath
         // Held until exit. Two launches racing for one socket: the loser leaves before showing anything.
         guard Agweb.lockOwnership(of: path) != nil else {
@@ -14,7 +18,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
         let browser = browser
-        Profiles.moveIntoProfilesFolder()
         Profiles.sweepDeletedStores()
         // A test instance on its own root never touches the person's PATH or agents.
         if Agweb.isDefaultRoot {

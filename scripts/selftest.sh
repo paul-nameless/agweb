@@ -16,11 +16,16 @@ cp frame.html frames.html side.html redirect.html "$dir/"
 test_domain=$(plutil -extract CFBundleIdentifier raw "$(dirname "$(realpath "$agweb")")/../Info.plist")
 domain=${test_domain%.test}
 person_frame=$(defaults read $domain agwebMainFrame 2>/dev/null)
-defaults write $test_domain.test agwebMainFrame -string "{{200, 200}, {900, 600}}"
+# Settings and the frame of this root (Agweb.settingsSuite).
+suite=agweb.root$(printf %s "$AGWEB_ROOT" | tr / _)
+defaults write "$suite" agwebMainFrame -string "{{200, 200}, {900, 600}}"
+# A store no registry names, before any registry exists: the first launch must not sweep it.
+unnamed="$AGWEB_ROOT/webkit/00000000-0000-0000-0000-000000000001"
+mkdir -p "$unnamed"
 
 # A free port the server really answers on, or stop: without it every check fails for the same reason.
 server=
-trap '"$agweb" quit >/dev/null 2>&1; [ -n "$server" ] && kill $server 2>/dev/null; wait 2>/dev/null; defaults delete $test_domain.test agwebMainFrame 2>/dev/null; rm -r "$dir"' EXIT
+trap '"$agweb" quit >/dev/null 2>&1; [ -n "$server" ] && kill $server 2>/dev/null; wait 2>/dev/null; for d in "$suite" "agweb.root$(printf %s "$dir/o" | tr / _)"; do defaults delete "$d" 2>/dev/null; rm -f ~/Library/Preferences/"$d".plist; done; rm -r "$dir"' EXIT
 for _ in 1 2 3; do
     port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
     (script="$PWD/server.py"; cd "$dir" && exec /usr/bin/python3 "$script" "$port" >"$dir/server.log" 2>&1) &
@@ -72,6 +77,7 @@ stopped() {
 video_seconds() { sed -n 's/.* frames, \([0-9.]*\) s.*/\1/p'; }
 
 check "Title: agweb test" -w alpha open "$u" -p selftest-alpha
+[ -d "$unnamed" ] || fail "a launch without a profile registry swept the root's WebKit data"
 alpha_store=$(/usr/bin/python3 -c 'import hashlib, uuid; print(uuid.UUID(bytes=hashlib.sha256(b"agweb.profile.selftest-alpha").digest()[:16]))')
 ls "$AGWEB_ROOT/webkit" 2>/dev/null | grep -qix "$alpha_store" || fail "the profile's WebKit data is not in the root: $(ls "$AGWEB_ROOT" "$AGWEB_ROOT/webkit" 2>&1)"
 ls ~/Library/WebKit/$domain/WebsiteDataStore/ 2>/dev/null | grep -qix "$alpha_store" && fail "a test profile's WebKit data went into the person's folder"
@@ -518,8 +524,14 @@ check "beta (profile selftest-shared" list
 check "eph1 (fresh profile" list
 check "selftest-shared: beta, gamma" profile-list
 fails "in use by beta, gamma" profile-delete selftest-shared
-out=$(AGWEB_ROOT="$dir/o" "$agweb" profile-list 2>&1)
-printf '%s' "$out" | grep -q "selftest" && fail "an instance on another root sees this one's profiles: $out"
+# Not `AGWEB_ROOT=... run`: sh keeps an assignment made before a function call.
+out=$(AGWEB_ROOT="$dir/o" "$agweb" profile-list 2>&1) || fail "the instance on another root failed: $out"
+printf '%s' "$out" | grep -q "no named profiles" || fail "an instance on another root sees this one's profiles: $out"
+if [ "$test_domain" != "$domain" ]; then
+    out=$(env -u AGWEB_ROOT "$agweb" list 2>&1) && fail "a test build ran without AGWEB_ROOT: $out"
+    printf '%s' "$out" | grep -q "test build" || fail "a test build without AGWEB_ROOT said: $out"
+fi
+[ -S "$dir/o/agweb.sock" ] || fail "the instance on another root has no socket in its root"
 AGWEB_ROOT="$dir/o" "$agweb" quit >/dev/null 2>&1
 check "confirm() and prompt() will be accepted" -w beta dialog-accept
 check "will be dismissed" -w beta dialog-dismiss
@@ -568,7 +580,8 @@ check "Title" -w delta open "$u" -p selftest-shared
 check 'kept=1' -w delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
 check 'sso=1' -w delta eval 'document.cookie'
 check '^null$' -w beta --raw eval "sessionStorage.getItem('access_token')"
-case "$(defaults read $test_domain.test agwebMainFrame)" in *"{900, "*) ;; *) false ;; esac || fail "the test window's saved frame was not restored"
+if [ "$test_domain" != "$domain" ] && defaults read "$test_domain" agwebMainFrame >/dev/null 2>&1; then fail "the test build saved its frame outside its root's settings"; fi
+case "$(defaults read "$suite" agwebMainFrame)" in *"{900, "*) ;; *) false ;; esac || fail "the test window's saved frame was not restored"
 [ "$(defaults read $domain agwebMainFrame 2>/dev/null)" = "$person_frame" ] || fail "the selftest changed the person's saved window frame"
 check "workspace delta closed" close-all
 check "profile selftest-shared deleted" profile-delete selftest-shared
@@ -584,6 +597,13 @@ check "bye" quit
 stopped
 check "Title" -w last open "$u"
 ls "$AGWEB_ROOT/webkit" 2>/dev/null | grep -qix "$alpha_store" && fail "a relaunch left the deleted selftest-alpha's WebKit folder"
+# A damaged registry must not read as "every profile was deleted".
+check "bye" quit
+stopped
+echo '{' >"$AGWEB_ROOT/profiles/profiles.json"
+mkdir -p "$unnamed"
+check "Title" -w last open "$u"
+[ -d "$unnamed" ] || fail "a launch with a damaged profile registry swept the root's WebKit data"
 
 echo
 if [ "$failures" -eq 0 ]; then echo "all checks passed"; else echo "$failures checks failed"; fi

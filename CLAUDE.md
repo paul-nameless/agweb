@@ -21,7 +21,7 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 - Install Command Line Tool and Install Agent Skill link `/usr/local/bin/agweb` and `~/.claude|.codex/skills/agweb` into the running bundle (`LinkInstall.swift`); a link elsewhere is the person's and is left alone. An instance on its own root never repairs them at launch, and `AGWEB_CLI_LINK`/`AGWEB_HOME` move them for the selftest.
 - Local builds (`scripts/build.sh`, flag `AGWEB_COMMAND_LOG`) append every command to `<root>/logs/commands.jsonl` for debugging agent reports; typed text, query strings and most option values are left out (`CommandLog.swift`).
 - Experiments go in an isolated instance, never in a standalone AppKit probe: an unbundled binary run from a terminal activates itself.
-- The person's instance owns the default root, `~/Library/Application Support/agweb`; never quit, rebuild or restart it unasked. Tests, debugging and experiments get a root of their own, which shares nothing with it: `export AGWEB_ROOT=/tmp/agw-fix; A=$(scripts/build.sh --test $AGWEB_ROOT)`, then `$A ...`, and `trash $AGWEB_ROOT` when done. Keep the root short (the socket inside it caps near 104 bytes) and export it in every shell that drives that copy: without it the CLI goes to the person's instance. A non-default root keeps its profiles' WebKit data in `webkit/` through WebKit SPI (`Profiles.makeStore`), its settings and window frame in the `<bundle id>.test` defaults suite, skips the PATH and skill repairs, and shows its name on the Dock icon and over the sidebar. A second instance on a root exits at once (`agweb.sock.lock`). `AGWEB_SOCKET` is gone; the CLI refuses it.
+- The person's instance owns the default root, `~/Library/Application Support/agweb`; never quit, rebuild or restart it unasked. Tests, debugging and experiments get a root of their own, sharing nothing with it: `export AGWEB_ROOT=/tmp/agw-fix; A=$(scripts/build.sh --test $AGWEB_ROOT)`, then `$A ...`, and `trash $AGWEB_ROOT` when done. Keep the root short (the socket inside it caps near 104 bytes). A test build refuses to run without `AGWEB_ROOT`, so a forgotten export can't reach the person's instance.
 
 ## WebKit facts that shaped the code
 
@@ -34,8 +34,8 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 
 ## Storage
 
-- `~/Library/WebKit/<bundle id>/WebsiteDataStore/<uuid>/`: a named profile's WebKit data in the default root (`<root>/webkit/<uuid>/` in any other); the uuid is derived from the name. Fresh profiles live in memory only.
-- The root (`~/Library/Application Support/agweb/` by default): `agweb.sock`, `workspaces.json`, `profiles/profiles.json` (names), `profiles/session-cookies/<uuid>.plist` (saved a second after each page change and on quit, restored before the profile's first load; a `kill -9` loses what changed since), `profiles/locks/<uuid>.lock`, `logs/`. A root in the older flat layout is moved into `profiles/` at launch. Files carrying URLs or cookies are 0600.
+- `~/Library/WebKit/<bundle id>/WebsiteDataStore/<uuid>/`: a named profile's WebKit data in the default root; any other root keeps it in `<root>/webkit/<uuid>/` through WebKit SPI (`Profiles.makeStore`) and its settings in the defaults domain `Agweb.settingsSuite`. The uuid is derived from the name. Fresh profiles live in memory only. The launch sweep of deleted profiles' folders is skipped when the registry can't be read.
+- The root (`~/Library/Application Support/agweb/` by default): `agweb.sock`, `workspaces.json`, `profiles/profiles.json` (names), `profiles/session-cookies/<uuid>.plist` (saved a second after each page change and on quit, restored before the profile's first load; a `kill -9` loses what changed since), `profiles/locks/<uuid>.lock`, `logs/`. Files carrying URLs or cookies are 0600.
 
 ## Known gaps
 

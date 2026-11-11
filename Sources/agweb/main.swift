@@ -273,6 +273,10 @@ if command == "install-cli" {
 
 // Gone: a socket of its own still shared the person's profiles.
 if env["AGWEB_SOCKET"] != nil { fail("AGWEB_SOCKET is gone; set AGWEB_ROOT=/tmp/some-dir instead, a folder for everything the instance keeps") }
+if Agweb.isDefaultRoot, let app = appBundle(),
+   let id = NSDictionary(contentsOfFile: app + "/Contents/Info.plist")?["CFBundleIdentifier"] as? String, Agweb.isTestBuild(id) {
+    fail("this is a test build; set AGWEB_ROOT to a folder of its own, or it would drive the person's agweb")
+}
 let socket = Agweb.socketPath
 
 /// The app bundle this CLI ships in, found through any symlink on PATH.

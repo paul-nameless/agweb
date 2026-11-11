@@ -171,7 +171,8 @@ enum Profiles {
     private static let file = Agweb.profilesFolder.appendingPathComponent("profiles.json")
     private static var stores: [String: WKWebsiteDataStore] = [:]
 
-    static var names: [String] { (try? JSONDecoder().decode([String].self, from: Data(contentsOf: file))) ?? [] }
+    static var names: [String] { readNames() ?? [] }
+    private static func readNames() -> [String]? { try? JSONDecoder().decode([String].self, from: Data(contentsOf: file)) }
 
     static func store(_ name: String?) -> WKWebsiteDataStore {
         guard let name else { return .nonPersistent() }
@@ -186,7 +187,7 @@ enum Profiles {
 
     /// The person's instance keeps WebKit's own place for named stores. Any other root keeps them in its folder, so
     /// a test instance can't see, change or sweep the person's logins. WebKit's public API can't place a store, so
-    /// that takes its SPI; without it, a store keyed by the root as well, outside the folder.
+    /// that takes its SPI; without it a test instance stops rather than put stores where nobody sweeps them.
     private static func makeStore(_ name: String) -> WKWebsiteDataStore {
         if Agweb.isDefaultRoot { return WKWebsiteDataStore(forIdentifier: identifier(name)) }
         let folder = webKitFolder.appendingPathComponent(identifier(name).uuidString)
@@ -199,7 +200,7 @@ enum Profiles {
            let store = (WKWebsiteDataStore.self as AnyObject).perform(make, with: config)?.takeUnretainedValue() as? WKWebsiteDataStore {
             return store
         }
-        return WKWebsiteDataStore(forIdentifier: identifier("\(Agweb.root.path)\n\(name)"))
+        fatalError("this WebKit has no _WKWebsiteDataStoreConfiguration; a profile on AGWEB_ROOT \(Agweb.root.path) can't be kept in it")
     }
 
     private static var webKitFolder: URL {
@@ -236,24 +237,12 @@ enum Profiles {
     /// One per profile per run; a second load of the profile waits for the first one's restore to finish.
     private static var restoring: [String: Task<Bool, Never>] = [:]
 
-    /// Before 2026-11 a root kept these at its top level.
-    static func moveIntoProfilesFolder() {
-        let fm = FileManager.default
-        for (old, new) in [("profiles.json", "profiles.json"), ("profile-locks", "locks"), ("session-cookies", "session-cookies")] {
-            let from = Agweb.root.appendingPathComponent(old), to = Agweb.profilesFolder.appendingPathComponent(new)
-            guard fm.fileExists(atPath: from.path), !fm.fileExists(atPath: to.path) else { continue }
-            try? fm.createDirectory(at: Agweb.profilesFolder, withIntermediateDirectories: true)
-            try? fm.moveItem(at: from, to: to)
-        }
-        try? fm.removeItem(at: Agweb.root.appendingPathComponent("profiles.json.lock"))
-    }
-
     /// At launch, before any store exists: the folders of deleted profiles, which WebKit keeps while it still holds the
     /// store (with databases listing the sites visited). Removing them under a live store would lose a profile
     /// recreated under the same name in that run.
     static func sweepDeletedStores() {
-        // No registry, no sweep: a missing or moved file must not read as "every profile was deleted".
-        guard FileManager.default.fileExists(atPath: file.path) else { return }
+        // No readable registry, no sweep: a missing, moved or damaged file must not read as "every profile was deleted".
+        guard let names = readNames() else { return }
         let folder = webKitFolder
         let known = Set(names.map { identifier($0).uuidString.lowercased() })
         for id in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [] where !known.contains(id.lowercased()) {

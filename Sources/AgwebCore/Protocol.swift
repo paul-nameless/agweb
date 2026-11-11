@@ -29,15 +29,24 @@ public enum Agweb {
     /// A test build carries its own (`build.sh --test`), so macOS keeps its settings and privacy grants apart.
     public static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "dev.playground.agweb"
 
-    private static let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/agweb").standardizedFileURL
-
     /// Everything an instance keeps: socket, workspaces, profiles, logs and, for any root but the default, the profiles'
-    /// WebKit data. AGWEB_ROOT=/tmp/x runs a second instance that shares nothing with the person's.
-    public static let root: URL = ProcessInfo.processInfo.environment["AGWEB_ROOT"].flatMap { $0.isEmpty ? nil : $0 }
-        .map { URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath() } ?? defaultRoot
+    /// WebKit data and settings. AGWEB_ROOT=/tmp/x runs a second instance that shares nothing with the person's.
+    public static func resolveRoot(_ value: String?, home: URL) -> (root: URL, isDefault: Bool) {
+        let defaultRoot = home.appendingPathComponent("Library/Application Support/agweb").standardizedFileURL
+        guard let value, !value.isEmpty else { return (defaultRoot, true) }
+        // Kept as given, so the CLI, the app and scripts name it alike; symlinks matter only for spotting the default.
+        let root = URL(fileURLWithPath: value).standardizedFileURL
+        return (root, root.resolvingSymlinksInPath().path == defaultRoot.resolvingSymlinksInPath().path)
+    }
+
+    private static let resolved = resolveRoot(ProcessInfo.processInfo.environment["AGWEB_ROOT"], home: FileManager.default.homeDirectoryForCurrentUser)
+    public static var root: URL { resolved.root }
     /// The person's instance; any other root is a test or a debugging copy.
-    public static let isDefaultRoot = root.path == defaultRoot.resolvingSymlinksInPath().path
+    public static var isDefaultRoot: Bool { resolved.isDefault }
+    /// `build.sh --test`; it runs only on a root of its own, so a forgotten AGWEB_ROOT can't take over the person's.
+    public static func isTestBuild(_ bundleIdentifier: String) -> Bool { bundleIdentifier.hasSuffix(".test") }
+    /// Settings and the window frame of a non-default root, a defaults domain of its own.
+    public static func settingsSuite(root: URL) -> String { "agweb.root" + root.path.replacingOccurrences(of: "/", with: "_") }
 
     public static var socketPath: String { root.appendingPathComponent("agweb.sock").path }
     public static var workspacesFile: URL { root.appendingPathComponent("workspaces.json") }
