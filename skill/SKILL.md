@@ -11,7 +11,7 @@ A browser window shared with other agents. Each task gets its own **workspace** 
 ## The loop
 
 ```sh
-agweb -w fix-login open https://app.example.com # one workspace per task, named after it (fresh profile)
+agweb -w fix-login open https://app.example.com # one workspace per task, a unique name (fresh profile)
 agweb -w fix-login snapshot # page tree with [ref=eN] handles
 agweb -w fix-login click e12 # act; the reply waits for the fetch it caused and lists it under ### Changes
 agweb -w fix-login snapshot --diff                  # only what changed; often unneeded, see below
@@ -19,6 +19,7 @@ agweb -w fix-login goto https://app.example.com/x # navigate; never eval "locati
 agweb -w fix-login close # when done; otherwise the workspace reopens after a restart
 ```
 
+- Name the workspace uniquely: another agent may be running the same kind of task, and two agents in one workspace act on each other's tabs. Prefer an id you already have (ticket `PROJ-123`, branch, PR number), else a task name plus a random suffix (`fix-login-7f3a`). Run `agweb list` first; a name already listed belongs to someone else.
 - Pass `-w` on every call, or `export AGWEB_WORKSPACE=fix-login`. A shell function `a() { agweb -w fix-login "$@"; }` works; a variable holding `agweb -w fix-login` does not in zsh. Never touch a workspace you didn't open (`agweb list` shows them all).
 - `goto`, `go-back`, `reload` wait for the new page; `goto` and `open` also report `redirected to ...` under Events when a login or SSO bounce moved you. `eval "location.href=..."` tells you nothing.
 - Keep stderr. Errors say why and exit 1: an ambiguous target, a timeout over the cap, a misspelled option. Never `2>/dev/null`; chain dependent steps with `&&`, not `;`.
