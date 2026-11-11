@@ -717,6 +717,8 @@ final class Browser {
             throw Failure("use: agweb wait <ms> | <target> [--gone] | --text=… | --url=… | --load  [--timeout=ms]")
         }
         let waited = try await poll(timeout, condition.what, condition.check)
+        // The first check runs before any sleep: an agent expecting new text usually matched old text.
+        if waited < 0.1 { return "### Result\nalready true when wait started: \(condition.what)" }
         return "### Result\nwaited \(String(format: "%.1f", waited)) s for \(condition.what)"
     }
 

@@ -91,10 +91,12 @@ public enum PageScripts {
         const role = m[1], name = (m[2] ?? m[3] ?? m[4])?.toLowerCase();
         matches = [...all(document)].filter(el => roleOf(el) === role && visible(el) && (name === undefined || nameOf(el).toLowerCase().includes(name)));
       } else if (target.startsWith('text=')) {
-        const raw = target.slice(5), exact = /^".*"$/.test(raw), text = exact ? clean(raw.slice(1, -1)) : clean(raw).toLowerCase();
+        // Not clean(): its 120-character cut would hide the end of a long paragraph.
+        const whole = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+        const raw = target.slice(5), exact = /^".*"$/.test(raw), text = exact ? whole(raw.slice(1, -1)) : whole(raw).toLowerCase();
         const has = (el) => {
           if (!(el.textContent || '').toLowerCase().includes(exact ? text.toLowerCase() : text)) return false;
-          const t = clean(el.innerText);
+          const t = whole(el.innerText);
           return exact ? t === text : t.toLowerCase().includes(text);
         };
         // The innermost elements holding the text, not every ancestor of them.

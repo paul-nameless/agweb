@@ -300,7 +300,10 @@ check "lax=v.*sameSite=lax" -w st2 cookie-list
 check "waited 300 ms" -w st2 wait 300
 check "Page" -w st2 eval "() => { setTimeout(() => { const p = document.createElement('p'); p.id = 'late'; p.textContent = 'Arrived late'; document.body.prepend(p) }, 500) }"
 check "for #late" -w st2 wait '#late'
-check 'for text "Arrived late"' -w st2 wait --text='Arrived late'
+check 'text "Arrived late"' -w st2 wait --text='Arrived late'
+check 'already true when wait started: text "Arrived late"' -w st2 wait --text='Arrived late'
+check "Page" -w st2 eval "() => { const p = document.createElement('p'); p.textContent = 'filler '.repeat(30) + 'the long tail'; document.body.append(p) }"
+check "text=the long tail" -w st2 wait 'text=the long tail' --timeout=1000
 check "Page" -w st2 eval "() => { setTimeout(() => late.remove(), 300) }"
 check "#late to go" -w st2 wait '#late' --gone
 fails "timed out" -w st2 wait '#nothing' --timeout=300
@@ -440,7 +443,7 @@ check '"found"' -w alpha eval 'dq.value'
 check "Title: frames" -w fs open "http://127.0.0.1:$port/frames.html"
 check 'button "Side button"' -w fs snapshot
 check 'button "Inner button"' -w fs snapshot
-check 'for text "Side text"' -w fs wait --text='Side text'
+check 'text "Side text"' -w fs wait --text='Side text'
 check "Page" -w fs click 'text=Side button'
 check '"side"' -w fs eval 'window.clicked'
 check "workspace fs closed" -w fs close
