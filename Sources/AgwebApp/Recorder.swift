@@ -46,6 +46,8 @@ final class Recorder {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
         writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        // The index first, so a browser starts playing before the whole file is down.
+        writer.shouldOptimizeForNetworkUse = true
         input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: size.width, AVVideoHeightKey: size.height,
             // Quality 0.5 keeps text as sharp as the default at about a quarter of the size; a bitrate cap can't:
