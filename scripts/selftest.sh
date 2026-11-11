@@ -12,13 +12,15 @@ export AGWEB_INSTANT=1 AGWEB_AWAKE_SECONDS=3
 agweb=${AGWEB_CLI:-$PWD/../bin/agweb}
 cp testpage.html "$dir/index.html"
 cp frame.html frames.html side.html redirect.html "$dir/"
-domain=dev.playground.agweb
+# The test build's bundle id (build.sh --test adds .test); the person's frame is checked under the id without it.
+test_domain=$(plutil -extract CFBundleIdentifier raw "$(dirname "$(realpath "$agweb")")/../Info.plist")
+domain=${test_domain%.test}
 person_frame=$(defaults read $domain agwebMainFrame 2>/dev/null)
-defaults write $domain.test agwebMainFrame -string "{{200, 200}, {900, 600}}"
+defaults write $test_domain.test agwebMainFrame -string "{{200, 200}, {900, 600}}"
 
 # A free port the server really answers on, or stop: without it every check fails for the same reason.
 server=
-trap '"$agweb" quit >/dev/null 2>&1; [ -n "$server" ] && kill $server 2>/dev/null; wait 2>/dev/null; defaults delete $domain.test agwebMainFrame 2>/dev/null; rm -r "$dir"' EXIT
+trap '"$agweb" quit >/dev/null 2>&1; [ -n "$server" ] && kill $server 2>/dev/null; wait 2>/dev/null; defaults delete $test_domain.test agwebMainFrame 2>/dev/null; rm -r "$dir"' EXIT
 for _ in 1 2 3; do
     port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
     (script="$PWD/server.py"; cd "$dir" && exec /usr/bin/python3 "$script" "$port" >"$dir/server.log" 2>&1) &
@@ -52,7 +54,7 @@ run() {
         printf 'FAIL  agweb %s\n      expected exit %s and: %s\n%s\n' "$*" "$want" "$pattern" "$(printf '%s' "$out" | sed 's/^/      | /')"
         failures=$((failures + 1))
     fi
-    [ "$(frontmost)" = "$domain" ] && fail "agweb became the frontmost app after: agweb $*"
+    case "$(frontmost)" in "$domain"|"$test_domain") fail "agweb became the frontmost app after: agweb $*" ;; esac
 }
 check() { run 0 "$@"; }
 paced() { AGWEB_INSTANT=; check "$@"; AGWEB_INSTANT=1; }
@@ -566,7 +568,7 @@ check "Title" -w delta open "$u" -p selftest-shared
 check 'kept=1' -w delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
 check 'sso=1' -w delta eval 'document.cookie'
 check '^null$' -w beta --raw eval "sessionStorage.getItem('access_token')"
-case "$(defaults read $domain.test agwebMainFrame)" in *"{900, "*) ;; *) false ;; esac || fail "the test window's saved frame was not restored"
+case "$(defaults read $test_domain.test agwebMainFrame)" in *"{900, "*) ;; *) false ;; esac || fail "the test window's saved frame was not restored"
 [ "$(defaults read $domain agwebMainFrame 2>/dev/null)" = "$person_frame" ] || fail "the selftest changed the person's saved window frame"
 check "workspace delta closed" close-all
 check "profile selftest-shared deleted" profile-delete selftest-shared

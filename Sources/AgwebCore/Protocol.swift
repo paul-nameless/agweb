@@ -26,7 +26,8 @@ public struct Response: Codable, Sendable {
 }
 
 public enum Agweb {
-    public static let bundleIdentifier = "dev.playground.agweb"
+    /// A test build carries its own (`build.sh --test`), so macOS keeps its settings and privacy grants apart.
+    public static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "dev.playground.agweb"
 
     private static let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/agweb").standardizedFileURL

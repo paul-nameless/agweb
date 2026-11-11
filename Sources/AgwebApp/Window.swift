@@ -44,6 +44,8 @@ final class MainWindow: NSObject, NSWindowDelegate {
         window.title = "Agweb"
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
+        // Workspaces restore themselves; AppKit's own restore would also reopen a quit test instance's window.
+        window.isRestorable = false
         window.setContentSize(NSSize(width: 1280, height: 820))
         window.center()
         super.init()
@@ -242,6 +244,13 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .environment(\.sidebarRowSize, textSize.sidebarRows)
+        .safeAreaInset(edge: .top) {
+            if let label = Agweb.label {
+                Label("Test: \(label)", systemImage: "flask").font(.caption.bold()).foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 4)
+                    .help("A separate instance keeping everything in \(Agweb.root.path)")
+            }
+        }
     }
 }
 

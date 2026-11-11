@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SkillInstaller.install(repairOnly: true)
             CLIInstaller.repair()
         }
+        if let label = Agweb.label { NSApp.dockTile.badgeLabel = label }
         browser.restoreWorkspaces()
         do {
             try serve(path: path) { request in await browser.handle(request) }
