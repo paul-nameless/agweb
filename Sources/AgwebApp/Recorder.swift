@@ -23,6 +23,8 @@ final class Recorder {
     private var lastPointer: CGPoint?
     private var lastHadRing = false
     private var lastBuffer: CVPixelBuffer?
+    /// Spans of `wait <ms>`: shown whole, never cut like idle time.
+    private var holds: [ClosedRange<Double>] = []
     private var finished = false
     private var frames = 0
     private var lastBusy = ProcessInfo.processInfo.systemUptime
@@ -141,11 +143,20 @@ final class Recorder {
         frames += 1
     }
 
-    /// Where a frame seen at `wall` goes in the video: the gap since the last frame, with idle time cut to maxIdle.
+    /// An explicit wait of `seconds` from now: the viewer gets all of it, even on a still page.
+    func hold(_ seconds: Double) {
+        let now = ProcessInfo.processInfo.systemUptime
+        holds = holds.filter { $0.upperBound > (lastWall ?? now) } + [now...(now + seconds)]
+    }
+
+    /// Where a frame seen at `wall` goes in the video: the gap since the last frame, with idle time cut to maxIdle
+    /// but the part spent in a `wait <ms>` kept whole.
     private func time(at wall: Double, idleShown: Double) -> Double {
         guard let lastWall else { return clock }
         let gap = wall - lastWall
-        return clock + (maxIdle > 0 ? min(gap, max(0, maxIdle - idleShown)) : gap)
+        let held = min(gap, holds.reduce(0) { $0 + max(0, min(wall, $1.upperBound) - max(lastWall, $1.lowerBound)) })
+        let rest = gap - held
+        return clock + held + (maxIdle > 0 ? min(rest, max(0, maxIdle - idleShown)) : rest)
     }
 
     /// Frame times on a 1/30 s grid, each after the last: players then see a 30 fps video, not a 600 fps one.

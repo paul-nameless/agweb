@@ -717,6 +717,8 @@ final class Browser {
         } ?? 30
         if let arg, let ms = Double(arg) {
             guard (0...600_000).contains(ms) else { throw Failure("wait takes up to 600000 ms") }
+            // A recording shows the whole wait: the agent paused so the viewer can read something.
+            tab.workspace.recorder?.hold(ms / 1000)
             try await Task.sleep(for: .milliseconds(ms))
             return "### Result\nwaited \(Int(ms)) ms"
         }
