@@ -2,13 +2,13 @@ name: test
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 jobs:
   test:
-    # GitHub's macOS runners have a logged-in desktop session, so the app can open its window and run pages.
-    runs-on: macos-15
+    # macOS 26 and Xcode 26 are required. GitHub's macOS runners have a logged-in desktop session, so the app can open its window and run pages.
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
