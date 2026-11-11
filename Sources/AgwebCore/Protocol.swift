@@ -27,7 +27,7 @@ public struct Response: Codable, Sendable {
 
 public enum Agweb {
     /// A test build carries its own (`build.sh --test`), so macOS keeps its settings and privacy grants apart.
-    public static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "dev.playground.agweb"
+    public static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.reacsdas.agweb"
 
     /// Everything an instance keeps: socket, workspaces, profiles, logs and, for any root but the default, the profiles'
     /// WebKit data and settings. AGWEB_ROOT=/tmp/x runs a second instance that shares nothing with the person's.
