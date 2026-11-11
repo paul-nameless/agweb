@@ -50,6 +50,10 @@ final class Recorder {
         writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: size.width, AVVideoHeightKey: size.height,
+            // Quality 0.5 keeps text as sharp as the default at about a quarter of the size; a bitrate cap can't:
+            // frames come only when the page changes, so a still page never gets the bits to sharpen. Keyframes
+            // every 10 s, not every 30 frames: at 1080p each costs about 100 KB.
+            AVVideoCompressionPropertiesKey: [AVVideoQualityKey: 0.5, AVVideoMaxKeyFrameIntervalDurationKey: 10, AVVideoMaxKeyFrameIntervalKey: 300],
         ])
         // Frames are pushed when they exist, not paced by a capture device.
         input.expectsMediaDataInRealTime = false
