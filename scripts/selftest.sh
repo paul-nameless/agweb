@@ -234,6 +234,10 @@ check "Page" -w ev eval "() => { const h = document.createElement('div'); docume
 check "Page" -w ev wait 'role=button[name="Nested knob"]'
 check '^Shadow knob$' -w ev --raw eval '(el) => el.textContent' 'role=button[name="Shadow knob"]'
 check '^Nested knob$' -w ev --raw eval '(el) => el.textContent' 'role=button[name="Nested knob"]'
+# A name longer than 120 characters ends in …, and the cut name still finds its element.
+check "Page" -w ev eval "() => { const b = document.createElement('button'); b.textContent = 'Long word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word'; document.body.append(b); }"
+check 'button "Long word word word word word word word word word word word word word word word word word word word word word word word…"' -w ev snapshot
+check '^BUTTON$' -w ev --raw eval '(el) => el.tagName' 'role=button[name="Long word word word word word word word word word word word word word word word word word word word word word word word…"]'
 check "closed" -w ev close
 check "Page" -w alpha check 'text=Remember me'
 check "Page" -w alpha check '#r2'

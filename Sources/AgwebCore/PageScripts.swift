@@ -19,7 +19,8 @@ public enum PageScripts {
       }
       return ref;
     };
-    const clean = (s) => (s || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
+    // A longer text ends in … so the reader knows it was cut.
+    const clean = (s) => { const t = (s || '').replace(/\\s+/g, ' ').trim(); return t.length > 120 ? t.slice(0, 119) + '…' : t; };
     const roleOf = (el) => {
       const explicit = el.getAttribute('role');
       if (explicit === 'presentation' || explicit === 'none') return null;
@@ -88,7 +89,7 @@ public enum PageScripts {
       }
       let matches, m;
       if ((m = /^role=([\\w-]+)(?:\\[name=(?:"([^"]*)"|'([^']*)'|([^\\]]*))\\])?$/.exec(target))) {
-        const role = m[1], name = (m[2] ?? m[3] ?? m[4])?.toLowerCase();
+        const role = m[1], name = (m[2] ?? m[3] ?? m[4])?.toLowerCase().replace(/…$/, ''); // a cut name copied from a snapshot
         matches = [...all(document)].filter(el => roleOf(el) === role && visible(el) && (name === undefined || nameOf(el).toLowerCase().includes(name)));
       } else if (target.startsWith('text=')) {
         // Not clean(): its 120-character cut would hide the end of a long paragraph.
