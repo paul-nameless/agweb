@@ -156,6 +156,7 @@ check "$dir/snap.md" -w alpha snapshot --filename="$dir/snap.md"
 grep -q 'button "Press me"' "$dir/snap.md" || fail "snapshot --filename did not write the tree"
 check "$dir/el.png" -w alpha screenshot '#b' --path="$dir/el.png"
 [ "$(sips -g pixelWidth "$dir/el.png" | awk '/pixelWidth/ {print $2}')" -lt 400 ] || fail "screenshot '#b' is not just the button"
+check "continues [0-9]* px below the viewport" -w alpha screenshot --filename="$dir/top.png"
 check "Screenshot" -w alpha screenshot --full-page --filename="$dir/full.jpg"
 [ "$(sips -g pixelHeight "$dir/full.jpg" | awk '/pixelHeight/ {print $2}')" -gt 3000 ] || fail "screenshot --full-page is not the whole page"
 check '^\[Next page\](/index.html?next)$' -w alpha --raw text 'a'

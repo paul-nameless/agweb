@@ -568,7 +568,12 @@ final class Browser {
             }
             try FileManager.default.createDirectory(at: URL(fileURLWithPath: path).deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: URL(fileURLWithPath: path))
-            return "### Screenshot\n\(path)\n" + describe(tab)
+            var note: String?
+            if args.isEmpty, options["full-page"] == nil,
+               let below = Int(try await tab.call("return String(document.documentElement.scrollHeight - scrollY - innerHeight)", world: .page)), below > 0 {
+                note = "the page continues \(below) px below the viewport: --full-page for all of it, text eN to read a long element"
+            }
+            return "### Screenshot\n\(path)\n" + describe(tab, note: note)
         case "wait":
             return try await wait(tab, args.first, options) + "\n" + describe(tab)
         case "emulate":

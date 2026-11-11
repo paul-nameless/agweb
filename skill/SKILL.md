@@ -131,7 +131,7 @@ Downloads a plain click starts go to `.agweb/` in your folder, or `--download-di
 agweb -w t console error # since page load; `- Console: N new errors` in a reply is the cue
 agweb -w t requests --filter=api # fetch/XHR and documents since load, numbered with status
 agweb -w t response-body 3 # also request-headers, request-body, response-headers
-agweb -w t screenshot --filename=bug.png # then look at it; screenshot e5 for one element, --full-page for all of it
+agweb -w t screenshot --filename=bug.png # then look at it; screenshot e5 for one element, --full-page for all of it; read a long answer with text e5
 agweb -w t highlight e5 # outline it for the person; --hide clears
 ```
 
