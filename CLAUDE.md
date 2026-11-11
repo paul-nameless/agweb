@@ -1,6 +1,6 @@
 # agweb
 
-A WKWebView browser for coding agents, driven by the `agweb` CLI over a Unix socket. `README.md` is the short pitch and `docs/internals.md` the user-facing detail (storage, how tabs are hidden, limits); `skill/SKILL.md` is the agent skill, symlinked from `~/.claude/skills/agweb`, so an edit reaches every new Claude session at once. `todo.org` (untracked) holds the backlog.
+A WKWebView browser for coding agents, driven by the `agweb` CLI over a Unix socket. `README.md` is the short pitch; `skill/SKILL.md` is the agent skill, symlinked from `~/.claude/skills/agweb`, so an edit reaches every new Claude session at once. `todo.org` (untracked) holds the backlog.
 
 ## The rule everything serves
 
@@ -28,3 +28,18 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 - WebKit sees a page as hidden only when its view (or an ancestor) is hidden, it is out of the window, or the window is closed or occluded; stacked siblings don't count. So tabs nobody needs are hidden explicitly, and `inactiveSchedulingPolicy = .suspend` then suspends their process after about 4 minutes. A hidden or suspended tab still answers scripts and `takeSnapshot`; commands wake their tab first.
 - WebKit numbers the middle button 4 in `WKNavigationAction.buttonNumber`, and opens nothing on a middle click by itself.
 - A reopened tab's sessionStorage is saved by script and put back by a document-start user script, before the page's own scripts read it.
+
+## Storage
+
+- `~/Library/WebKit/dev.playground.agweb/WebsiteDataStore/<uuid>/`: a named profile's WebKit data; the uuid is derived from the name. Fresh profiles live in memory only.
+- `~/Library/Application Support/agweb/`: `profiles.json` (names), `session-cookies/<uuid>.plist` (saved a second after each page change and on quit, restored before the profile's first load; a `kill -9` loses what changed since), `profile-locks/<uuid>.lock`, `workspaces.json`, `agweb.sock`. Files carrying URLs or cookies are 0600.
+
+## Known gaps
+
+- No CDP: Playwright and extensions can't attach; no `run-code`, tracing or cross-origin iframe refs.
+- `requests` and `route` see documents, fetch and XHR from a page hook (64 KB bodies), not images or scripts; no `--remove-header`. `state-save` reads localStorage only from origins open in the workspace.
+- HTML5 draggables get DOM drag events: a native drag would follow the person's real mouse.
+- `document.hasFocus()` is false, since the window is never key while agents work. The window reports key to WebKit only while the app is in the background (WebKit drops mouse moves otherwise), so pages also react to the person's pointer over it.
+- A closed or minimized window pauses pages; screenshots refuse and recordings get no frames until `agweb show`.
+- Instances on other sockets share profiles but not live cookies: the last save wins.
+- Passkeys need an entitled browser or associated domains.

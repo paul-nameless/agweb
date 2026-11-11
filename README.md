@@ -37,8 +37,6 @@ agweb -w task close
 - WebKit only. There is no Chrome DevTools Protocol, so Playwright and Chrome extensions can't attach, and Chrome-only sites may misbehave.
 - The network log and API mocking cover fetch and XHR, not images, scripts or page loads.
 
-More in [docs/internals.md](docs/internals.md): where data is stored, how tabs are hidden and suspended, and the remaining gaps.
-
 ## Develop
 
 `./scripts/selftest.sh` runs every command against a local page in a separate instance; `swift test` runs the unit tests. `AGWEB_SOCKET=/path` starts a second instance beside your own. [Defuddle](https://github.com/kepano/defuddle) (MIT) is bundled for `text`.
