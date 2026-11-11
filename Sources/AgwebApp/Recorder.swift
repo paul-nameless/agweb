@@ -119,7 +119,7 @@ final class Recorder {
         var time = 0.0
         if let lastWall {
             let gap = wall - lastWall
-            time = max(clock + (maxIdle > 0 ? min(gap, max(0, maxIdle - idleShown)) : gap), clock + 1.0 / 600)
+            time = Self.onGrid(clock + (maxIdle > 0 ? min(gap, max(0, maxIdle - idleShown)) : gap), after: clock)
         }
         guard input.isReadyForMoreMediaData, let buffer = draw(image, from: rect, pointer: tab.pointer,
                                                                scale: tab.webView.pageZoom * tab.webView.magnification,
@@ -134,6 +134,11 @@ final class Recorder {
         lastPointer = tab.pointer
         lastHadRing = ring != nil
         frames += 1
+    }
+
+    /// Frame times on a 1/30 s grid, each after the last: players then see a 30 fps video, not a 600 fps one.
+    private static func onGrid(_ time: Double, after previous: Double) -> Double {
+        max((time * 30).rounded() / 30, previous + 1.0 / 30)
     }
 
     /// The page's viewport: the web view minus the toolbar band a full-size content view puts over it.
