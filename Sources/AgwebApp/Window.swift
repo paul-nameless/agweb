@@ -109,12 +109,12 @@ final class MainWindow: NSObject, NSWindowDelegate {
     /// Over every tab; the tabs underneath are hidden while it shows.
     func showDashboard(_ open: Bool) {
         dashboardButton.state = open ? .on : .off
-        if dashboard.superview == nil {
-            dashboard.frame = container.bounds
-            dashboard.autoresizingMask = [.width, .height]
-            container.addSubview(dashboard, positioned: .above, relativeTo: nil)
-        }
-        dashboard.isHidden = !open
+        // Removed, not hidden: a hidden NSHostingView still takes clicks, passing the page mouse-downs but no
+        // mouse-ups, which leaves WebKit holding the button until a restart.
+        guard open else { return dashboard.removeFromSuperview() }
+        dashboard.frame = container.bounds
+        dashboard.autoresizingMask = [.width, .height]
+        container.addSubview(dashboard, positioned: .above, relativeTo: nil)
     }
 
     @objc func toggleDashboard(_ sender: Any?) { model.dashboardOpen.toggle() }
