@@ -209,12 +209,19 @@ final class Browser {
             }
             scheduleSave()
         }
+        #if AGWEB_COMMAND_LOG
+        let started = Date()
+        #endif
+        let response: Response
         do {
-            let output = try await run(request)
-            return Response(ok: true, output: Self.hide(secrets, in: output))
+            response = Response(ok: true, output: Self.hide(secrets, in: try await run(request)))
         } catch {
-            return Response(ok: false, output: Self.hide(secrets, in: "Error: \(error)"))
+            response = Response(ok: false, output: Self.hide(secrets, in: "Error: \(error)"))
         }
+        #if AGWEB_COMMAND_LOG
+        CommandLogFile.append(request, response, started: started)
+        #endif
+        return response
     }
 
     private func run(_ request: Request) async throws -> String {

@@ -15,8 +15,9 @@ if ! $test && pgrep -f "$PWD/$app/Contents/MacOS/agweb" >/dev/null; then
     exit 1
 fi
 
-swift build -c release >&2
-bin=$(swift build -c release --show-bin-path)
+# The command log (Sources/AgwebCore/CommandLog.swift) is for local builds only; a release build leaves the flag out.
+swift build -c release -Xswiftc -DAGWEB_COMMAND_LOG >&2
+bin=$(swift build -c release -Xswiftc -DAGWEB_COMMAND_LOG --show-bin-path)
 # The app and the CLI share a name, so the CLI lives in Helpers.
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources/skill" bin
 cp -f Resources/Info.plist "$app/Contents/Info.plist"

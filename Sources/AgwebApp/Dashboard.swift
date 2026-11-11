@@ -41,7 +41,7 @@ extension Browser {
 
     /// What a dashboard tile says the agent did last; never the text it typed, filled or evaluated.
     static func summary(_ request: Request) -> String {
-        let shown = ["type", "eval", "fill", "select", "dialog-accept", "cookie-set", "state-load", "route"].contains(request.command)
+        let shown = CommandLog.textCommands.contains(request.command)
             ? request.command + (request.command == "fill" || request.command == "select" ? request.args.first.map { " \($0)" } ?? "" : "")
             : ([request.command] + request.args.prefix(1)).joined(separator: " ")
         return String(shown.prefix(48))
