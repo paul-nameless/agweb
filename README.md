@@ -8,7 +8,7 @@ macOS only. It is built on WebKit, the engine behind Safari.
 
 I built agweb for myself. I run several coding agents at once, and Playwright's Chrome windows kept popping up and taking my keyboard, while headless browsers got blocked by some sites and left me guessing what went wrong.
 
-agweb is one window that never takes focus. Each agent works in its own workspace, the dashboard (⌘D) shows them all live, and when one needs me for a login or a CAPTCHA it asks and waits. Agents share my logins, type and move the pointer like a person, and get compact page snapshots that say what changed. Idle tabs are suspended: on my Mac, five open pages (Wikipedia, GitHub, Apple, Hacker News, MDN) settle at 0% CPU and about 590 MB. The same pages in Playwright's headless Chrome took about 850 MB with its driver, and Chrome's GPU process kept five cores busy the whole time.
+agweb is one window that never takes focus. Each agent works in its own workspace, the dashboard (⌘D) shows them all live, and when one needs me for a login or a CAPTCHA it asks and waits. Agents share my logins, type and move the pointer like a person, and get compact page snapshots that say what changed. Idle tabs are suspended: on my Mac, five open pages (Wikipedia, GitHub, Apple, Hacker News, MDN) settle at 0% CPU and about 590 MB. The same pages in Playwright's Chrome took about 1.6 GB with a visible window (730 MB headless), and Chrome's GPU process kept five to seven cores busy the whole time.
 
 ## Install
 
