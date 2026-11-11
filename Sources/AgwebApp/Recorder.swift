@@ -22,6 +22,7 @@ final class Recorder {
     private var lastPixels: Data?
     private var lastPointer: CGPoint?
     private var lastHadRing = false
+    private var lastBuffer: CVPixelBuffer?
     private var finished = false
     private var frames = 0
     private var lastBusy = ProcessInfo.processInfo.systemUptime
@@ -91,12 +92,19 @@ final class Recorder {
             throw Failure("no frames were recorded; is the window closed? (agweb show)")
         }
         guard writer.status == .writing else { throw writer.error ?? Failure("recording to \(url.path) failed") }
+        // The last frame stays until the stop, cut like any idle time, and for at least a second. MP4 ends at its
+        // last frame whatever endSession says, so the frame is written again at the end.
+        let now = ProcessInfo.processInfo.systemUptime
+        let end = Self.onGrid(max(time(at: now, idleShown: max(0, (lastWall ?? now) - lastBusy)), clock + 1), after: clock)
+        if let lastBuffer, input.isReadyForMoreMediaData, adaptor.append(lastBuffer, withPresentationTime: CMTime(seconds: end, preferredTimescale: 600)) {
+            clock = end
+        }
         input.markAsFinished()
-        // The last frame holds for a second instead of ending the video the moment it appears.
-        writer.endSession(atSourceTime: CMTime(seconds: clock + 1, preferredTimescale: 600))
+        let length = clock + 1.0 / 30
+        writer.endSession(atSourceTime: CMTime(seconds: length, preferredTimescale: 600))
         await writer.finishWriting()
         if writer.status != .completed { throw writer.error ?? Failure("could not finish \(url.path)") }
-        return "### Video\n\(url.path)\n- \(frames) frames, \(String(format: "%.1f", clock + 1)) s, \(Int(size.width))x\(Int(size.height))"
+        return "### Video\n\(url.path)\n- \(frames) frames, \(String(format: "%.1f", length)) s, \(Int(size.width))x\(Int(size.height))"
     }
 
     /// Also called by a click while the button is down, so the pressed state makes it into the video.
@@ -116,11 +124,7 @@ final class Recorder {
         let pixels = moved ? nil : image.dataProvider?.data as Data?
         if !moved, let pixels, pixels == lastPixels { return }
         let wall = ProcessInfo.processInfo.systemUptime
-        var time = 0.0
-        if let lastWall {
-            let gap = wall - lastWall
-            time = Self.onGrid(clock + (maxIdle > 0 ? min(gap, max(0, maxIdle - idleShown)) : gap), after: clock)
-        }
+        let time = lastWall == nil ? 0 : Self.onGrid(self.time(at: wall, idleShown: idleShown), after: clock)
         guard input.isReadyForMoreMediaData, let buffer = draw(image, from: rect, pointer: tab.pointer,
                                                                scale: tab.webView.pageZoom * tab.webView.magnification,
                                                                click: tab.lastClick?.point, ring: ring) else { return }
@@ -130,10 +134,18 @@ final class Recorder {
         }
         clock = time
         lastWall = wall
+        lastBuffer = buffer
         lastPixels = pixels
         lastPointer = tab.pointer
         lastHadRing = ring != nil
         frames += 1
+    }
+
+    /// Where a frame seen at `wall` goes in the video: the gap since the last frame, with idle time cut to maxIdle.
+    private func time(at wall: Double, idleShown: Double) -> Double {
+        guard let lastWall else { return clock }
+        let gap = wall - lastWall
+        return clock + (maxIdle > 0 ? min(gap, max(0, maxIdle - idleShown)) : gap)
     }
 
     /// Frame times on a 1/30 s grid, each after the last: players then see a 30 fps video, not a 600 fps one.
