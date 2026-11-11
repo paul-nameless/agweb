@@ -270,6 +270,16 @@ public enum PageScripts {
     return JSON.stringify({ x: r.x, y: r.y, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
     """
 
+    /// Scrolls the element to the middle of its viewport unless it is in view already, as Playwright's
+    /// scrollIntoViewIfNeeded does.
+    public static let scrollIntoView = find + """
+    const el = find(target);
+    const r = el.getBoundingClientRect(), view = el.ownerDocument.defaultView;
+    const inside = r.top >= 0 && r.left >= 0 && r.bottom <= view.innerHeight && r.right <= view.innerWidth;
+    if (!inside) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+    return inside ? 'already in view' : 'scrolled';
+    """
+
     /// Whether a checkbox, radio or ARIA switch is checked, or why it can't be.
     public static let checkedState = find + """
     const el = find(target);

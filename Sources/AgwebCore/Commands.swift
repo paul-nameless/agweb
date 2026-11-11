@@ -2,7 +2,7 @@ public enum Commands {
     public static let all = [
         "open", "goto", "reload", "go-back", "go-forward", "snapshot", "find", "text", "click", "dblclick", "check", "uncheck", "drag",
         "hover", "mousemove", "mousedown", "mouseup", "mousewheel", "fill", "select", "type", "press", "keydown", "keyup",
-        "upload", "download", "eval", "highlight", "screenshot", "pdf", "resize", "emulate", "wait", "video-start", "video-chapter", "video-stop",
+        "upload", "download", "eval", "highlight", "scroll-into-view", "screenshot", "pdf", "resize", "emulate", "wait", "video-start", "video-chapter", "video-stop",
         "console", "requests", "request", "request-headers", "request-body", "response-headers", "response-body", "route",
         "route-list", "unroute", "cookie-list", "cookie-get", "cookie-set", "cookie-delete", "cookie-clear", "state-save",
         "state-load", "dialog-accept", "dialog-dismiss", "ask", "tab-list", "tab-new", "tab-select", "tab-close", "show", "close",
@@ -14,6 +14,7 @@ public enum Commands {
         "tabs": "tab-list", "tab": "tab-list", "list-tabs": "tab-list", "select-tab": "tab-select", "switch-tab": "tab-select",
         "switch": "tab-select", "sessions": "list", "sleep": "wait", "network": "requests", "navigate": "goto", "back": "go-back",
         "forward": "go-forward", "evaluate": "eval", "markdown": "text", "content": "text", "read": "text", "search": "find", "grep": "find", "triple-click": "click", "scroll": "mousewheel",
+        "scroll-to": "scroll-into-view", "scrollintoview": "scroll-into-view", "scroll-into-view-if-needed": "scroll-into-view",
     ]
 
     public static func unknown(_ name: String) -> String {

@@ -38,6 +38,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   upload <target> <file...>     click a file input and answer its chooser with the files
   download <target>             click and wait for the download it starts (--filename: where to save it)
   eval <js> [target]            expression or () => ... in the page, or (el) => ... on the target; prints JSON
+  scroll-into-view <target>     scroll an element to the middle of the viewport unless it is in view already
   highlight [target]            outline an element on the page (--style=css; --hide removes one, or all)
   screenshot [target]           PNG of the viewport or an element (--full-page; --filename, default
                                 .agweb/page-<time>.png; .jpg/.jpeg saves JPEG)

@@ -562,6 +562,9 @@ final class Browser {
             try? await Task.sleep(for: .milliseconds(50))
             if tab.webView.isLoading { await tab.settle() }
             return "### Result\n\(result)\n" + describe(tab)
+        case "scroll-into-view":
+            let result = try await tab.call(PageScripts.scrollIntoView, ["target": try arg(0, "target")])
+            return "### Result\n\(result)\n" + describe(tab)
         case "highlight":
             guard options["hide"] != nil || !args.isEmpty else { throw Failure("missing <target>") }
             _ = try await tab.call(PageScripts.highlight, ["target": args.first ?? "", "hide": options["hide"] != nil, "style": options["style"] ?? ""])
@@ -1135,7 +1138,7 @@ final class Browser {
     }
 
     /// Commands whose first argument is an element to act on (drag: both), which they wait for.
-    private static let actsOnTarget: Set = ["click", "dblclick", "check", "uncheck", "hover", "fill", "select", "download"]
+    private static let actsOnTarget: Set = ["click", "dblclick", "check", "uncheck", "hover", "fill", "select", "download", "scroll-into-view"]
 
     static func describe(profile: String?) -> String { profile.map { "profile \($0)" } ?? "fresh profile" }
 

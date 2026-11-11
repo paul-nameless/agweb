@@ -393,6 +393,9 @@ check '      - generic "deploy to TEST" \[ref=' -w alpha snapshot '#dt'
 check 'cell "deploy to TEST"' -w alpha snapshot '#dt'
 check '^  - button "Far button"' -w alpha snapshot '#rbm'
 check 'dialog' -w alpha find "Far button"
+check "scrolled" -w alpha scroll-into-view '#far'
+check "already in view" -w alpha scroll-into-view '#far'
+check "Page" -w alpha eval "scrollTo(0, 0)"
 check "popup opened as tab 1: .*index.html?deployed" -w alpha click 'text=deploy to TEST'
 check "0: (current)" -w alpha tab-close 1
 before=$("$agweb" -w alpha tab-list | grep -c '^- ')
