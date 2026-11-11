@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "agweb",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("26.0")],
     targets: [
         .target(name: "AgwebCore"),
         .executableTarget(name: "AgwebApp", dependencies: ["AgwebCore"]),

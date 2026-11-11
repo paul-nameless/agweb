@@ -12,7 +12,7 @@ agweb is one window that never takes focus. Each agent works in its own workspac
 
 ## Install
 
-Build from source (Xcode 16 or later):
+Needs macOS 26 or later. Build from source (Xcode 26 or later):
 
 ```sh
 ./scripts/build.sh                                  # build/Agweb.app
