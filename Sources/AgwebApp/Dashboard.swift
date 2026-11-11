@@ -32,8 +32,9 @@ extension Browser {
         let config = WKSnapshotConfiguration()
         config.snapshotWidth = 480
         for tab in model.workspaces.flatMap(\.tabs) where tab.pendingURL == nil && tab.webView.url != nil {
-            // Idle tabs keep their picture: a snapshot of a suspended tab would wake its process.
-            let active = tab.workspace.busy || tab.awakeUntil > Date() || model.displayedTabID == tab.id
+            // Idle tabs keep their picture: a snapshot of a suspended tab would wake its process. The displayed tab is
+            // hidden under the dashboard too; refreshing it every second kept the GPU process at 20% on YouTube.
+            let active = tab.workspace.busy || tab.awakeUntil > Date()
             guard active || tab.thumbnail == nil else { continue }
             if let image = try? await tab.snapshot(config, timeout: 3) { tab.thumbnail = image }
         }
