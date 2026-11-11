@@ -39,7 +39,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   download <target>             click and wait for the download it starts (--filename: where to save it)
   eval <js> [target]            expression or () => ... in the page, or (el) => ... on the target; prints JSON
                                 (js is the same command, for sandboxes that refuse the word eval)
-  scroll-into-view <target>     scroll an element to the middle of the viewport unless it is in view already
+  scroll-into-view <target>     glide an element to the middle of the viewport unless it is in view already
+                                (--instant jumps; clicks, hovers and drags scroll the same way)
   highlight [target]            outline an element on the page (--style=css; --hide removes one, or all)
   screenshot [target]           PNG of the viewport or an element (--full-page; --filename, default
                                 .agweb/page-<time>.png; .jpg/.jpeg saves JPEG)
@@ -81,7 +82,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   install-skill [--check]       link the agent skill for Claude Code and Codex to this app's (also Help menu)
   quit                          stop agweb
 
---instant                       pointer verbs, upload and type act at once instead of at human speed
+--instant                       pointer verbs, scrolling, upload and type act at once instead of at human speed
 --timeout=MS                    actions wait this long for their target to show (default 5000; 0: don't wait); wait: 30000
 --filename=PATH                 snapshot, text, eval, request and response-body: write the answer to a file instead
 --download-dir=DIR              where downloads nobody named go (default $AGWEB_DOWNLOAD_DIR, else .agweb/)

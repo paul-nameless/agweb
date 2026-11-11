@@ -553,7 +553,9 @@ final class Browser {
             if tab.webView.isLoading { await tab.settle() }
             return "### Result\n\(result)\n" + describe(tab)
         case "scroll-into-view":
-            let result = try await tab.call(PageScripts.scrollIntoView, ["target": try arg(0, "target")])
+            let target = try arg(0, "target")
+            let result = try await reveal(tab, target, instant: instant)
+            if result == "no size" { throw Failure("\(target) has no size on screen") }
             return "### Result\n\(result)\n" + describe(tab)
         case "highlight":
             guard options["hide"] != nil || !args.isEmpty else { throw Failure("missing <target>") }
@@ -901,7 +903,7 @@ final class Browser {
             _ = try await tab.call(PageScripts.jsClick, ["target": target])
             return
         }
-        let spot = try await locate(tab, target)
+        let spot = try await locate(tab, target, instant: instant)
         // The element under the point counts too: a see-through select over styled text is common.
         if let picker = [spot.kind, spot.hitKind].first(where: Self.pickerKinds.contains) {
             throw Failure("\(picker) opens a native picker; use: agweb \(picker == "select" ? "select" : "fill") \(target) <value>")
@@ -938,7 +940,7 @@ final class Browser {
             tab.events.append("\(source) is HTML5-draggable: dropped with DOM drag events, not the pointer")
             return
         }
-        let start = try await locate(tab, source)
+        let start = try await locate(tab, source, instant: instant)
         if start.size.width == 0 || start.size.height == 0 { throw Failure("\(source) has no size on screen; snapshot again") }
         let (from, landed) = try await glide(tab, onto: source, from: start, instant: instant)
         let end = try await locate(tab, target, scroll: false)
@@ -987,7 +989,7 @@ final class Browser {
     }
 
     private func hover(_ tab: Tab, target: String, instant: Bool) async throws {
-        let spot = try await locate(tab, target)
+        let spot = try await locate(tab, target, instant: instant)
         if spot.size.width == 0 || spot.size.height == 0 { throw Failure("\(target) has no size on screen; snapshot again") }
         let landed = try await glide(tab, onto: target, from: spot, instant: instant).spot
         if let covered = landed.covered { tab.events.append("hover target is covered by <\(covered)>") }
@@ -1032,8 +1034,15 @@ final class Browser {
         var covered: String?
     }
 
-    private func locate(_ tab: Tab, _ target: String, scroll: Bool = true) async throws -> Spot {
-        let json = try await tab.call(PageScripts.locate, ["target": target, "scroll": scroll])
+    /// Brings the element into view unless all of it shows, gliding there unless `instant`; says what it did.
+    @discardableResult
+    private func reveal(_ tab: Tab, _ target: String, instant: Bool) async throws -> String {
+        try await tab.call(PageScripts.reveal, ["target": target, "smooth": !instant])
+    }
+
+    private func locate(_ tab: Tab, _ target: String, scroll: Bool = true, instant: Bool = true) async throws -> Spot {
+        if scroll { try await reveal(tab, target, instant: instant) }
+        let json = try await tab.call(PageScripts.locate, ["target": target])
         let spot = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] ?? [:]
         func number(_ key: String) -> Double { spot[key] as? Double ?? 0 }
         return Spot(center: CGPoint(x: number("x"), y: number("y")), size: CGSize(width: number("width"), height: number("height")),

@@ -248,11 +248,10 @@ public enum PageScripts {
     return reply((page.title ? `# ${page.title}\\n\\n` : '') + page.content);
     """
 
-    // Returns the element's center in CSS pixels after scrolling it into view, what actually sits there, and
+    // Returns the element's center in CSS pixels (`reveal` brings it into view first), what actually sits there, and
     // what kind of control it is (some controls open native popups when clicked).
     public static let locate = find + """
     const el = find(target);
-    if (scroll) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const r = rectOf(el);
     const lx = r.local.left + r.width / 2, ly = r.local.top + r.height / 2;
     const hit = el.getRootNode().elementFromPoint?.(lx, ly) ?? el.ownerDocument.elementFromPoint(lx, ly);
@@ -270,21 +269,53 @@ public enum PageScripts {
     return JSON.stringify({ x: r.x, y: r.y, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
     """
 
-    /// Scrolls the element to the middle of the viewport unless all of it shows already, as Playwright's
-    /// scrollIntoViewIfNeeded does. How much shows is the browser's own answer (an IntersectionObserver), so scroll
-    /// containers and iframes clip it too. One bigger than the viewport counts as shown when part of it is.
-    public static let scrollIntoView = find + """
+    /// Brings the element to the middle of the viewport unless all of it shows already, as Playwright's
+    /// scrollIntoViewIfNeeded does, gliding there over a few hundred milliseconds when `smooth`. How much shows is
+    /// the browser's own answer (an IntersectionObserver), so scroll containers and iframes clip it too. One bigger
+    /// than the viewport counts as shown when part of it is, and goes to its start.
+    public static let reveal = find + """
     const el = find(target);
     const r = rectOf(el);
-    if (!r.width || !r.height) throw new Error(`${target} has no size on screen`);
+    if (!r.width || !r.height) return 'no size';
+    // A frozen page (window closed or minimized) runs no observers; then the box in the top viewport decides.
     const shown = () => new Promise((resolve) => {
       const io = new IntersectionObserver(([entry]) => { io.disconnect(); resolve(entry.intersectionRatio); });
       io.observe(el);
+      setTimeout(() => {
+        io.disconnect();
+        const b = rectOf(el);
+        const w = Math.max(0, Math.min(b.x + b.width, innerWidth) - Math.max(b.x, 0)), h = Math.max(0, Math.min(b.y + b.height, innerHeight) - Math.max(b.y, 0));
+        resolve(w * h / (b.width * b.height || 1));
+      }, 300);
     });
     const big = r.width > innerWidth || r.height > innerHeight;
     const enough = (ratio) => big ? ratio > 0 : ratio > 0.99;
     if (enough(await shown())) return 'already in view';
+    // Every box that may scroll, out through shadow hosts and same-origin frames. Where an instant scroll leaves
+    // each is where the glide ends. scrollTo with behavior 'instant' ignores the page's scroll-behavior: smooth.
+    const boxes = new Set();
+    for (let node = el; node; ) {
+      boxes.add(node.ownerDocument.scrollingElement);
+      const up = node.parentElement || node.getRootNode().host;
+      if (up) { boxes.add(up); node = up; } else node = node.ownerDocument.defaultView.frameElement;
+    }
+    const from = [...boxes].filter(Boolean).map((box) => ({ box, x: box.scrollLeft, y: box.scrollTop }));
     el.scrollIntoView({ block: big ? 'start' : 'center', inline: big ? 'start' : 'center', behavior: 'instant' });
+    const moves = from.map((m) => ({ ...m, x1: m.box.scrollLeft, y1: m.box.scrollTop })).filter((m) => m.x1 !== m.x || m.y1 !== m.y);
+    if (smooth && moves.length) {
+      const to = (m, e) => m.box.scrollTo({ left: m.x + (m.x1 - m.x) * e, top: m.y + (m.y1 - m.y) * e, behavior: 'instant' });
+      for (const m of moves) to(m, 0);
+      const far = Math.max(...moves.map((m) => Math.hypot(m.x1 - m.x, m.y1 - m.y)));
+      const ms = Math.min(900, 250 + far / 4), start = performance.now();
+      // A hidden tab gets no animation frames; the timer keeps the glide going there.
+      const frame = () => new Promise((resolve) => { requestAnimationFrame(resolve); setTimeout(resolve, 50); });
+      for (let t = 0; t < 1; ) {
+        await frame();
+        t = Math.min(1, (performance.now() - start) / ms);
+        const eased = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+        for (const m of moves) to(m, eased);
+      }
+    }
     return enough(await shown()) ? 'scrolled' : 'scrolled, but it is still not all in view: something clips or covers it';
     """
 

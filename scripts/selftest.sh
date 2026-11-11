@@ -397,6 +397,10 @@ check "already in view" -w alpha scroll-into-view '#far'
 check '"in view"' -w alpha js "(el) => el.getBoundingClientRect().bottom <= innerHeight ? 'in view' : 'not'" '#far'
 check "^scrolled" -w alpha scroll-into-view '#deep'
 check '"inner scrolled"' -w alpha js "() => box.scrollTop > 0 ? 'inner scrolled' : 'not'"
+check "Page" -w alpha eval "scrollTo(0, 0)"
+start=$(now)
+paced "^scrolled" -w alpha scroll-into-view '#far'
+/usr/bin/python3 -c "import sys; sys.exit(0 if $(now) - $start > 0.25 else 1)" || fail "scroll-into-view without --instant did not glide"
 fails "has no size on screen" -w alpha scroll-into-view '#gone' --timeout=0
 check "Page" -w alpha eval "scrollTo(0, 0)"
 check "popup opened as tab 1: .*index.html?deployed" -w alpha click 'text=deploy to TEST'

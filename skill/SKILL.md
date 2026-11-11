@@ -160,7 +160,7 @@ agweb -w demo video-stop
 agweb list # who is here; their workspaces are not yours
 agweb dashboard --filename=grid.png # every tab at once, to check on parallel work; dashboard --hide
 agweb -w t show # put your tab in view for the person, without activating the window
-agweb -w t scroll-into-view e40 # bring an element on screen for a screenshot or the person; actions scroll by themselves
+agweb -w t scroll-into-view e40 # glide an element on screen for a screenshot or the person; actions scroll there by themselves
 ```
 
 Use `--instant` for pointer verbs and `type` when looking human doesn't matter. Everything else (cookies, `state-save`/`state-load`, `pdf`, `emulate`, `drag`, `mousewheel`, `keydown`) is in `agweb help`.
