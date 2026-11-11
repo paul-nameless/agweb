@@ -10,18 +10,18 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 
 - `Sources/AgwebCore`: host-free code with unit tests: socket protocol, page scripts (`PageScripts.swift`, the injected JS), reply shaping (`Output.swift`), the command list and did-you-mean (`Commands.swift`), address parsing, the human pointer and typing rhythm (`Motion.swift`).
 - `Sources/AgwebApp`: the app. `Browser.swift` dispatches commands (one at a time per workspace, workspaces in parallel) and `BrowserState.swift` holds requests, routes, cookies and storage state, `Model.swift` holds workspaces, tabs and named profiles (session cookies, locks), `Visibility.swift` decides which tabs WebKit sees, `SavedWorkspaces.swift` saves and reopens workspaces, tabs and their sessionStorage, `Dashboard.swift` the ⌘D grid, `Input.swift` synthesizes native events, `Recorder.swift` records video, `Window.swift`/`Toolbar.swift` the UI.
-- `Sources/agweb`: the CLI. It launches the app with `open -g` when nobody holds the socket's lock.
+- `Sources/agweb`: the CLI. It launches the app with `open -g` when nobody holds the socket's lock, passing `AGWEB_ROOT` on.
 
 ## Build and test
 
 - `./scripts/build.sh` builds `build/Agweb.app`, signed with the first Apple Development identity so privacy grants survive rebuilds, and links `bin/agweb`. It refuses while the app runs. The person uses that app: never quit, rebuild or restart it without asking.
-- `scripts/build.sh --test` builds a throwaway copy in `/tmp/agtest` instead; `AGWEB_CLI=$(scripts/build.sh --test) scripts/selftest.sh` tests it without touching the running app.
+- `scripts/build.sh --test [DIR]` builds a throwaway copy in DIR (default `/tmp/agtest`) with the bundle id `<id>.test`; `AGWEB_CLI=$(scripts/build.sh --test) scripts/selftest.sh` tests it without touching the running app.
 - Builds need `CC=/usr/bin/clang`; a `cc` wrapper on PATH shadows the C compiler.
 - `CC=/usr/bin/clang swift test` runs the unit tests; `./scripts/selftest.sh` drives every verb in a separate instance (see its header).
-- Install Command Line Tool and Install Agent Skill link `/usr/local/bin/agweb` and `~/.claude|.codex/skills/agweb` into the running bundle (`LinkInstall.swift`); a link elsewhere is the person's and is left alone. An instance on its own socket never repairs them at launch, and `AGWEB_CLI_LINK`/`AGWEB_HOME` move them for the selftest.
-- Local builds (`scripts/build.sh`, flag `AGWEB_COMMAND_LOG`) append every command to `~/Library/Logs/agweb/commands.jsonl` for debugging agent reports; typed text, query strings and most option values are left out (`CommandLog.swift`). Test instances don't write it.
-- Experiments go in an isolated instance (`AGWEB_SOCKET=/tmp/x.sock`), never in a standalone AppKit probe: an unbundled binary run from a terminal activates itself.
-- The person's instance owns the default socket (`~/Library/Application Support/agweb/agweb.sock`); never quit, rebuild or restart it unasked. Tests, debugging and experiments run on their own socket: `scripts/build.sh --test` builds a copy in /tmp/agtest, and `AGWEB_SOCKET=/tmp/x.sock` (short: socket paths cap near 104 bytes) gives it its own workspaces, Settings and window frame, and keeps it off the person's PATH link, skills and command log. A second instance on a socket exits at once (`<socket>.lock`), so it can't take over the person's; the CLI goes to whichever instance holds the socket it resolves, so export `AGWEB_SOCKET` in every shell that drives the test copy. Profiles and their WebKit data (`~/Library/WebKit/<bundle id>`) are shared across sockets.
+- Install Command Line Tool and Install Agent Skill link `/usr/local/bin/agweb` and `~/.claude|.codex/skills/agweb` into the running bundle (`LinkInstall.swift`); a link elsewhere is the person's and is left alone. An instance on its own root never repairs them at launch, and `AGWEB_CLI_LINK`/`AGWEB_HOME` move them for the selftest.
+- Local builds (`scripts/build.sh`, flag `AGWEB_COMMAND_LOG`) append every command to `<root>/logs/commands.jsonl` for debugging agent reports; typed text, query strings and most option values are left out (`CommandLog.swift`).
+- Experiments go in an isolated instance, never in a standalone AppKit probe: an unbundled binary run from a terminal activates itself.
+- The person's instance owns the default root, `~/Library/Application Support/agweb`; never quit, rebuild or restart it unasked. Tests, debugging and experiments get a root of their own, which shares nothing with it: `export AGWEB_ROOT=/tmp/agw-fix; A=$(scripts/build.sh --test $AGWEB_ROOT)`, then `$A ...`, and `trash $AGWEB_ROOT` when done. Keep the root short (the socket inside it caps near 104 bytes) and export it in every shell that drives that copy: without it the CLI goes to the person's instance. A non-default root keeps its profiles' WebKit data in `webkit/` through WebKit SPI (`Profiles.makeStore`), its settings and window frame in the `<bundle id>.test` defaults suite, skips the PATH and skill repairs, and shows its name on the Dock icon and over the sidebar. A second instance on a root exits at once (`agweb.sock.lock`). `AGWEB_SOCKET` is gone; the CLI refuses it.
 
 ## WebKit facts that shaped the code
 
@@ -34,8 +34,8 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 
 ## Storage
 
-- `~/Library/WebKit/dev.playground.agweb/WebsiteDataStore/<uuid>/`: a named profile's WebKit data; the uuid is derived from the name. Fresh profiles live in memory only.
-- `~/Library/Application Support/agweb/`: `profiles.json` (names), `session-cookies/<uuid>.plist` (saved a second after each page change and on quit, restored before the profile's first load; a `kill -9` loses what changed since), `profile-locks/<uuid>.lock`, `workspaces.json`, `agweb.sock`. Files carrying URLs or cookies are 0600.
+- `~/Library/WebKit/<bundle id>/WebsiteDataStore/<uuid>/`: a named profile's WebKit data in the default root (`<root>/webkit/<uuid>/` in any other); the uuid is derived from the name. Fresh profiles live in memory only.
+- The root (`~/Library/Application Support/agweb/` by default): `agweb.sock`, `workspaces.json`, `profiles/profiles.json` (names), `profiles/session-cookies/<uuid>.plist` (saved a second after each page change and on quit, restored before the profile's first load; a `kill -9` loses what changed since), `profiles/locks/<uuid>.lock`, `logs/`. A root in the older flat layout is moved into `profiles/` at launch. Files carrying URLs or cookies are 0600.
 
 ## Known gaps
 
@@ -44,5 +44,4 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 - HTML5 draggables get DOM drag events: a native drag would follow the person's real mouse.
 - `document.hasFocus()` is false, since the window is never key while agents work. The window reports key to WebKit only while the app is in the background (WebKit drops mouse moves otherwise), so pages also react to the person's pointer over it.
 - A closed or minimized window pauses pages; screenshots refuse and recordings get no frames until `agweb show`.
-- Instances on other sockets share profiles but not live cookies: the last save wins.
 - Passkeys need an entitled browser or associated domains.

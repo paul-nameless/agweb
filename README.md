@@ -41,4 +41,4 @@ agweb -w task close
 
 ## Develop
 
-`./scripts/selftest.sh` runs every command against a local page in a separate instance; `swift test` runs the unit tests. `AGWEB_SOCKET=/path` starts a second instance beside your own. [Defuddle](https://github.com/kepano/defuddle) (MIT) is bundled for `text`.
+`./scripts/selftest.sh` runs every command against a local page in a separate instance; `swift test` runs the unit tests. `AGWEB_ROOT=/tmp/dir` starts a second instance beside your own that keeps everything in that folder. [Defuddle](https://github.com/kepano/defuddle) (MIT) is bundled for `text`.
