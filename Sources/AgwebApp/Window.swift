@@ -51,16 +51,15 @@ final class MainWindow: NSObject, NSWindowDelegate {
         installToolbar()
         // After the toolbar so it can't shift the frame. Not `setFrameAutosaveName`: AppKit drops a frame saved on a
         // secondary display whose visible height has since changed by a point, and recenters on the main one.
-        if let saved = UserDefaults.standard.string(forKey: Self.frameKey).map(NSRectFromString),
+        if let saved = Settings.store.string(forKey: Self.frameKey).map(NSRectFromString),
            saved.width >= 400, NSScreen.screens.contains(where: { $0.visibleFrame.intersects(saved) }) {
             window.setFrame(saved, display: false)
         }
     }
 
-    // Test instances on their own socket keep their own frame, so they never move the person's window.
-    private static let frameKey = Agweb.customSocket ? "agwebTestFrame" : "agwebMainFrame"
+    private static let frameKey = "agwebMainFrame"
 
-    private func saveFrame() { UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.frameKey) }
+    private func saveFrame() { Settings.store.set(NSStringFromRect(window.frame), forKey: Self.frameKey) }
     func windowDidMove(_ notification: Notification) { saveFrame() }
     func windowDidResize(_ notification: Notification) { saveFrame() }
 

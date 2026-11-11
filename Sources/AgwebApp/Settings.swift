@@ -4,9 +4,9 @@ import SwiftUI
 
 /// UserDefaults keys behind Settings (⌘,).
 enum Settings {
-    /// An instance on its own socket (the selftest, a test build) keeps its own settings, so a test never
-    /// changes or deletes the person's.
-    static let store = Agweb.customSocket ? UserDefaults(suiteName: Agweb.bundleIdentifier + ".test")! : .standard
+    /// An instance on its own root (the selftest, a test build) keeps its own settings and window frame, so a test
+    /// never changes or deletes the person's.
+    static let store = Agweb.isDefaultRoot ? .standard : UserDefaults(suiteName: Agweb.bundleIdentifier + ".test")!
     static let showUsage = "dashboardShowsUsage"
     /// 0 fits as many as the width allows.
     static let columns = "dashboardColumns"

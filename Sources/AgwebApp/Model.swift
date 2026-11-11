@@ -168,8 +168,7 @@ final class Workspace: Identifiable {
 /// by a UUID that can't be turned back into the name, so the names live in a file of their own.
 @MainActor
 enum Profiles {
-    private static let file = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/agweb/profiles.json")
+    private static let file = Agweb.profilesFolder.appendingPathComponent("profiles.json")
     private static var stores: [String: WKWebsiteDataStore] = [:]
 
     static var names: [String] { (try? JSONDecoder().decode([String].self, from: Data(contentsOf: file))) ?? [] }
@@ -180,9 +179,33 @@ enum Profiles {
         if let store = stores[name] { return store }
         // Registered first: another instance's launch sweep removes folders of names it can't find.
         if !names.contains(name) { update { $0.contains(name) ? $0 : $0 + [name] } }
-        let store = WKWebsiteDataStore(forIdentifier: identifier(name))
+        let store = makeStore(name)
         stores[name] = store
         return store
+    }
+
+    /// The person's instance keeps WebKit's own place for named stores. Any other root keeps them in its folder, so
+    /// a test instance can't see, change or sweep the person's logins. WebKit's public API can't place a store, so
+    /// that takes its SPI; without it, a store keyed by the root as well, outside the folder.
+    private static func makeStore(_ name: String) -> WKWebsiteDataStore {
+        if Agweb.isDefaultRoot { return WKWebsiteDataStore(forIdentifier: identifier(name)) }
+        let folder = webKitFolder.appendingPathComponent(identifier(name).uuidString)
+        let make = NSSelectorFromString("_storeWithConfiguration:"), initDirectory = NSSelectorFromString("initWithDirectory:")
+        if let configuration = NSClassFromString("_WKWebsiteDataStoreConfiguration") as? NSObject.Type,
+           configuration.instancesRespond(to: initDirectory), (WKWebsiteDataStore.self as AnyObject).responds(to: make),
+           let allocated = (configuration as AnyObject).perform(NSSelectorFromString("alloc")),
+           // init consumes the allocation and returns a retained object.
+           let config = allocated.takeUnretainedValue().perform(initDirectory, with: folder as NSURL)?.takeRetainedValue(),
+           let store = (WKWebsiteDataStore.self as AnyObject).perform(make, with: config)?.takeUnretainedValue() as? WKWebsiteDataStore {
+            return store
+        }
+        return WKWebsiteDataStore(forIdentifier: identifier("\(Agweb.root.path)\n\(name)"))
+    }
+
+    private static var webKitFolder: URL {
+        Agweb.isDefaultRoot
+            ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/WebKit/\(Agweb.bundleIdentifier)/WebsiteDataStore")
+            : Agweb.root.appendingPathComponent("webkit")
     }
 
     static func delete(_ name: String) async throws {
@@ -196,9 +219,9 @@ enum Profiles {
         }
         // WebKit refuses to remove a store it still holds, which it does for a while after the store's last tab
         // closes, and crashes removing one before any web view exists. Wiping its data works in both cases.
-        let store = stores.removeValue(forKey: name) ?? WKWebsiteDataStore(forIdentifier: identifier(name))
+        let store = stores.removeValue(forKey: name) ?? makeStore(name)
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
-        try? await WKWebsiteDataStore.remove(forIdentifier: identifier(name))
+        if Agweb.isDefaultRoot { try? await WKWebsiteDataStore.remove(forIdentifier: identifier(name)) }
         restoring[name] = nil
         try? FileManager.default.removeItem(at: sessionCookies(name))
         try? FileManager.default.removeItem(at: inUseFile(name))
@@ -213,11 +236,25 @@ enum Profiles {
     /// One per profile per run; a second load of the profile waits for the first one's restore to finish.
     private static var restoring: [String: Task<Bool, Never>] = [:]
 
+    /// Before 2026-11 a root kept these at its top level.
+    static func moveIntoProfilesFolder() {
+        let fm = FileManager.default
+        for (old, new) in [("profiles.json", "profiles.json"), ("profile-locks", "locks"), ("session-cookies", "session-cookies")] {
+            let from = Agweb.root.appendingPathComponent(old), to = Agweb.profilesFolder.appendingPathComponent(new)
+            guard fm.fileExists(atPath: from.path), !fm.fileExists(atPath: to.path) else { continue }
+            try? fm.createDirectory(at: Agweb.profilesFolder, withIntermediateDirectories: true)
+            try? fm.moveItem(at: from, to: to)
+        }
+        try? fm.removeItem(at: Agweb.root.appendingPathComponent("profiles.json.lock"))
+    }
+
     /// At launch, before any store exists: the folders of deleted profiles, which WebKit keeps while it still holds the
     /// store (with databases listing the sites visited). Removing them under a live store would lose a profile
     /// recreated under the same name in that run.
     static func sweepDeletedStores() {
-        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/WebKit/\(Agweb.bundleIdentifier)/WebsiteDataStore")
+        // No registry, no sweep: a missing or moved file must not read as "every profile was deleted".
+        guard FileManager.default.fileExists(atPath: file.path) else { return }
+        let folder = webKitFolder
         let known = Set(names.map { identifier($0).uuidString.lowercased() })
         for id in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [] where !known.contains(id.lowercased()) {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(id))
@@ -259,8 +296,8 @@ enum Profiles {
         if await !task.value, restoring[name] == task { restoring[name] = nil }
     }
 
-    // Every instance holding a profile's store keeps a shared lock on its file, so another instance (a test one on
-    // its own socket) can't delete a profile the person's browser has open.
+    // Every instance holding a profile's store keeps a shared lock on its file, so another instance on the same root
+    // can't delete a profile one has open.
     private static var inUse: [String: Int32] = [:]
 
     private static func holdInUse(_ name: String) {
@@ -279,11 +316,11 @@ enum Profiles {
     }
 
     private static func inUseFile(_ name: String) -> URL {
-        file.deletingLastPathComponent().appendingPathComponent("profile-locks/\(identifier(name)).lock")
+        Agweb.profilesFolder.appendingPathComponent("locks/\(identifier(name)).lock")
     }
 
     private static func sessionCookies(_ name: String) -> URL {
-        file.deletingLastPathComponent().appendingPathComponent("session-cookies/\(identifier(name)).plist")
+        Agweb.profilesFolder.appendingPathComponent("session-cookies/\(identifier(name)).plist")
     }
 
     /// Stable forever: changing it would orphan every saved login.
@@ -292,7 +329,7 @@ enum Profiles {
         return digest.withUnsafeBufferPointer { NSUUID(uuidBytes: $0.baseAddress!) as UUID }
     }
 
-    /// Locked: instances on other sockets share the registry, and two read-modify-writes at once lose a name.
+    /// Locked: two read-modify-writes at once lose a name.
     private static func update(_ change: ([String]) -> [String]) {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         let lock = open(file.path + ".lock", O_CREAT | O_RDWR, 0o600)

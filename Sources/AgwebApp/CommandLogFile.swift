@@ -2,14 +2,13 @@
 import AgwebCore
 import Foundation
 
-/// ~/Library/Logs/agweb/commands.jsonl, renamed to commands.1.jsonl at 10 MB. Test instances don't write.
+/// <root>/logs/commands.jsonl, renamed to commands.1.jsonl at 10 MB.
 @MainActor
 enum CommandLogFile {
-    private static let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/agweb")
+    private static let folder = Agweb.logsFolder
     private static let file = folder.appendingPathComponent("commands.jsonl")
 
     static func append(_ request: Request, _ response: Response, started: Date) {
-        guard !Agweb.customSocket else { return }
         let line = CommandLog.line(request, ok: response.ok, output: response.output, at: started, seconds: Date().timeIntervalSince(started)) + "\n"
         let fm = FileManager.default
         if let size = try? fm.attributesOfItem(atPath: file.path)[.size] as? Int, size > 10_000_000 {

@@ -14,9 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
         let browser = browser
+        Profiles.moveIntoProfilesFolder()
         Profiles.sweepDeletedStores()
-        // A test instance on its own socket never touches the person's PATH or agents.
-        if !Agweb.customSocket {
+        // A test instance on its own root never touches the person's PATH or agents.
+        if Agweb.isDefaultRoot {
             SkillInstaller.install(repairOnly: true)
             CLIInstaller.repair()
         }

@@ -90,7 +90,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
 -p NAME, --profile=NAME         default $AGWEB_PROFILE, else a fresh profile
 AGWEB_INSTANT=1                 every command as if --instant
 `--` ends options, so text that starts with dashes can be passed: agweb type -- --verbose
-env: AGWEB_SOCKET runs a separate instance on that socket; AGWEB_APP points at Agweb.app
+env: AGWEB_ROOT=DIR runs a separate instance keeping everything in DIR; AGWEB_APP points at Agweb.app
 """
 
 func fail(_ message: String) -> Never {
@@ -271,6 +271,8 @@ if command == "install-cli" {
     finish(outcome == .noPermission ? text + " Run it with sudo, or use Help ▸ Install Command Line Tool in agweb." : text, ok: outcome == .linked)
 }
 
+// Gone: a socket of its own still shared the person's profiles.
+if env["AGWEB_SOCKET"] != nil { fail("AGWEB_SOCKET is gone; set AGWEB_ROOT=/tmp/some-dir instead, a folder for everything the instance keeps") }
 let socket = Agweb.socketPath
 
 /// The app bundle this CLI ships in, found through any symlink on PATH.
@@ -299,12 +301,12 @@ if !isServing(socket) {
         close(fd)
         guard let app = appBundle() else { fail("agweb is not running and its app bundle was not found; set AGWEB_APP") }
         // -g: LaunchServices must not activate the app, or the launch itself steals focus.
-        // -n with the socket in its environment: an instance for exactly this socket, whatever else runs.
+        // -n with the root in its environment: an instance for exactly this root, whatever else runs.
         let launch = Process()
         launch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         // The selftest's: a shorter visible time after a command, and install targets away from the person's.
         let passed = ["AGWEB_AWAKE_SECONDS", "AGWEB_HOME", "AGWEB_CLI_LINK"].flatMap { name in env[name].map { ["--env", "\(name)=\($0)"] } ?? [] }
-        launch.arguments = ["-g", "-n", "--env", "AGWEB_SOCKET=\(socket)"] + passed + ["-a", app]
+        launch.arguments = ["-g", "-n", "--env", "AGWEB_ROOT=\(Agweb.root.path)"] + passed + ["-a", app]
         try launch.run()
         launch.waitUntilExit()
     }

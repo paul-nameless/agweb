@@ -1,11 +1,11 @@
 #!/bin/sh
-# Every verb, workspaces in parallel, against a local page, in a separate agweb instance on its own socket and
-# window frame, so the browser you use is untouched. Fails if agweb ever becomes the frontmost app.
+# Every verb, workspaces in parallel, against a local page, in a separate agweb instance with its own root
+# (AGWEB_ROOT: socket, profiles, WebKit data, settings, window frame), so the browser you use is untouched. Fails if agweb ever becomes the frontmost app.
 # Exits with the number of failed checks.
 set -u
 cd "$(dirname "$0")"
 dir=$(mktemp -d /tmp/agweb-test.XXXXXX)
-export AGWEB_SOCKET="$dir/s.sock"
+export AGWEB_ROOT="$dir/r"
 unset AGWEB_PROFILE AGWEB_WORKSPACE
 # Every command at once (the checks about human pace use `paced`), and tabs hide 3 s after a command, not 30.
 export AGWEB_INSTANT=1 AGWEB_AWAKE_SECONDS=3
@@ -14,11 +14,11 @@ cp testpage.html "$dir/index.html"
 cp frame.html frames.html side.html redirect.html "$dir/"
 domain=dev.playground.agweb
 person_frame=$(defaults read $domain agwebMainFrame 2>/dev/null)
-defaults write $domain agwebTestFrame -string "{{200, 200}, {900, 600}}"
+defaults write $domain.test agwebMainFrame -string "{{200, 200}, {900, 600}}"
 
 # A free port the server really answers on, or stop: without it every check fails for the same reason.
 server=
-trap '"$agweb" quit >/dev/null 2>&1; [ -n "$server" ] && kill $server 2>/dev/null; wait 2>/dev/null; defaults delete $domain agwebTestFrame 2>/dev/null; rm -r "$dir"' EXIT
+trap '"$agweb" quit >/dev/null 2>&1; [ -n "$server" ] && kill $server 2>/dev/null; wait 2>/dev/null; defaults delete $domain.test agwebMainFrame 2>/dev/null; rm -r "$dir"' EXIT
 for _ in 1 2 3; do
     port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
     (script="$PWD/server.py"; cd "$dir" && exec /usr/bin/python3 "$script" "$port" >"$dir/server.log" 2>&1) &
@@ -64,13 +64,15 @@ lacks() {
 }
 # Waits for a quit instance to let go of its socket.
 stopped() {
-    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e "$AGWEB_SOCKET" ] || break; sleep 0.5; done
+    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -e "$AGWEB_ROOT/agweb.sock" ] || break; sleep 0.5; done
     sleep 1
 }
 video_seconds() { sed -n 's/.* frames, \([0-9.]*\) s.*/\1/p'; }
 
 check "Title: agweb test" -w alpha open "$u" -p selftest-alpha
 alpha_store=$(/usr/bin/python3 -c 'import hashlib, uuid; print(uuid.UUID(bytes=hashlib.sha256(b"agweb.profile.selftest-alpha").digest()[:16]))')
+ls "$AGWEB_ROOT/webkit" 2>/dev/null | grep -qix "$alpha_store" || fail "the profile's WebKit data is not in the root: $(ls "$AGWEB_ROOT" "$AGWEB_ROOT/webkit" 2>&1)"
+ls ~/Library/WebKit/$domain/WebsiteDataStore/ 2>/dev/null | grep -qix "$alpha_store" && fail "a test profile's WebKit data went into the person's folder"
 check "Title: agweb test" -w beta open "$u?beta" -p selftest-shared
 check 'button "Press me" \[ref=e2\]' -w alpha snapshot
 check "Linked $AGWEB_CLI_LINK" install-cli
@@ -514,9 +516,9 @@ check "beta (profile selftest-shared" list
 check "eph1 (fresh profile" list
 check "selftest-shared: beta, gamma" profile-list
 fails "in use by beta, gamma" profile-delete selftest-shared
-out=$(AGWEB_SOCKET="$dir/o.sock" "$agweb" profile-delete selftest-shared 2>&1)
-printf '%s' "$out" | grep -q "open in another agweb instance" || fail "another instance deleted a profile beta has open: $out"
-AGWEB_SOCKET="$dir/o.sock" "$agweb" quit >/dev/null 2>&1
+out=$(AGWEB_ROOT="$dir/o" "$agweb" profile-list 2>&1)
+printf '%s' "$out" | grep -q "selftest" && fail "an instance on another root sees this one's profiles: $out"
+AGWEB_ROOT="$dir/o" "$agweb" quit >/dev/null 2>&1
 check "confirm() and prompt() will be accepted" -w beta dialog-accept
 check "will be dismissed" -w beta dialog-dismiss
 
@@ -564,7 +566,7 @@ check "Title" -w delta open "$u" -p selftest-shared
 check 'kept=1' -w delta eval "() => { const c = document.cookie; document.cookie = 'kept=; max-age=0'; return c }"
 check 'sso=1' -w delta eval 'document.cookie'
 check '^null$' -w beta --raw eval "sessionStorage.getItem('access_token')"
-case "$(defaults read $domain agwebTestFrame)" in *"{900, "*) ;; *) false ;; esac || fail "the test window's saved frame was not restored"
+case "$(defaults read $domain.test agwebMainFrame)" in *"{900, "*) ;; *) false ;; esac || fail "the test window's saved frame was not restored"
 [ "$(defaults read $domain agwebMainFrame 2>/dev/null)" = "$person_frame" ] || fail "the selftest changed the person's saved window frame"
 check "workspace delta closed" close-all
 check "profile selftest-shared deleted" profile-delete selftest-shared
@@ -579,7 +581,7 @@ fails "no profile selftest-alpha" profile-delete selftest-alpha
 check "bye" quit
 stopped
 check "Title" -w last open "$u"
-ls ~/Library/WebKit/$domain/WebsiteDataStore/ 2>/dev/null | grep -qix "$alpha_store" && fail "a relaunch left the deleted selftest-alpha's WebKit folder"
+ls "$AGWEB_ROOT/webkit" 2>/dev/null | grep -qix "$alpha_store" && fail "a relaunch left the deleted selftest-alpha's WebKit folder"
 
 echo
 if [ "$failures" -eq 0 ]; then echo "all checks passed"; else echo "$failures checks failed"; fi

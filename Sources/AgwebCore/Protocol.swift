@@ -28,18 +28,22 @@ public struct Response: Codable, Sendable {
 public enum Agweb {
     public static let bundleIdentifier = "dev.playground.agweb"
 
-    private static let defaultSocket = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/agweb/agweb.sock").path
-    private static let envSocket = ProcessInfo.processInfo.environment["AGWEB_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
+    private static let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/agweb").standardizedFileURL
 
-    public static let socketPath = envSocket ?? defaultSocket
-    /// A separate instance (tests, experiments), which must leave the person's window frame alone.
-    public static let customSocket = socketPath != defaultSocket
+    /// Everything an instance keeps: socket, workspaces, profiles, logs and, for any root but the default, the profiles'
+    /// WebKit data. AGWEB_ROOT=/tmp/x runs a second instance that shares nothing with the person's.
+    public static let root: URL = ProcessInfo.processInfo.environment["AGWEB_ROOT"].flatMap { $0.isEmpty ? nil : $0 }
+        .map { URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath() } ?? defaultRoot
+    /// The person's instance; any other root is a test or a debugging copy.
+    public static let isDefaultRoot = root.path == defaultRoot.resolvingSymlinksInPath().path
 
-    /// Open workspaces and tabs, reopened at launch. A separate instance keeps its own next to its socket.
-    public static let workspacesFile = customSocket
-        ? URL(fileURLWithPath: socketPath + ".workspaces.json")
-        : URL(fileURLWithPath: defaultSocket).deletingLastPathComponent().appendingPathComponent("workspaces.json")
+    public static var socketPath: String { root.appendingPathComponent("agweb.sock").path }
+    public static var workspacesFile: URL { root.appendingPathComponent("workspaces.json") }
+    public static var profilesFolder: URL { root.appendingPathComponent("profiles") }
+    public static var logsFolder: URL { root.appendingPathComponent("logs") }
+    /// Shown on a non-default instance's Dock icon and sidebar, so its window can't be taken for the person's.
+    public static var label: String? { isDefaultRoot ? nil : root.lastPathComponent }
 
     /// Held by the instance that owns a socket for as long as it runs. A free lock means nobody is serving or
     /// starting up there; a held one means wait. One `open` per socket, and test instances never block the default.
@@ -66,7 +70,7 @@ private func unixAddress(_ path: String) throws -> sockaddr_un {
     let bytes = Array(path.utf8)
     let capacity = MemoryLayout.size(ofValue: addr.sun_path)
     // A silently truncated path would bind one file and unlink another.
-    guard bytes.count < capacity else { throw Failure("socket path is longer than \(capacity - 1) bytes: \(path)") }
+    guard bytes.count < capacity else { throw Failure("socket path is longer than \(capacity - 1) bytes: \(path); choose a shorter AGWEB_ROOT") }
     withUnsafeMutableBytes(of: &addr.sun_path) { buf in
         buf.copyBytes(from: bytes)
         buf[bytes.count] = 0
