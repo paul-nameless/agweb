@@ -402,6 +402,9 @@ start=$(now)
 paced "^scrolled" -w alpha scroll-into-view '#far'
 /usr/bin/python3 -c "import sys; sys.exit(0 if $(now) - $start > 0.25 else 1)" || fail "scroll-into-view without --instant did not glide"
 fails "has no size on screen" -w alpha scroll-into-view '#gone' --timeout=0
+# A clipboard read is refused at once: WebKit's Paste menu would pop up at the real pointer.
+check "Page" -w alpha click '#clip'
+check '^NotAllowedError$' -w alpha --raw eval 'clip.dataset.got'
 check "Page" -w alpha eval "scrollTo(0, 0)"
 check "popup opened as tab 1: .*index.html?deployed" -w alpha click 'text=deploy to TEST'
 check "0: (current)" -w alpha tab-close 1

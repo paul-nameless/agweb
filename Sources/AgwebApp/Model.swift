@@ -152,10 +152,26 @@ final class Workspace: Identifiable {
         // Only hidden tabs are affected (see Visibility.swift): after about 4 minutes hidden WebKit frees their memory
         // and suspends the process; any command wakes it in milliseconds.
         config.preferences.inactiveSchedulingPolicy = .suspend
+        // A page reading the clipboard (navigator.clipboard.read*) would pop up WebKit's Paste menu at the real
+        // pointer; with requests off the read fails at once with NotAllowedError. Private feature flag.
+        let setFeature = NSSelectorFromString("_setEnabled:forFeature:")
+        if let paste = Self.pasteRequests, config.preferences.responds(to: setFeature) {
+            typealias SetFeature = @convention(c) (AnyObject, Selector, Bool, AnyObject) -> Void
+            unsafeBitCast(config.preferences.method(for: setFeature), to: SetFeature.self)(config.preferences, setFeature, false, paste)
+        }
         // Without a Safari token Google sign-in and bot checks treat the browser as unknown.
         config.applicationNameForUserAgent = "Version/\(Self.safariVersion) Safari/605.1.15"
         return config
     }
+
+    private static let pasteRequests: AnyObject? = {
+        let list = NSSelectorFromString("_features")
+        guard (WKPreferences.self as AnyObject).responds(to: list),
+              let features = (WKPreferences.self as AnyObject).perform(list)?.takeUnretainedValue() as? [NSObject]
+        else { return nil }
+        return features.first { $0.responds(to: NSSelectorFromString("key"))
+            && ($0.value(forKey: "key") as? String) == "DOMPasteAccessRequestsEnabled" }
+    }()
 
     private static let safariVersion: String = {
         let plist = NSDictionary(contentsOfFile: "/Applications/Safari.app/Contents/Info.plist")

@@ -28,6 +28,7 @@
 <div id="rbm" role="dialog" aria-modal="true" aria-hidden="true"><button id="far">Far button</button></div>
 <div id="box" style="height:60px;overflow:auto"><div style="height:600px"></div><button id="deep">Deep button</button></div>
 <button id="gone" style="display:none">Gone button</button>
+<button id="clip" onclick="navigator.clipboard.readText().then(t => this.dataset.got = 'read', e => this.dataset.got = e.name)">Read clipboard</button>
 <script>
 window.log = [];
 window.moves = 0;
