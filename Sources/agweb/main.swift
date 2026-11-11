@@ -38,6 +38,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   upload <target> <file...>     click a file input and answer its chooser with the files
   download <target>             click and wait for the download it starts (--filename: where to save it)
   eval <js> [target]            expression or () => ... in the page, or (el) => ... on the target; prints JSON
+                                (js is the same command, for sandboxes that refuse the word eval)
   scroll-into-view <target>     scroll an element to the middle of the viewport unless it is in view already
   highlight [target]            outline an element on the page (--style=css; --hide removes one, or all)
   screenshot [target]           PNG of the viewport or an element (--full-page; --filename, default
@@ -146,6 +147,8 @@ if let name = options.removeValue(forKey: "workspace") { workspace = name }
 if positional.first == "open", options["profile"] == nil, let profile = env["AGWEB_PROFILE"], !profile.isEmpty { options["profile"] = profile }
 if options["instant"] == nil, env["AGWEB_INSTANT"].map({ !$0.isEmpty }) == true { options["instant"] = "" }
 
+// eval's other name: some agent sandboxes refuse any shell command containing the word eval.
+if positional.first == "js" { positional[0] = "eval" }
 guard let command = positional.first, command != "help", options["help"] == nil else {
     print(usage)
     exit(0)

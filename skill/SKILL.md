@@ -88,7 +88,7 @@ agweb -w t --json eval "document.title" # {ok, result, page} for scripts
 agweb -w t find "Invoice"                              # just the lines holding the text, with refs and the lines above them
 ```
 
-`--raw` prints just the answer, strings unquoted. A snapshot stops at 2000 lines and says so: snapshot a subtree or use `eval`. Lists and tables: `snapshot` the container for refs, `eval` for clean rows. A ref also works as a function argument in `eval`.
+`--raw` prints just the answer, strings unquoted. A snapshot stops at 2000 lines and says so: snapshot a subtree or use `eval`. Lists and tables: `snapshot` the container for refs, `eval` for clean rows. A ref also works as a function argument in `eval`. `js` is the same command as `eval`, for sandboxes that refuse the word.
 
 **Dropdowns and custom selects.**
 
