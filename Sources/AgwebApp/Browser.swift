@@ -261,6 +261,7 @@ final class Browser {
             }
             return lines.isEmpty ? "no workspaces" : lines.joined(separator: "\n")
         case "install-skill":
+            if options["check"] != nil { return SkillInstaller.agents.map { "\($0.name): \(SkillInstaller.status($0.folder))" }.joined(separator: "\n") }
             return SkillInstaller.install().joined(separator: "\n")
         case "profile-list":
             let names = Profiles.names

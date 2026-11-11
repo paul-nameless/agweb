@@ -15,10 +15,12 @@ agweb is one window that never takes focus. Each agent works in its own workspac
 Build from source (Xcode 16 or later):
 
 ```sh
-./scripts/build.sh                      # build/Agweb.app and bin/agweb
-ln -s "$PWD/bin/agweb" ~/.local/bin/agweb
-agweb install-skill                     # teaches Claude Code and Codex to use it
+./scripts/build.sh                                  # build/Agweb.app
+build/Agweb.app/Contents/Helpers/agweb install-cli  # links /usr/local/bin/agweb to the app
+agweb install-skill                                 # teaches Claude Code and Codex to use it
 ```
+
+Both are also in the Help menu and Settings. They are links into the app, so they update with it.
 
 ## Use
 

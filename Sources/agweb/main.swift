@@ -76,7 +76,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
                                 --filename=grid.png also saves a picture of it
   profile-list                  named profiles and the workspaces using them
   profile-delete <name>         delete a named profile and everything it stored
-  install-skill                 install the agent skill for Claude Code and Codex (also Help menu)
+  install-cli [--check]         link /usr/local/bin/agweb to this app's CLI (also Help menu); --check says what is there
+  install-skill [--check]       link the agent skill for Claude Code and Codex to this app's (also Help menu)
   quit                          stop agweb
 
 --instant                       pointer verbs, upload and type act at once instead of at human speed
@@ -104,7 +105,7 @@ var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
 // --headed and --browser are accepted for playwright-cli habits; agweb is always headed WebKit.
 let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw", "json", "static", "clear", "hide", "diff",
-                  "httpOnly", "secure", "gone", "load", "single-page"]
+                  "httpOnly", "secure", "gone", "load", "single-page", "check"]
 let valued: Set = ["profile", "workspace", "max-idle", "filename", "size", "filter", "status", "body", "content-type",
                    "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser", "text", "url",
                    "timeout", "color-scheme", "format", "download-dir", "secret-cmd", "secret-file", "max-results"]
@@ -260,6 +261,16 @@ default:
     break
 }
 
+/// Here, not in the app: it works before the CLI is on PATH and needs no running app.
+if command == "install-cli" {
+    guard let app = appBundle() else { fail("run the CLI inside the app: /Applications/Agweb.app/Contents/Helpers/agweb install-cli") }
+    let helper = app + "/Contents/Helpers/agweb"
+    if options["check"] != nil { finish(CLILink.status(helper: helper), ok: true) }
+    let outcome = CLILink.install(helper: helper, bundle: app)
+    let text = CLILink.describe(outcome, helper: helper)
+    finish(outcome == .noPermission ? text + " Run it with sudo, or use Help ▸ Install Command Line Tool in agweb." : text, ok: outcome == .linked)
+}
+
 let socket = Agweb.socketPath
 
 /// The app bundle this CLI ships in, found through any symlink on PATH.
@@ -291,9 +302,9 @@ if !isServing(socket) {
         // -n with the socket in its environment: an instance for exactly this socket, whatever else runs.
         let launch = Process()
         launch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        // AGWEB_AWAKE_SECONDS shortens how long a tab stays visible after a command; the selftest uses it.
-        let awake = env["AGWEB_AWAKE_SECONDS"].map { ["--env", "AGWEB_AWAKE_SECONDS=\($0)"] } ?? []
-        launch.arguments = ["-g", "-n", "--env", "AGWEB_SOCKET=\(socket)"] + awake + ["-a", app]
+        // The selftest's: a shorter visible time after a command, and install targets away from the person's.
+        let passed = ["AGWEB_AWAKE_SECONDS", "AGWEB_HOME", "AGWEB_CLI_LINK"].flatMap { name in env[name].map { ["--env", "\(name)=\($0)"] } ?? [] }
+        launch.arguments = ["-g", "-n", "--env", "AGWEB_SOCKET=\(socket)"] + passed + ["-a", app]
         try launch.run()
         launch.waitUntilExit()
     }

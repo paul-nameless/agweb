@@ -28,6 +28,7 @@ struct SettingsView: View {
     @AppStorage(Settings.columns, store: Settings.store) private var columns = 0
     @AppStorage(Settings.textSize, store: Settings.store) private var textSize = TextSize.medium
     @State private var skill: [String] = []
+    @State private var cli = ""
 
     var body: some View {
         Form {
@@ -48,15 +49,24 @@ struct SettingsView: View {
                 Text("Each page's process, and the total for agweb with its GPU and network processes, sampled every 5 s while the dashboard is open.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Command line tool") {
+                Text(cli)
+                Button("Install") { CLIInstaller.runWithAlert(); cli = CLIInstaller.status }
+                Text("Links agweb into /usr/local/bin, so every terminal and agent can run it, and it updates with the app. Asks for an administrator password if that folder isn't writable.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Agent skill") {
                 ForEach(skill, id: \.self) { Text($0) }
                 Button("Install for Claude Code and Codex") { skill = SkillInstaller.install() }
-                Text("Teaches agents to use the agweb command. A copy agweb installed is updated when agweb updates.")
+                Text("Links ~/.claude/skills/agweb and ~/.codex/skills/agweb to the skill inside the app, so agents learn the agweb command and the skill updates with the app. A skill of your own there is left alone.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .onAppear { skill = SkillInstaller.agents.map { "\($0.name): \(SkillInstaller.status($0.folder).rawValue)" } }
+        .onAppear {
+            cli = CLIInstaller.status
+            skill = SkillInstaller.agents.map { "\($0.name): \(SkillInstaller.status($0.folder))" }
+        }
         .frame(width: 440)
         .fixedSize()
     }
@@ -74,6 +84,8 @@ final class SettingsWindow: NSObject {
     }()
 
     @objc func show(_ sender: Any?) { window.makeKeyAndOrderFront(nil) }
+
+    @objc func installCLI(_ sender: Any?) { CLIInstaller.runWithAlert() }
 
     /// Help ▸ Install Agent Skill.
     @objc func installSkill(_ sender: Any?) {

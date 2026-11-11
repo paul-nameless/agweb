@@ -15,7 +15,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let browser = browser
         Profiles.sweepDeletedStores()
-        SkillInstaller.install(onlyOutdated: true)
+        // A test instance on its own socket never touches the person's PATH or agents.
+        if !Agweb.customSocket {
+            SkillInstaller.install(repairOnly: true)
+            CLIInstaller.repair()
+        }
         browser.restoreWorkspaces()
         do {
             try serve(path: path) { request in await browser.handle(request) }
@@ -116,7 +120,10 @@ private func makeMainMenu(target: MainWindow, settings: SettingsWindow) -> NSMen
         // ⌘0 is Actual Size, as in Safari.
         item("Show Browser", #selector(NSWindow.makeKeyAndOrderFront(_:)), "0", [.command, .shift], to: target.window),
     ])
-    let help = submenu("Help", [item("Install Agent Skill", #selector(SettingsWindow.installSkill(_:)), "", to: settings)])
+    let help = submenu("Help", [
+        item("Install Command Line Tool…", #selector(SettingsWindow.installCLI(_:)), "", to: settings),
+        item("Install Agent Skill…", #selector(SettingsWindow.installSkill(_:)), "", to: settings),
+    ])
     NSApp.helpMenu = help
     return main
 }

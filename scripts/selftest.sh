@@ -32,6 +32,8 @@ u="http://127.0.0.1:$port/index.html"
 # Downloads and files nobody named land in the test's folder: the checkout may sit under ~/Downloads, which would
 # make every rebuilt (newly signed) test app ask for access to it.
 export AGWEB_DOWNLOAD_DIR="$dir/downloads"
+# Installs land here, never in the person's /usr/local/bin or agents.
+export AGWEB_HOME="$dir/home" AGWEB_CLI_LINK="$dir/usr/bin/agweb"
 cd "$dir"
 
 failures=0
@@ -71,6 +73,13 @@ check "Title: agweb test" -w alpha open "$u" -p selftest-alpha
 alpha_store=$(/usr/bin/python3 -c 'import hashlib, uuid; print(uuid.UUID(bytes=hashlib.sha256(b"agweb.profile.selftest-alpha").digest()[:16]))')
 check "Title: agweb test" -w beta open "$u?beta" -p selftest-shared
 check 'button "Press me" \[ref=e2\]' -w alpha snapshot
+check "Linked $AGWEB_CLI_LINK" install-cli
+check "installed at $AGWEB_CLI_LINK" install-cli --check
+[ -x "$AGWEB_CLI_LINK" ] || fail "install-cli: $AGWEB_CLI_LINK does not lead to the CLI"
+mkdir -p "$AGWEB_HOME/.codex/skills/agweb"
+check "Codex: another agweb skill is there; left alone" install-skill
+check "Claude Code: installed" install-skill --check
+[ -f "$AGWEB_HOME/.claude/skills/agweb/SKILL.md" ] || fail "install-skill: no SKILL.md through the link"
 check 'option "Two"' -w alpha snapshot
 check "Page" -w alpha click e2
 check "Page" -w alpha fill '#q' hello
