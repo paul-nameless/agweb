@@ -443,7 +443,7 @@ final class Browser {
                 return describe(tab) + "\n### Changes\n" + (Snapshot.diff(from: last.tree, to: tree) ?? "no changes since the last snapshot")
             }
             let note = options["diff"] != nil ? "no earlier snapshot of this page, so this is all of it" : nil
-            return describe(tab, note: note) + "\n### Snapshot\n" + tree
+            return describe(tab, note: note) + "\n### Snapshot\n" + (tree.isEmpty ? "(nothing visible)" : tree)
         case "ask":
             return try await ask(tab, try arg(0, "message"), args.count > 1 ? args[1] : nil, options) + "\n" + describe(tab)
         case "find":

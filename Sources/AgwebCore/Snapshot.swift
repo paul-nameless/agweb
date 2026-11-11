@@ -21,7 +21,8 @@ public enum Snapshot {
     /// nothing changed. Focus moving is left out: every click moves it.
     public static func diff(from old: String, to new: String) -> String? {
         func lines(_ tree: String) -> [Substring] {
-            tree.replacingOccurrences(of: " [focused]", with: "").split(separator: "\n", omittingEmptySubsequences: false)
+            // An empty tree has no lines, not one empty line.
+            tree.isEmpty ? [] : tree.replacingOccurrences(of: " [focused]", with: "").split(separator: "\n", omittingEmptySubsequences: false)
         }
         let before = lines(old), after = lines(new)
         let changes = after.difference(from: before)

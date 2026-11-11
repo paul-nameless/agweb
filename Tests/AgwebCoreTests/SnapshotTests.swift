@@ -26,6 +26,11 @@ private let page = """
     #expect(Snapshot.diff(from: page, to: page) == nil)
 }
 
+@Test func anEmptiedPageShowsOnlyRemovals() throws {
+    let diff = try #require(Snapshot.diff(from: "- link \"Home\" [ref=e2]", to: ""))
+    #expect(diff == "- - link \"Home\" [ref=e2]")
+}
+
 @Test func findKeepsTheEnclosingLines() throws {
     let found = try #require(Snapshot.find("save", in: page, max: 20))
     #expect(found.matches == 1)

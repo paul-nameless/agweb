@@ -169,7 +169,9 @@ public enum PageScripts {
         if (text) emit(`${'  '.repeat(depth)}- text: ${JSON.stringify(text)}`);
         return;
       }
-      if (node.nodeType !== Node.ELEMENT_NODE || skip.has(node.tagName) || node.getAttribute('aria-hidden') === 'true') return;
+      // aria-hidden is not followed, as in Playwright's snapshot: pages leave it on what they show (react-bootstrap's
+      // open modal), and an agent acts on what is on screen. Names still leave aria-hidden parts out.
+      if (node.nodeType !== Node.ELEMENT_NODE || skip.has(node.tagName)) return;
       const style = node.ownerDocument.defaultView.getComputedStyle(node);
       // display:contents boxes (every <slot> by default) have no rects but their children do.
       if (style.display === 'contents' || node.tagName === 'BODY' || node.tagName === 'FRAMESET') { walk(node, depth); return; }
