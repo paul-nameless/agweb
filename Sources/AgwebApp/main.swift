@@ -103,6 +103,10 @@ private func makeMainMenu(target: MainWindow, settings: SettingsWindow) -> NSMen
         item("Copy", #selector(NSText.copy(_:)), "c"),
         item("Paste", #selector(NSText.paste(_:)), "v"),
         item("Select All", #selector(NSText.selectAll(_:)), "a"),
+        .separator(),
+        item("Find…", #selector(MainWindow.showFind(_:)), "f", to: target),
+        item("Find Next", #selector(MainWindow.findNext(_:)), "g", to: target),
+        item("Find Previous", #selector(MainWindow.findPrevious(_:)), "g", [.command, .shift], to: target),
     ])
     submenu("View", [
         item("Dashboard", #selector(MainWindow.toggleDashboard(_:)), "d", to: target),

@@ -125,5 +125,6 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
             item.isHidden = dashboard
         }
         for item in window.toolbar?.items ?? [] where item.itemIdentifier == Self.usage { item.isHidden = !dashboard }
+        closeFindIfStale()
     }
 }

@@ -11,7 +11,9 @@ final class MainWindow: NSObject, NSWindowDelegate {
     let window: NSWindow
     let model: BrowserModel
     let urlField = NSTextField()
-    private let container = NSView()
+    let container = NSView()
+    var findBar: FindBar?
+    var findTabID: Int?
     private lazy var dashboard = NSHostingView(rootView: DashboardView(model: model))
     let dashboardButton = NSButton()
     private let placeholder = NSTextField(labelWithString: "No tabs yet.\nAgents: agweb -w <task> open <url>    You: ⌘T")
