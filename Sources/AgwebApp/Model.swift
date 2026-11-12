@@ -475,7 +475,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         guard await load(url) else { return }
         try await waitForLoad()
         // An SSO bounce or a login redirect explains a page the agent didn't ask for.
-        if let landed = webView.url, landed.host != url.host {
+        if let landed = webView.url, landed.host != url.host || Self.trimmedPath(landed) != Self.trimmedPath(url) {
             events.append("redirected to \(landed.absoluteString.prefix(200))")
         }
         // The title arrives just after didFinish; agents read it from the reply.
@@ -494,6 +494,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
             ? webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
             : webView.load(URLRequest(url: url))
         return true
+    }
+
+    /// "/login/" and "/login" are one page; an empty path is "/".
+    private static func trimmedPath(_ url: URL) -> String {
+        let path = url.path(percentEncoded: false)
+        return path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path.isEmpty ? "/" : path
     }
 
     private static func sameDocument(_ a: URL, _ b: URL) -> Bool {
