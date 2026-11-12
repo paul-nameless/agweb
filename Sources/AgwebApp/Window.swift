@@ -49,6 +49,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         window.setContentSize(NSSize(width: 1280, height: 820))
         window.center()
         super.init()
+        (window as? AgentWindow)?.onSideButton = { [weak self] forward in forward ? self?.goForward(nil) : self?.goBack(nil) }
         window.delegate = self
         installToolbar()
         // After the toolbar so it can't shift the frame. Not `setFrameAutosaveName`: AppKit drops a frame saved on a
@@ -325,4 +326,16 @@ private struct AskBar: View {
 /// real would take the keyboard from the person's app. Scoping this to each move does not work for that reason.
 final class AgentWindow: NSWindow {
     override var isKeyWindow: Bool { super.isKeyWindow || !NSApp.isActive }
+
+    /// The person's mouse buttons 4 and 5 go back and forward, as in Safari; WebKit ignores them. Agents' clicks
+    /// go to the web view directly and never pass here.
+    var onSideButton: ((_ forward: Bool) -> Void)?
+
+    override func sendEvent(_ event: NSEvent) {
+        if [.otherMouseDown, .otherMouseUp].contains(event.type), [3, 4].contains(event.buttonNumber) {
+            if event.type == .otherMouseDown { onSideButton?(event.buttonNumber == 4) }
+            return
+        }
+        super.sendEvent(event)
+    }
 }
