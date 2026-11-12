@@ -13,6 +13,7 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
     private static let newTabItem = NSToolbarItem.Identifier("newTab")
     private static let dashboardItem = NSToolbarItem.Identifier("dashboard")
     private static let usage = NSToolbarItem.Identifier("usage")
+    private static let find = NSToolbarItem.Identifier("find")
 
     func installToolbar() {
         urlField.placeholderString = "Enter address"
@@ -33,7 +34,7 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [.toggleSidebar, Self.dashboardItem, .sidebarTrackingSeparator, Self.back, Self.forward, Self.reload,
-         .flexibleSpace, Self.address, Self.usage, .flexibleSpace, Self.newTabItem]
+         .flexibleSpace, Self.address, Self.usage, Self.find, .flexibleSpace, Self.newTabItem]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -46,7 +47,8 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
         case Self.address:
             item.view = urlField
             item.label = "Address"
-            urlField.widthAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
+            urlMinWidth = urlField.widthAnchor.constraint(greaterThanOrEqualToConstant: 420)
+            urlMinWidth?.isActive = true
             urlField.widthAnchor.constraint(lessThanOrEqualToConstant: 720).isActive = true
             return item
         case Self.usage:
@@ -55,6 +57,11 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
             item.view = total
             item.label = "CPU and Memory"
             item.isHidden = !model.dashboardOpen
+            return item
+        case Self.find:
+            item.view = findBar
+            item.label = "Find"
+            item.isHidden = !findOpen
             return item
         case Self.back: configure(item, "Back", "chevron.left", #selector(goBack(_:)))
         case Self.forward: configure(item, "Forward", "chevron.right", #selector(goForward(_:)))
@@ -73,6 +80,12 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
         default: return nil
         }
         return item
+    }
+
+    /// ⌘F shows the find field beside the address, which narrows to make room.
+    func updateFindItem() {
+        urlMinWidth?.constant = findOpen ? 240 : 420
+        for item in window.toolbar?.items ?? [] where item.itemIdentifier == Self.find { item.isHidden = !findOpen }
     }
 
     private func configure(_ item: NSToolbarItem, _ label: String, _ symbol: String, _ action: Selector) {

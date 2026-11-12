@@ -12,7 +12,10 @@ final class MainWindow: NSObject, NSWindowDelegate {
     let model: BrowserModel
     let urlField = NSTextField()
     let container = NSView()
-    var findBar: FindBar?
+    lazy var findBar = FindBar(webView: { [weak self] in self?.model.displayedTab?.webView }, close: { [weak self] in self?.closeFind() })
+    var findOpen = false
+    /// The address field's narrowest width; less while the find field shares the toolbar.
+    var urlMinWidth: NSLayoutConstraint?
     var findTabID: Int?
     private lazy var dashboard = NSHostingView(rootView: DashboardView(model: model))
     let dashboardButton = NSButton()
