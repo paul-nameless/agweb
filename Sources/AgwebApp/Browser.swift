@@ -461,6 +461,7 @@ final class Browser {
             let state = try await tab.call(PageScripts.checkedState, ["target": target])
             if state == "none" { throw Failure("\(target) is not a checkbox, radio or switch") }
             if state != want {
+                if options["js"] == nil { try await awaitTarget(tab, target, request.command, options, enabled: true) }
                 try await click(tab, target: target, button: .left, js: options["js"] != nil, forUpload: false, instant: instant)
                 await tab.settle()
                 if try await tab.call(PageScripts.checkedState, ["target": target]) != want { throw Failure("clicked \(target) but it is still \(state)") }
@@ -845,19 +846,21 @@ final class Browser {
     /// Actions wait for their target to show, as Playwright's do: up to --timeout ms (5000 by default; 0 doesn't
     /// wait). Past that the action runs anyway, so its own error says what is wrong with the target.
     /// Fields only need to be there: a styled select or checkbox hides the native one it drives.
-    private func awaitTarget(_ tab: Tab, _ target: String, _ command: String, _ options: [String: String]) async throws {
+    /// As Playwright's do, actions that operate a control wait for it to be enabled too, since a click on a disabled
+    /// button does nothing and says nothing; past --timeout they fail. `check` and `uncheck` ask only when they must
+    /// click (a locked box already in the wanted state is fine), so they pass `enabled` themselves.
+    private func awaitTarget(_ tab: Tab, _ target: String, _ command: String, _ options: [String: String],
+                             enabled: Bool? = nil) async throws {
         guard let ms = Double(options["timeout"] ?? "5000"), (0...600_000).contains(ms) else { throw Failure("--timeout is milliseconds, up to 600000") }
         guard ms > 0 else { return }
         let attached = ["fill", "select", "check", "uncheck"].contains(command)
-        // As Playwright's do, actions that operate a control wait for it to be enabled too: a click on a disabled
-        // button does nothing and says nothing.
-        let enabled = ["click", "dblclick", "fill", "select", "check", "uncheck", "upload"].contains(command)
+        let enabled = enabled ?? ["click", "dblclick", "fill", "select"].contains(command)
         let state = { try await tab.call(PageScripts.present, ["target": target, "gone": false, "attached": attached, "enabled": enabled]) }
         do {
             _ = try await poll(ms / 1000, target) { try await state() == "true" }
         } catch let error as Failure where error.description.hasPrefix("timed out") {
             if (try? await state()) == "disabled" {
-                throw Failure("\(target) is disabled after \(Int(ms)) ms; wait for it with: wait <target> --enabled --timeout=<ms>")
+                throw Failure("\(target) is disabled after \(Int(ms)) ms; wait for it with: wait <target> --enabled --timeout=<ms>, or act on it anyway with --timeout=0")
             }
         }
     }

@@ -260,17 +260,26 @@ public enum PageScripts {
     /// Markdown through Defuddle (loaded into this world first): one element converted whole, or the page's main
     /// content. A page with little article in it (a web app) is converted whole instead.
     public static let text = find + """
-    // Inline SVG icons come through as markup, which no reader wants.
-    const noSvg = (md) => md.replace(/<svg[\\s\\S]*?<\\/svg>/gi, '');
+    // Inline SVG icons come through as markup, which no reader wants; they go from a copy before converting, so a
+    // code sample showing <svg> (text, not an element) stays.
+    const bare = (html) => {
+      const box = document.createElement('template');
+      box.innerHTML = html;
+      for (const svg of box.content.querySelectorAll('svg')) svg.remove();
+      return box;
+    };
+    const md = (box) => Defuddle.createMarkdownContent(box.innerHTML, location.href);
     const words = (s) => (s.match(/\\S+/g) || []).length;
-    const reply = (markdown, whole = false, kept = 0, shown = 0) => JSON.stringify({ markdown: noSvg(markdown), whole, kept, shown });
-    if (target) return reply(Defuddle.createMarkdownContent(find(target).outerHTML, location.href));
-    const body = () => Defuddle.createMarkdownContent(document.body.innerHTML, location.href);
+    const reply = (markdown, whole = false, kept = 0, shown = 0) => JSON.stringify({ markdown, whole, kept, shown });
+    if (target) return reply(md(bare(find(target).outerHTML)));
+    const body = () => md(bare(document.body.innerHTML));
     if (everything) return reply(body(), true);
-    const page = new Defuddle(document, { markdown: true, url: location.href }).parse();
+    const page = new Defuddle(document, { url: location.href }).parse();
     if (page.wordCount < 50) return reply(body(), true);
-    // The article can leave out what a reader came for, such as a pricing page's plans: say how much it kept.
-    return reply((page.title ? `# ${page.title}\\n\\n` : '') + page.content, false, page.wordCount, words(document.body.innerText));
+    // The article can leave out what a reader came for, such as a pricing page's plans: say how much it kept,
+    // counting both sides the same way.
+    const article = bare(page.content);
+    return reply((page.title ? `# ${page.title}\\n\\n` : '') + md(article), false, words(article.content.textContent), words(document.body.innerText));
     """
 
     // Returns the element's center in CSS pixels (`reveal` brings it into view first), what actually sits there, and
@@ -392,7 +401,8 @@ public enum PageScripts {
     try {
       const el = find(target);
       present = attached || visible(el);
-      if (present && enabled && !gone && el.closest(':disabled, [aria-disabled="true"]')) return 'disabled';
+      // :disabled on the element's own control, not a fieldset's: a link or a legend's control inside one still works.
+      if (present && enabled && !gone && el.closest('button:disabled, input:disabled, select:disabled, textarea:disabled, [aria-disabled="true"]')) return 'disabled';
     } catch (e) {
       if (e.name === 'SyntaxError') throw new Error(e.message.startsWith('invalid selector') ? e.message : `invalid selector ${target}`);
       if (!gone && /take a new snapshot/.test(e.message)) throw e;

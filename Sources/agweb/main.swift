@@ -155,8 +155,11 @@ func commandHelp(_ name: String) -> String? {
     var out: [String] = [], taking = false
     for line in usage.split(separator: "\n", omittingEmptySubsequences: false) {
         if line.hasPrefix("  "), line.dropFirst(2).first?.isLetter == true {
-            // The command column: "goto <url> | reload | go-back | go-forward" names four.
-            let names = line.prefix(32).split(whereSeparator: { !$0.isLetter && $0 != "-" }).map(String.init)
+            // The command column runs to the first double space; "goto <url> | reload | go-back | go-forward" names
+            // four, each the first word of its part, so "<text>" or "[target]" is never a name.
+            let body = line.dropFirst(2)
+            let column = body.range(of: "  ").map { body[..<$0.lowerBound] } ?? body
+            let names = column.components(separatedBy: " | ").compactMap { $0.split(separator: " ").first.map(String.init) }
             taking = names.contains(name)
             if taking { out.append(String(line)) }
         } else if taking, line.hasPrefix("    ") {

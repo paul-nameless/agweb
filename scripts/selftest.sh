@@ -252,7 +252,12 @@ check "agweb type:" help type
 check "Page" -w alpha eval "() => { const b = document.createElement('button'); b.id = 'later'; b.disabled = true; b.textContent = 'Later'; document.body.prepend(b); setTimeout(() => b.disabled = false, 400); const n = b.cloneNode(true); n.id = 'never'; document.body.prepend(n) }"
 fails "#never is disabled after 300 ms" -w alpha click '#never' --timeout=300
 check "#later to be enabled" -w alpha wait '#later' --enabled
-check "Page" -w alpha eval "() => ['later', 'never'].forEach(id => document.getElementById(id).remove())"
+check "Page" -w alpha eval "() => { const c = document.createElement('input'); c.type = 'checkbox'; c.id = 'locked'; c.checked = true; c.disabled = true; document.body.prepend(c) }"
+check "Page" -w alpha check '#locked' --timeout=300
+fails "#locked is disabled" -w alpha uncheck '#locked' --timeout=300
+check "agweb go-forward:" help go-forward
+lacks "dialog-accept" help text
+check "Page" -w alpha eval "() => ['later', 'never', 'locked'].forEach(id => document.getElementById(id).remove())"
 check "Page" -w alpha uncheck '#cb'
 check 'false' -w alpha eval 'cb.checked'
 fails "not a checkbox" -w alpha check '#b'
