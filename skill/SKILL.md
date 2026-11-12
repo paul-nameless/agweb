@@ -31,7 +31,7 @@ agweb -w fix-login close # when done; otherwise the workspace reopens after a re
 
 ## Targets
 
-`e12` from the last snapshot; `role=button[name="Save"]` (name is a case-insensitive substring); `text=Save` (substring) or `text="Save"` (exact); a CSS selector. Role and text targets must match exactly one visible element; the error lists the matches with their refs. Same-origin iframes and open shadow roots are searched and appear in snapshots.
+`e12` from the last snapshot; `role=button[name="Save"]` (name is a case-insensitive substring); `text=Save` (substring) or `text="Save"` (exact); a CSS selector. Role and text targets must match exactly one visible element; the error lists the matches with their refs. Append `>> nth=0` (or `nth=-1` for the last) to pick one of several. Same-origin iframes and open shadow roots are searched and appear in snapshots.
 
 ## Patterns
 
@@ -73,7 +73,7 @@ agweb -w t wait --url=/orders/ --timeout=60000 # default 30000, cap 600000
 agweb -w t wait 1500 # fixed pause; last resort
 ```
 
-`--text=` matches anywhere in the page's text, off-screen and screen-reader-only text included; `wait "text=..."` needs a visible element. `already true when wait started` in the reply means it matched text the page had before, such as your own message echoed in a chat. For a streamed answer, wait for the stop button or spinner to go (`wait e14 --gone`), or for text only the finished answer has. `wait` on a target fails when several match, as the `click` after it would: use more of the name, or the ref.
+`--text=` matches anywhere in the page's text, off-screen and screen-reader-only text included; `wait "text=..."` needs a visible element. `already true when wait started` in the reply means it matched text the page had before, such as your own message echoed in a chat. For a streamed answer, wait for the stop button or spinner to go (`wait e14 --gone`), or for text only the finished answer has. `wait` on a target fails when several match, as the `click` after it would: use more of the name, or the ref. A timed-out `wait` on a `role=` target lists that role's visible elements. `--gone` that is `already true` on a target that never matched means the selector is off, not that the element left.
 
 **Reading data.**
 

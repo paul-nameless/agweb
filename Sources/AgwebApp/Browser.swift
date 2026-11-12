@@ -728,9 +728,26 @@ final class Browser {
         guard let condition = condition(tab, arg, options) else {
             throw Failure("use: agweb wait <ms> | <target> [--gone] | --text=… | --url=… | --load  [--timeout=ms]")
         }
-        let waited = try await poll(timeout, condition.what, condition.check)
+        let waited: Double
+        do {
+            waited = try await poll(timeout, condition.what, condition.check)
+        } catch let error as Failure where error.description.hasPrefix("timed out") && arg != nil && options["gone"] == nil {
+            guard let arg else { throw error }
+            // Why the target still misses: a role= miss lists that role's visible elements, so the next try needs no snapshot.
+            do {
+                _ = try await tab.call(PageScripts.find + "find(target); return 'ok'", ["target": arg])
+            } catch let miss as Failure {
+                throw Failure("\(error.description); now: \(miss.description)")
+            }
+            throw error
+        }
         // The first check runs before any sleep: an agent expecting new text usually matched old text.
-        if waited < 0.1 { return "### Result\nalready true when wait started: \(condition.what)" }
+        if waited < 0.1 {
+            if let arg, options["gone"] != nil {
+                return "### Result\nalready true when wait started: nothing visible matches \(arg). If it was on screen, the selector is off (text=\"...\" is the element's whole text)"
+            }
+            return "### Result\nalready true when wait started: \(condition.what)"
+        }
         return "### Result\nwaited \(String(format: "%.1f", waited)) s for \(condition.what)"
     }
 

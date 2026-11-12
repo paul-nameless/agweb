@@ -10,7 +10,7 @@ A workspace is one agent's tabs; use one per task and close it when done. Its pr
 when it opens: a fresh one that keeps nothing, or with -p a named one that persists and is shared by every
 workspace naming it.
 
-Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) or text="Save" (exact), or CSS.
+Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) or text="Save" (exact), or CSS; add >> nth=N to pick one of several (-1 is the last).
 
   open [url]                    start the workspace (-p to reuse a named profile's logins)
   goto <url> | reload | go-back | go-forward

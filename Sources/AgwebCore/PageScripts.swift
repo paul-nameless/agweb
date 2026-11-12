@@ -80,44 +80,62 @@ public enum PageScripts {
         if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') { let doc = null; try { doc = el.contentDocument; } catch {} if (doc) yield* all(doc); }
       }
     };
+    // Every visible element a role= or text= target matches.
+    const matchesOf = (target) => {
+      if (target.startsWith('role=')) {
+        // name*= is accepted too: the name is a substring either way.
+        const m = /^role=([\\w-]+)(?:\\[name\\*?=(?:"([^"]*)"|'([^']*)'|([^\\]]*))\\])?$/.exec(target);
+        if (!m) {
+          const e = new Error(`invalid selector ${target}: use role=button or role=button[name="Save"] (a case-insensitive substring)`);
+          e.name = 'SyntaxError';
+          throw e;
+        }
+        const role = m[1], name = (m[2] ?? m[3] ?? m[4])?.toLowerCase().replace(/…$/, ''); // a cut name copied from a snapshot
+        return [...all(document)].filter(el => roleOf(el) === role && visible(el) && (name === undefined || nameOf(el).toLowerCase().includes(name)));
+      }
+      // Not clean(): its 120-character cut would hide the end of a long paragraph.
+      const whole = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+      const raw = target.slice(5), exact = /^".*"$/.test(raw), text = exact ? whole(raw.slice(1, -1)) : whole(raw).toLowerCase();
+      const has = (el) => {
+        if (!(el.textContent || '').toLowerCase().includes(exact ? text.toLowerCase() : text)) return false;
+        const t = whole(el.innerText);
+        return exact ? t === text : t.toLowerCase().includes(text);
+      };
+      // The innermost elements holding the text, not every ancestor of them.
+      return [...all(document)].filter(el => !['SCRIPT', 'STYLE', 'HEAD', 'TITLE'].includes(el.tagName) && has(el) && visible(el) && ![...el.children].some(has));
+    };
+    const label = (el) => `${roleOf(el) || el.tagName.toLowerCase()} ${JSON.stringify(nameOf(el) || clean(el.innerText).slice(0, 40))} [ref=${refOf(el)}]`;
+    const list = (els) => els.slice(0, 5).map(label).join('; ') + (els.length > 5 ? `; and ${els.length - 5} more` : '');
+    // `<target> >> nth=N` picks one of several matches, counting from 0; -1 is the last.
     const find = (target) => {
+      const nth = /^(.*?)\\s*>>\\s*nth=(-?\\d+)$/.exec(target);
+      if (!nth) return findOne(target);
+      const els = /^(role|text)=/.test(nth[1]) ? matchesOf(nth[1]) : [...document.querySelectorAll(nth[1])];
+      const el = els.at(Number(nth[2]));
+      if (!el) throw new Error(`no visible element matches ${target}: ${nth[1]} matches ${els.length}`);
+      return el;
+    };
+    const findOne = (target) => {
       if (/^e\\d+$/.test(target)) {
         const el = W.refs.get(target)?.deref();
         // An element of an iframe that navigated away stays connected to its old document, which has no window.
         if (!el || !el.isConnected || !el.ownerDocument.defaultView) throw new Error(`ref ${target} not found: the page changed; take a new snapshot`);
         return el;
       }
-      let matches, m;
-      if ((m = /^role=([\\w-]+)(?:\\[name=(?:"([^"]*)"|'([^']*)'|([^\\]]*))\\])?$/.exec(target))) {
-        const role = m[1], name = (m[2] ?? m[3] ?? m[4])?.toLowerCase().replace(/…$/, ''); // a cut name copied from a snapshot
-        matches = [...all(document)].filter(el => roleOf(el) === role && visible(el) && (name === undefined || nameOf(el).toLowerCase().includes(name)));
-      } else if (target.startsWith('text=')) {
-        // Not clean(): its 120-character cut would hide the end of a long paragraph.
-        const whole = (s) => (s || '').replace(/\\s+/g, ' ').trim();
-        const raw = target.slice(5), exact = /^".*"$/.test(raw), text = exact ? whole(raw.slice(1, -1)) : whole(raw).toLowerCase();
-        const has = (el) => {
-          if (!(el.textContent || '').toLowerCase().includes(exact ? text.toLowerCase() : text)) return false;
-          const t = whole(el.innerText);
-          return exact ? t === text : t.toLowerCase().includes(text);
-        };
-        // The innermost elements holding the text, not every ancestor of them.
-        matches = [...all(document)].filter(el => !['SCRIPT', 'STYLE', 'HEAD', 'TITLE'].includes(el.tagName) && has(el) && visible(el) && ![...el.children].some(has));
-      } else {
+      if (!/^(role|text)=/.test(target)) {
         const el = document.querySelector(target);
         if (!el) throw new Error(`no element matches ${target}`);
         return el;
       }
-      const label = (el) => `${roleOf(el) || el.tagName.toLowerCase()} ${JSON.stringify(nameOf(el) || clean(el.innerText).slice(0, 40))} [ref=${refOf(el)}]`;
-      const list = (els) => els.slice(0, 5).map(label).join('; ') + (els.length > 5 ? `; and ${els.length - 5} more` : '');
+      const matches = matchesOf(target);
       if (matches.length === 0) {
         // A near miss: the elements of that role and their names, so the next try needs no snapshot.
-        const role = m && target.startsWith('role=') ? m[1] : null;
+        const role = /^role=([\\w-]+)/.exec(target)?.[1];
         const near = role ? [...all(document)].filter(el => roleOf(el) === role && visible(el)) : [];
         throw new Error(`no visible element matches ${target}` + (near.length ? `; visible ${role}s: ${list(near)}` : ''));
       }
       if (matches.length > 1) {
-        const listed = list(matches);
-        throw new Error(`${target} matches ${matches.length} elements: ${listed}. Be more specific or use a ref from snapshot`);
+        throw new Error(`${target} matches ${matches.length} elements: ${list(matches)}. Be more specific, use a ref from snapshot, or add >> nth=0`);
       }
       return matches[0];
     };
@@ -364,7 +382,7 @@ public enum PageScripts {
     public static let present = find + """
     let present;
     try { const el = find(target); present = attached || visible(el); } catch (e) {
-      if (e.name === 'SyntaxError') throw new Error(`invalid selector ${target}`);
+      if (e.name === 'SyntaxError') throw new Error(e.message.startsWith('invalid selector') ? e.message : `invalid selector ${target}`);
       if (!gone && /take a new snapshot/.test(e.message)) throw e;
       present = /matches \\d+ elements/.test(e.message);
       if (present && !gone) throw e;

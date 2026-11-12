@@ -243,6 +243,10 @@ check "closed" -w ev close
 check "Page" -w alpha check 'text=Remember me'
 check "Page" -w alpha check '#r2'
 check '\[true,true\]' -w alpha eval '[cb.checked, r2.checked]'
+check "Page" -w alpha check 'role=radio >> nth=0'
+check '\[true,false\]' -w alpha eval '[r1.checked, r2.checked]'
+check "Page" -w alpha check 'input[type=radio] >> nth=-1'
+check "already true" -w alpha wait 'role=button[name*="press"]'
 check "Page" -w alpha uncheck '#cb'
 check 'false' -w alpha eval 'cb.checked'
 fails "not a checkbox" -w alpha check '#b'
@@ -330,6 +334,8 @@ check "text=the long tail" -w st2 wait 'text=the long tail' --timeout=1000
 check "Page" -w st2 eval "() => { setTimeout(() => late.remove(), 300) }"
 check "#late to go" -w st2 wait '#late' --gone
 fails "timed out" -w st2 wait '#nothing' --timeout=300
+fails "now: no visible element matches role=button\[name=\"Kopieren\"\]; visible buttons" -w st2 wait 'role=button[name="Kopieren"]' --timeout=300
+check "nothing visible matches text=\"Never here\"" -w st2 wait 'text="Never here"' --gone
 fails "invalid selector" -w st2 wait 'bad[[' --timeout=5000
 fails "matches [0-9]* elements" -w st2 wait 'role=button' --timeout=5000
 check "network to go quiet" -w st2 wait --load
