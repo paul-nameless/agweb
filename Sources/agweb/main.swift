@@ -48,7 +48,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
                                 --single-page: the screen view on one page (default .agweb/page-<time>.pdf)
   resize <w> <h>                set this tab's viewport size in CSS pixels; the shared window stays as it is
   emulate --color-scheme=dark   prefers-color-scheme for this tab: dark, light or auto
-  wait <ms> | <target> [--gone] | --text=… | --url=… | --load   [--timeout=ms, default 30000]
+  wait <ms> | <target> [--gone | --enabled] | --text=… | --url=… | --load   [--timeout=ms, default 30000]
                                 sleep, or wait until an element shows (or leaves), text or a URL appears, or the
                                 page has loaded with no fetch/XHR in flight
   video-start [path]            record the workspace's tab to MP4 (default .agweb/video-<time>.mp4), with the
@@ -108,7 +108,7 @@ var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
 // --headed and --browser are accepted for playwright-cli habits; agweb is always headed WebKit.
 let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw", "json", "static", "clear", "hide", "diff",
-                  "httpOnly", "secure", "gone", "load", "single-page", "check", "all"]
+                  "httpOnly", "secure", "gone", "load", "single-page", "check", "all", "enabled"]
 let valued: Set = ["profile", "workspace", "max-idle", "filename", "size", "filter", "status", "body", "content-type",
                    "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser", "text", "url",
                    "timeout", "color-scheme", "format", "download-dir", "secret-cmd", "secret-file", "max-results"]
@@ -150,8 +150,27 @@ if options["instant"] == nil, env["AGWEB_INSTANT"].map({ !$0.isEmpty }) == true 
 
 // eval's other name: some agent sandboxes refuse any shell command containing the word eval.
 if positional.first == "js" { positional[0] = "eval" }
+/// One command's lines of the usage: its own line and the indented lines continuing it.
+func commandHelp(_ name: String) -> String? {
+    var out: [String] = [], taking = false
+    for line in usage.split(separator: "\n", omittingEmptySubsequences: false) {
+        if line.hasPrefix("  "), line.dropFirst(2).first?.isLetter == true {
+            // The command column: "goto <url> | reload | go-back | go-forward" names four.
+            let names = line.prefix(32).split(whereSeparator: { !$0.isLetter && $0 != "-" }).map(String.init)
+            taking = names.contains(name)
+            if taking { out.append(String(line)) }
+        } else if taking, line.hasPrefix("    ") {
+            out.append(String(line))
+        } else {
+            taking = false
+        }
+    }
+    return out.isEmpty ? nil : out.joined(separator: "\n")
+}
 guard let command = positional.first, command != "help", options["help"] == nil else {
-    print(usage)
+    // `help type` and `type --help` show that command; anything else the whole usage.
+    let name = positional.first == "help" ? positional.dropFirst().first : positional.first
+    print(name.flatMap(commandHelp).map { "agweb \(name!):\n\($0)\n\nTargets, options and the rest: agweb help" } ?? usage)
     exit(0)
 }
 var args = Array(positional.dropFirst())

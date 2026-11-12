@@ -474,6 +474,11 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         }
         guard await load(url) else { return }
         try await waitForLoad()
+        // A page that sends itself on by script (an SPA's SSO check) starts that navigation just after loading;
+        // wait for it, so the reply shows where the agent really is.
+        for _ in 0..<8 where !webView.isLoading { try? await Task.sleep(for: .milliseconds(50)) }
+        let deadline = Date().addingTimeInterval(15)
+        while webView.isLoading, Date() < deadline { try? await Task.sleep(for: .milliseconds(100)) }
         // An SSO bounce or a login redirect explains a page the agent didn't ask for.
         if let landed = webView.url, landed.host != url.host || Self.trimmedPath(landed) != Self.trimmedPath(url) {
             events.append("redirected to \(landed.absoluteString.prefix(200))")

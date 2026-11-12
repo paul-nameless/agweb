@@ -518,6 +518,10 @@ final class Browser {
                                                       "onlySelect": request.command == "select", "secret": secret])
             if options["submit"] != nil { try await pressKey(tab, "Enter", instant: instant) }
         case "type":
+            // playwright-cli's type takes only text; a target in front would be typed as text.
+            guard args.count == 1 else {
+                throw Failure("type takes only the text and types where the focus is; to type into an element: fill <target> <text>, or click <target> then type <text>")
+            }
             let text = try arg(0, "text")
             if instant || text.isEmpty {
                 _ = try await tab.call(PageScripts.insertText, ["text": text])
@@ -759,9 +763,9 @@ final class Browser {
         let what: String
         let check: () async throws -> Bool
         if let target = arg {
-            let gone = options["gone"] != nil
-            what = gone ? "\(target) to go" : target
-            check = { try await tab.call(PageScripts.present, ["target": target, "gone": gone, "attached": false]) == "true" }
+            let gone = options["gone"] != nil, enabled = options["enabled"] != nil
+            what = gone ? "\(target) to go" : enabled ? "\(target) to be enabled" : target
+            check = { try await tab.call(PageScripts.present, ["target": target, "gone": gone, "attached": false, "enabled": enabled]) == "true" }
         } else if let text = options["text"] {
             what = "text \(text.debugDescription)"
             check = { try await tab.call(PageScripts.hasText, ["text": text]) == "true" }
@@ -845,11 +849,17 @@ final class Browser {
         guard let ms = Double(options["timeout"] ?? "5000"), (0...600_000).contains(ms) else { throw Failure("--timeout is milliseconds, up to 600000") }
         guard ms > 0 else { return }
         let attached = ["fill", "select", "check", "uncheck"].contains(command)
+        // As Playwright's do, actions that operate a control wait for it to be enabled too: a click on a disabled
+        // button does nothing and says nothing.
+        let enabled = ["click", "dblclick", "fill", "select", "check", "uncheck", "upload"].contains(command)
+        let state = { try await tab.call(PageScripts.present, ["target": target, "gone": false, "attached": attached, "enabled": enabled]) }
         do {
-            _ = try await poll(ms / 1000, target) {
-                try await tab.call(PageScripts.present, ["target": target, "gone": false, "attached": attached]) == "true"
+            _ = try await poll(ms / 1000, target) { try await state() == "true" }
+        } catch let error as Failure where error.description.hasPrefix("timed out") {
+            if (try? await state()) == "disabled" {
+                throw Failure("\(target) is disabled after \(Int(ms)) ms; wait for it with: wait <target> --enabled --timeout=<ms>")
             }
-        } catch let error as Failure where error.description.hasPrefix("timed out") {}
+        }
     }
 
     /// The page tree, and the document it came from; new elements number on from the workspace's last ref.

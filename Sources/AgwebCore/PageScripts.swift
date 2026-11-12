@@ -383,11 +383,17 @@ public enum PageScripts {
     """
 
     /// For wait: whether the target is on the page and visible (with `attached`, there at all), or with `gone`
-    /// whether not. Several matches fail the wait, as they would fail the action after it, and so does a ref that
+    /// whether not; with `enabled`, see below. Several matches fail the wait, as they would fail the action after it, and so does a ref that
     /// is gone for good; with `gone` they count as present and gone.
     public static let present = find + """
+    // With `enabled`, a present element that is disabled (natively, through its fieldset, or aria-disabled on it or
+    // an ancestor) answers "disabled" instead.
     let present;
-    try { const el = find(target); present = attached || visible(el); } catch (e) {
+    try {
+      const el = find(target);
+      present = attached || visible(el);
+      if (present && enabled && !gone && el.closest(':disabled, [aria-disabled="true"]')) return 'disabled';
+    } catch (e) {
       if (e.name === 'SyntaxError') throw new Error(e.message.startsWith('invalid selector') ? e.message : `invalid selector ${target}`);
       if (!gone && /take a new snapshot/.test(e.message)) throw e;
       present = /matches \\d+ elements/.test(e.message);

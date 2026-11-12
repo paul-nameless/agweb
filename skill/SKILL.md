@@ -73,7 +73,7 @@ agweb -w t wait --url=/orders/ --timeout=60000 # default 30000, cap 600000
 agweb -w t wait 1500 # fixed pause; last resort
 ```
 
-`--text=` matches anywhere in the page's text, off-screen and screen-reader-only text included; `wait "text=..."` needs a visible element. `already true when wait started` in the reply means it matched text the page had before, such as your own message echoed in a chat. For a streamed answer, wait for the stop button or spinner to go (`wait e14 --gone`), or for text only the finished answer has. `wait` on a target fails when several match, as the `click` after it would: use more of the name, or the ref. A timed-out `wait` on a `role=` target lists that role's visible elements. `--gone` that is `already true` on a target that never matched means the selector is off, not that the element left.
+`--text=` matches anywhere in the page's text, off-screen and screen-reader-only text included; `wait "text=..."` needs a visible element. `already true when wait started` in the reply means it matched text the page had before, such as your own message echoed in a chat. For a streamed answer, wait for the stop button or spinner to go (`wait e14 --gone`), or for text only the finished answer has. `wait` on a target fails when several match, as the `click` after it would: use more of the name, or the ref. A timed-out `wait` on a `role=` target lists that role's visible elements. `--gone` that is `already true` on a target that never matched means the selector is off, not that the element left. Actions that operate a control (`click`, `fill`, `check`, `select`) wait for it to be enabled as well as visible, up to `--timeout`; `wait <target> --enabled` waits for a disabled button on its own.
 
 **Reading data.**
 
@@ -164,7 +164,7 @@ agweb -w t show # put your tab in view for the person, without activating the wi
 agweb -w t scroll-into-view e40 # glide an element on screen for a screenshot or the person; actions scroll there by themselves
 ```
 
-Use `--instant` for pointer verbs and `type` when looking human doesn't matter. Everything else (cookies, `state-save`/`state-load`, `pdf`, `emulate`, `drag`, `mousewheel`, `keydown`) is in `agweb help`.
+Use `--instant` for pointer verbs and `type` when looking human doesn't matter. Everything else (cookies, `state-save`/`state-load`, `pdf`, `emulate`, `drag`, `mousewheel`, `keydown`) is in `agweb help`; `agweb help <command>` shows one. `type` takes only text and types where the focus is: `fill <target> <text>` types into an element.
 
 ## Troubleshooting
 

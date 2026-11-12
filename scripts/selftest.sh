@@ -11,7 +11,7 @@ unset AGWEB_PROFILE AGWEB_WORKSPACE
 export AGWEB_INSTANT=1 AGWEB_AWAKE_SECONDS=3
 agweb=${AGWEB_CLI:-$PWD/../bin/agweb}
 cp testpage.html "$dir/index.html"
-cp frame.html frames.html side.html redirect.html "$dir/"
+cp frame.html frames.html side.html redirect.html later.html "$dir/"
 # The test build's bundle id (build.sh --test adds .test); the person's frame is checked under the id without it.
 test_domain=$(plutil -extract CFBundleIdentifier raw "$(dirname "$(realpath "$agweb")")/../Info.plist")
 domain=${test_domain%.test}
@@ -247,6 +247,12 @@ check "Page" -w alpha check 'role=radio >> nth=0'
 check '\[true,false\]' -w alpha eval '[r1.checked, r2.checked]'
 check "Page" -w alpha check 'input[type=radio] >> nth=-1'
 check "already true" -w alpha wait 'role=button[name*="press"]'
+fails "type takes only the text" -w alpha type '#q' hello
+check "agweb type:" help type
+check "Page" -w alpha eval "() => { const b = document.createElement('button'); b.id = 'later'; b.disabled = true; b.textContent = 'Later'; document.body.prepend(b); setTimeout(() => b.disabled = false, 400); const n = b.cloneNode(true); n.id = 'never'; document.body.prepend(n) }"
+fails "#never is disabled after 300 ms" -w alpha click '#never' --timeout=300
+check "#later to be enabled" -w alpha wait '#later' --enabled
+check "Page" -w alpha eval "() => ['later', 'never'].forEach(id => document.getElementById(id).remove())"
 check "Page" -w alpha uncheck '#cb'
 check 'false' -w alpha eval 'cb.checked'
 fails "not a checkbox" -w alpha check '#b'
@@ -445,6 +451,7 @@ check "index.html?next" -w alpha reload
 check "#frag" -w alpha goto "$u#frag"
 check "Page" -w alpha goto "http://127.0.0.1:$port/redirect.html"
 check "URL containing redirected" -w alpha wait --url=redirected
+check "redirected to http://127.0.0.1:$port/index.html?sso" -w alpha goto "http://127.0.0.1:$port/later.html"
 check "redirected to http://localhost:$port/index.html?bounced" -w alpha goto "http://127.0.0.1:$port/x?to=http://localhost:$port/index.html%3Fbounced"
 check "Page" -w alpha eval "location.href = '/index.html?evalnav'"
 check '"?evalnav"' -w alpha eval 'location.search'
