@@ -251,6 +251,8 @@ case "video-start":
     writeAnswerTo = nil
 case "upload" where args.count > 1:
     args = [args[0]] + args.dropFirst().map(absolute)
+    // Before the chooser: WebKit takes a missing path as an empty file, and the page only refuses it much later.
+    for file in args.dropFirst() where !FileManager.default.isReadableFile(atPath: file) { fail("no such file: \(file)") }
 case "state-save":
     writeAnswerTo = writeAnswerTo ?? absolute(args.first ?? ".agweb/state-\(stamp).json")
     args = []

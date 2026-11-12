@@ -135,6 +135,7 @@ fails "work with fill" -w alpha type --secret-cmd 'printf abcd'
 check "Page" -w alpha fill '#q' hello
 check "file chooser got" -w alpha upload '#file' /etc/hosts
 fails "no file chooser opened" -w alpha upload e2 /etc/hosts
+fails "no such file" -w alpha upload '#file' /nonexistent/agweb.xlsx
 check "alert: hi" -w alpha click '#al'
 check '"click trusted=true","keydown Enter trusted=true","submit:hello","file:hosts"' -w alpha eval 'window.log'
 check '"2"' -w alpha eval "() => document.querySelector('#s').value"

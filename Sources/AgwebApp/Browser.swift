@@ -493,6 +493,9 @@ final class Browser {
         case "upload":
             let target = try arg(0, "target")
             guard args.count > 1 else { throw Failure("missing <file>") }
+            if let missing = args.dropFirst().first(where: { !FileManager.default.isReadableFile(atPath: $0) }) {
+                throw Failure("no such file: \(missing)")
+            }
             tab.pendingUpload = args.dropFirst().map { URL(fileURLWithPath: $0) }
             tab.chooserOpened = false
             // Whatever happens, the files must not linger for the next chooser on this tab.
