@@ -446,8 +446,11 @@ final class Browser {
             }
             return describe(tab) + "\n### Found\n\(found.matches) line\(found.matches == 1 ? "" : "s") matching \(query.debugDescription)\n" + found.tree
         case "text":
-            let text = try await pageText(tab, target: args.first)
-            return "### Result\n" + text.markdown + "\n" + describe(tab, note: text.whole ? "no article here, so this is the whole page" : nil)
+            let all = options["all"] != nil
+            let text = try await pageText(tab, target: args.first, all: all)
+            let note = all ? nil : text.whole ? "no article here, so this is the whole page"
+                : text.shown > 300 && text.kept * 2 < text.shown ? "main content only: \(text.kept) of \(text.shown) words on the page; text --all for all of it" : nil
+            return "### Result\n" + text.markdown + "\n" + describe(tab, note: note)
         case "click", "dblclick":
             try await click(tab, target: try arg(0, "target"), button: try MouseButton(args.count > 1 ? args[1] : nil), js: options["js"] != nil,
                             forUpload: false, instant: instant, clicks: request.command == "dblclick" ? 2 : 1)

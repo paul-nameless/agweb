@@ -21,12 +21,12 @@ agweb -w fix-login close # when done; otherwise the workspace reopens after a re
 
 - Name the workspace uniquely: another agent may be running the same kind of task, and two agents in one workspace act on each other's tabs. Prefer an id you already have (ticket `PROJ-123`, branch, PR number), else a task name plus a random suffix (`fix-login-7f3a`). Run `agweb list` first; a name already listed belongs to someone else.
 - Pass `-w` on every call, or `export AGWEB_WORKSPACE=fix-login`. A shell function `a() { agweb -w fix-login "$@"; }` works; a variable holding `agweb -w fix-login` does not in zsh. Never touch a workspace you didn't open (`agweb list` shows them all).
-- `goto`, `go-back`, `reload` wait for the new page; `goto` and `open` also report `redirected to ...` under Events when a login or SSO bounce moved you. `eval "location.href=..."` tells you nothing.
+- `goto`, `go-back`, `reload` wait for the new page; `goto` and `open` also report `redirected to ...` under Events when a login or SSO bounce moved you, to another host or path. `eval "location.href=..."` tells you nothing.
 - Keep stderr. Errors say why and exit 1: an ambiguous target, a timeout over the cap, a misspelled option. Never `2>/dev/null`; chain dependent steps with `&&`, not `;`.
 - Actions (not `upload`) wait up to 5 s for their target to show (`--timeout=MS`, 0 to skip; fields only need to exist), so `click` right after the page changed is fine; `wait` for anything slower. A ref from an earlier page fails with `ref eN not found`.
 - After a snapshot, `click`, `fill`, `type`, `press`, `check`, `select`, `hover` and `drag` replies carry `### Changes`: the fetch/XHR calls they started and the tree lines added (`+`) or removed (`-`) under their parents, so read that before taking another snapshot. Over 20 lines it is cut; `snapshot --diff` has the rest.
 - Every reply ends with `### Page` (URL, title). `### Events` lists alerts, confirms, popups, downloads and redirects; `- Console: N new errors` means run `console error`.
-- Logins need a named profile (`-p`). If none exists and you have no credentials, `ask` the person to log in once; never guess. `ask` is also for MFA codes, CAPTCHAs and anything only a person may click: it shows a bar with Done on the tab, without taking focus, and returns on Done, when the target, `--text` or `--url` appears, or after `--timeout` (default 10 min, up to 1 h).
+- Logins need a named profile (`-p`). If none exists and you have no credentials, `ask` the person to log in once; never guess. `ask` is also for MFA codes, CAPTCHAs, a bot check that fails ("verify your browser") and anything only a person may click: it shows a bar with Done on the tab, without taking focus, and returns on Done, when the target, `--text` or `--url` appears, or after `--timeout` (default 10 min, up to 1 h).
 - Between commands your tab is hidden after 30 s and suspended after ~4 min; every command wakes it, so nothing is lost.
 
 ## Targets
@@ -79,7 +79,8 @@ agweb -w t wait 1500 # fixed pause; last resort
 
 ```sh
 agweb -w t --raw text # an article as markdown (a page with no article comes back whole; without --raw the reply says so)
-agweb -w t --raw text e12 # one element as markdown
+agweb -w t --raw text e12 # one element as markdown; on a feed or listing, the list's container reads cleaner than the page
+agweb -w t --raw text --all # the whole page: the article can leave out plans, prices or sidebars (without --raw the reply notes when it kept under half the words)
 agweb -w t snapshot e12 # structure: rows, cells, links, with refs to act on
 agweb -w t --raw eval "[...document.querySelectorAll('table tr')].map(r => [...r.cells].map(c => c.innerText.trim()).join(' | ')).join('\n')"
 agweb -w t --raw eval "(el) => el.value" e5 # what a snapshot hides: values, attributes, computed style

@@ -260,11 +260,17 @@ public enum PageScripts {
     /// Markdown through Defuddle (loaded into this world first): one element converted whole, or the page's main
     /// content. A page with little article in it (a web app) is converted whole instead.
     public static let text = find + """
-    const reply = (markdown, whole = false) => JSON.stringify({ markdown, whole });
+    // Inline SVG icons come through as markup, which no reader wants.
+    const noSvg = (md) => md.replace(/<svg[\\s\\S]*?<\\/svg>/gi, '');
+    const words = (s) => (s.match(/\\S+/g) || []).length;
+    const reply = (markdown, whole = false, kept = 0, shown = 0) => JSON.stringify({ markdown: noSvg(markdown), whole, kept, shown });
     if (target) return reply(Defuddle.createMarkdownContent(find(target).outerHTML, location.href));
+    const body = () => Defuddle.createMarkdownContent(document.body.innerHTML, location.href);
+    if (everything) return reply(body(), true);
     const page = new Defuddle(document, { markdown: true, url: location.href }).parse();
-    if (page.wordCount < 50) return reply(Defuddle.createMarkdownContent(document.body.innerHTML, location.href), true);
-    return reply((page.title ? `# ${page.title}\\n\\n` : '') + page.content);
+    if (page.wordCount < 50) return reply(body(), true);
+    // The article can leave out what a reader came for, such as a pricing page's plans: say how much it kept.
+    return reply((page.title ? `# ${page.title}\\n\\n` : '') + page.content, false, page.wordCount, words(document.body.innerText));
     """
 
     // Returns the element's center in CSS pixels (`reveal` brings it into view first), what actually sits there, and

@@ -17,7 +17,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   snapshot [target]             page (or one element) as a tree with [ref=eN] handles; same-origin iframes included
                                 (--diff: only what changed since the last snapshot; an element keeps its ref)
   find <text>                   the snapshot lines containing text, with the lines around them (--max-results=20)
-  text [target]                 the page's main content (an article) or one element as markdown
+  text [target]                 the page's main content (an article) or one element as markdown (--all: the whole page)
   click <target> [right|middle] native trusted click: the pointer glides there like a person's (--js: element.click())
   dblclick <target>             native double click
   check | uncheck <target>      tick or clear a checkbox, radio or switch (no-op when already so)
@@ -108,7 +108,7 @@ var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
 // --headed and --browser are accepted for playwright-cli habits; agweb is always headed WebKit.
 let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw", "json", "static", "clear", "hide", "diff",
-                  "httpOnly", "secure", "gone", "load", "single-page", "check"]
+                  "httpOnly", "secure", "gone", "load", "single-page", "check", "all"]
 let valued: Set = ["profile", "workspace", "max-idle", "filename", "size", "filter", "status", "body", "content-type",
                    "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser", "text", "url",
                    "timeout", "color-scheme", "format", "download-dir", "secret-cmd", "secret-file", "max-results"]
