@@ -199,6 +199,14 @@ final class MainWindow: NSObject, NSWindowDelegate {
     @objc func showNextTab(_ sender: Any?) { stepTab(1) }
     @objc func showPreviousTab(_ sender: Any?) { stepTab(-1) }
 
+    /// ⌘1…⌘8 show that tab in sidebar order, ⌘9 the last, as in Safari; the menu item's tag is the number.
+    @objc func showTabNumber(_ sender: NSMenuItem) {
+        let tabs = model.workspaces.flatMap(\.tabs)
+        guard let tab = sender.tag == 9 ? tabs.last : tabs.dropFirst(sender.tag - 1).first else { return }
+        model.dashboardOpen = false
+        model.display(tab.id)
+    }
+
     private func stepTab(_ step: Int) {
         let tabs = model.workspaces.flatMap(\.tabs)
         guard !tabs.isEmpty else { return }

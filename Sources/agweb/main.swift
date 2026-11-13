@@ -82,6 +82,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
   install-cli [--check]         link /usr/local/bin/agweb to this app's CLI (also Help menu); --check says what is there
   install-skill [--check]       link the agent skill for Claude Code and Codex to this app's (also Help menu)
   quit                          stop agweb
+  version                       this agweb's version and the commit it was built from (also --version); put it in bug reports
 
 --instant                       pointer verbs, scrolling, upload and type act at once instead of at human speed
 --timeout=MS                    actions wait this long for their target to show (default 5000; 0: don't wait); wait: 30000
@@ -108,7 +109,7 @@ var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
 // --headed and --browser are accepted for playwright-cli habits; agweb is always headed WebKit.
 let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw", "json", "static", "clear", "hide", "diff",
-                  "httpOnly", "secure", "gone", "load", "single-page", "check", "all", "enabled"]
+                  "httpOnly", "secure", "gone", "load", "single-page", "check", "all", "enabled", "version"]
 let valued: Set = ["profile", "workspace", "max-idle", "filename", "size", "filter", "status", "body", "content-type",
                    "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser", "text", "url",
                    "timeout", "color-scheme", "format", "download-dir", "secret-cmd", "secret-file", "max-results"]
@@ -169,6 +170,12 @@ func commandHelp(_ name: String) -> String? {
         }
     }
     return out.isEmpty ? nil : out.joined(separator: "\n")
+}
+if options["version"] != nil || positional.first == "version" {
+    let info = appBundle().flatMap { NSDictionary(contentsOfFile: $0 + "/Contents/Info.plist") }
+    let version = info?["CFBundleShortVersionString"] as? String ?? "unknown"
+    print("agweb \(version)" + ((info?["AgwebCommit"] as? String).map { " (\($0))" } ?? ""))
+    exit(0)
 }
 guard let command = positional.first, command != "help", options["help"] == nil else {
     // `help type` and `type --help` show that command; anything else the whole usage.

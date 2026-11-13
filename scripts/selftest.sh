@@ -256,6 +256,8 @@ check "Page" -w alpha eval "() => { const c = document.createElement('input'); c
 check "Page" -w alpha check '#locked' --timeout=300
 fails "#locked is disabled" -w alpha uncheck '#locked' --timeout=300
 check "agweb go-forward:" help go-forward
+check "agweb 0." version
+check "agweb 0." --version
 lacks "dialog-accept" help text
 check "Page" -w alpha eval "() => ['later', 'never', 'locked'].forEach(id => document.getElementById(id).remove())"
 check "Page" -w alpha uncheck '#cb'

@@ -164,7 +164,7 @@ agweb -w t show # put your tab in view for the person, without activating the wi
 agweb -w t scroll-into-view e40 # glide an element on screen for a screenshot or the person; actions scroll there by themselves
 ```
 
-Use `--instant` for pointer verbs and `type` when looking human doesn't matter. Everything else (cookies, `state-save`/`state-load`, `pdf`, `emulate`, `drag`, `mousewheel`, `keydown`) is in `agweb help`; `agweb help <command>` shows one. `type` takes only text and types where the focus is: `fill <target> <text>` types into an element.
+Use `--instant` for pointer verbs and `type` when looking human doesn't matter. Everything else (cookies, `state-save`/`state-load`, `pdf`, `emulate`, `drag`, `mousewheel`, `keydown`) is in `agweb help`; `agweb help <command>` shows one. Put `agweb version` in a bug report about agweb. `type` takes only text and types where the focus is: `fill <target> <text>` types into an element.
 
 ## Troubleshooting
 

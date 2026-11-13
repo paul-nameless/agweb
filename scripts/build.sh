@@ -24,6 +24,8 @@ bin=$(swift build -c release -Xswiftc -DAGWEB_COMMAND_LOG --show-bin-path)
 # The app and the CLI share a name, so the CLI lives in Helpers.
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources/skill" bin
 cp -f Resources/Info.plist "$app/Contents/Info.plist"
+# agweb version prints it, for bug reports; -dirty marks uncommitted changes.
+plutil -insert AgwebCommit -string "$(git describe --always --dirty 2>/dev/null || echo unknown)" "$app/Contents/Info.plist"
 $test && plutil -replace CFBundleIdentifier -string "$(plutil -extract CFBundleIdentifier raw Resources/Info.plist).test" "$app/Contents/Info.plist"
 cp -f Resources/AppIcon.icns Resources/defuddle.js Resources/defuddle-LICENSE "$app/Contents/Resources/"
 cp -f skill/SKILL.md "$app/Contents/Resources/skill/"

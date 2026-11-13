@@ -125,6 +125,12 @@ private func makeMainMenu(target: MainWindow, settings: SettingsWindow) -> NSMen
         item("Show Next Tab", #selector(MainWindow.showNextTab(_:)), "}", to: target),
         item("Show Previous Tab", #selector(MainWindow.showPreviousTab(_:)), "{", to: target),
         .separator(),
+    ] + (1...9).map { number in
+        let tab = item(number == 9 ? "Show Last Tab" : "Show Tab \(number)", #selector(MainWindow.showTabNumber(_:)), "\(number)", to: target)
+        tab.tag = number
+        return tab
+    } + [
+        .separator(),
         item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
         // ⌘0 is Actual Size, as in Safari.
         item("Show Browser", #selector(NSWindow.makeKeyAndOrderFront(_:)), "0", [.command, .shift], to: target.window),
