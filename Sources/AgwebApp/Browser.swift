@@ -24,7 +24,6 @@ final class Browser {
         model.onDisplay = { [weak self] id in
             guard let self, let tab = self.model.displayedTab, tab.id == id else { return }
             self.mainWindow.bringToTop(tab.webView)
-            tab.lastActivity = Date()
             self.updateVisibility()
             Task { try? await tab.loadIfPending() }
             self.scheduleSave()

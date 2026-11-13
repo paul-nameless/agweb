@@ -58,10 +58,11 @@ struct DashboardView: View {
     @AppStorage(Settings.textSize, store: Settings.store) private var textSize = TextSize.medium
 
     var body: some View {
-        let recent = model.workspaces.flatMap(\.tabs).sorted { ($0.lastActivity, $1.id) > ($1.lastActivity, $0.id) }
-        let place = Dictionary(uniqueKeysWithValues: (frozen ?? recent.map(\.id)).enumerated().map { ($1, $0) })
+        // Newest first, by when the tab was made (ids only grow); what agents do in a tab never moves it.
+        let newest = model.workspaces.flatMap(\.tabs).sorted { $0.id > $1.id }
+        let place = Dictionary(uniqueKeysWithValues: (frozen ?? newest.map(\.id)).enumerated().map { ($1, $0) })
         // New tabs go last while frozen.
-        let tabs = recent.sorted { (place[$0.id] ?? .max) < (place[$1.id] ?? .max) }
+        let tabs = newest.sorted { (place[$0.id] ?? .max) < (place[$1.id] ?? .max) }
         let usage = showUsage ? model.processes : [:]
         let sharing = Dictionary(grouping: tabs.map(\.processID), by: { $0 }).mapValues(\.count)
         ScrollView {
