@@ -50,10 +50,19 @@ failures=0
 fail() { printf 'FAIL  %s\n' "$1"; failures=$((failures + 1)); }
 now() { /usr/bin/python3 -c 'import time; print(time.time())'; }
 frontmost() { lsappinfo info -only bundleid "$(lsappinfo front)" | sed 's/.*="\(.*\)"/\1/'; }
+# CI runners activate every app they launch, `open -g` or not (TextEdit too). There a launch may leave agweb in front:
+# Finder takes it back before the next command, and only a command that launched nothing fails for being in front.
+ours() { case "$(frontmost)" in "$domain"|"$test_domain") return 0 ;; esac; return 1; }
+running() { lsappinfo find bundleid="$test_domain" | grep -q .; }
 
 # run <expected status: 0 or 1> <pattern> <agweb args...>: the exit status and the output (stdout+stderr) must match.
 run() {
     want=$1 pattern=$2; shift 2
+    launch=
+    if [ -n "${AGWEB_CI:-}" ]; then
+        ours && osascript -e 'tell application "Finder" to activate' >/dev/null
+        running || launch=1
+    fi
     out=$("$agweb" "$@" 2>&1); status=$?
     [ "$status" -ne 0 ] && status=1
     if [ "$status" -eq "$want" ] && printf '%s' "$out" | grep -q -- "$pattern"; then
@@ -62,7 +71,7 @@ run() {
         printf 'FAIL  agweb %s\n      expected exit %s and: %s\n%s\n' "$*" "$want" "$pattern" "$(printf '%s' "$out" | sed 's/^/      | /')"
         failures=$((failures + 1))
     fi
-    case "$(frontmost)" in "$domain"|"$test_domain") fail "agweb became the frontmost app after: agweb $*" ;; esac
+    ours && [ -z "$launch" ] && fail "agweb became the frontmost app after: agweb $*"
 }
 check() { run 0 "$@"; }
 paced() { AGWEB_INSTANT=; check "$@"; AGWEB_INSTANT=1; }
@@ -525,7 +534,9 @@ check "Page" -w alpha eval "() => { q.value = '' }"
 check "Page" -w alpha type -- '--y teh'
 check '"--y teh"' -w alpha eval 'q.value'
 fails "missing <target>" -w alpha click
-fails "navigation failed" -w alpha goto http://127.0.0.1:1/
+# A port nobody listens on (port 1 is one WebKit refuses outright, and macOS 26's WebKit answers that with about:blank).
+dead=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+fails "navigation failed" -w alpha goto "http://127.0.0.1:$dead/"
 fails "boom" -w alpha eval '() => { throw new Error("boom") }'
 fails "is not a field" -w alpha fill '#b' x
 fails "no workspace\|no session" -w nobody snapshot

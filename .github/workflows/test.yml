@@ -17,4 +17,6 @@ jobs:
       - name: Build
         run: echo "AGWEB_CLI=$(scripts/build.sh --test)" >> "$GITHUB_ENV"
       - name: Self-test
+        env:
+          AGWEB_CI: 1
         run: scripts/selftest.sh
