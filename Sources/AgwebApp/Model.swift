@@ -211,13 +211,16 @@ enum Profiles {
     private static func makeStore(_ name: String) -> WKWebsiteDataStore {
         if Agweb.isDefaultRoot { return WKWebsiteDataStore(forIdentifier: identifier(name)) }
         let folder = webKitFolder.appendingPathComponent(identifier(name).uuidString)
-        let make = NSSelectorFromString("_storeWithConfiguration:"), initDirectory = NSSelectorFromString("initWithDirectory:")
+        let initDirectory = NSSelectorFromString("initWithDirectory:"), initStore = NSSelectorFromString("_initWithConfiguration:")
+        let alloc = NSSelectorFromString("alloc")
+        // macOS 26's WebKit has only -_initWithConfiguration:, not +_storeWithConfiguration:. init consumes the
+        // allocation and returns a retained object.
         if let configuration = NSClassFromString("_WKWebsiteDataStoreConfiguration") as? NSObject.Type,
-           configuration.instancesRespond(to: initDirectory), (WKWebsiteDataStore.self as AnyObject).responds(to: make),
-           let allocated = (configuration as AnyObject).perform(NSSelectorFromString("alloc")),
-           // init consumes the allocation and returns a retained object.
-           let config = allocated.takeUnretainedValue().perform(initDirectory, with: folder as NSURL)?.takeRetainedValue(),
-           let store = (WKWebsiteDataStore.self as AnyObject).perform(make, with: config)?.takeUnretainedValue() as? WKWebsiteDataStore {
+           configuration.instancesRespond(to: initDirectory), WKWebsiteDataStore.instancesRespond(to: initStore),
+           let config = (configuration as AnyObject).perform(alloc)?.takeUnretainedValue()
+               .perform(initDirectory, with: folder as NSURL)?.takeRetainedValue(),
+           let store = (WKWebsiteDataStore.self as AnyObject).perform(alloc)?.takeUnretainedValue()
+               .perform(initStore, with: config)?.takeRetainedValue() as? WKWebsiteDataStore {
             return store
         }
         fatalError("this WebKit has no _WKWebsiteDataStoreConfiguration; a profile on AGWEB_ROOT \(Agweb.root.path) can't be kept in it")
