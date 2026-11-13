@@ -1,5 +1,5 @@
-.build/
 build/
 bin/
-.DS_Store
-.swiftpm/
+.*
+!.gitignore
+!.github/
