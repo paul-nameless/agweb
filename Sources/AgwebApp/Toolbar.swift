@@ -111,7 +111,7 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            guard let tab = model.displayedTab, let url = try? Address.url(urlField.stringValue) else { return true }
+            guard let tab = model.displayedTab, let url = Address.typed(urlField.stringValue) else { return true }
             Task { await tab.load(url) }
             window.makeFirstResponder(tab.webView)
             return true
