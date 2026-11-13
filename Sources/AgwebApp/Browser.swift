@@ -779,10 +779,10 @@ final class Browser {
         if let target = arg {
             let gone = options["gone"] != nil, enabled = options["enabled"] != nil
             what = gone ? "\(target) to go" : enabled ? "\(target) to be enabled" : target
-            check = { try await tab.call(PageScripts.present, ["target": target, "gone": gone, "attached": false, "enabled": enabled]) == "true" }
+            check = { try await tab.call(PageScripts.present, ["target": target, "gone": gone, "attached": false, "enabled": enabled], timeout: 3) == "true" }
         } else if let text = options["text"] {
             what = "text \(text.debugDescription)"
-            check = { try await tab.call(PageScripts.hasText, ["text": text]) == "true" }
+            check = { try await tab.call(PageScripts.hasText, ["text": text], timeout: 3) == "true" }
         } else if let url = options["url"] {
             what = "a URL containing \(url)"
             check = { tab.webView.url?.absoluteString.contains(url) ?? false }
@@ -790,7 +790,7 @@ final class Browser {
             what = "the page to load and the network to go quiet"
             var quietSince: Double?
             check = {
-                let loaded = try await tab.call(PageScripts.quiet, world: .page) == "true"
+                let loaded = try await tab.call(PageScripts.quiet, world: .page, timeout: 3) == "true"
                 let quiet = loaded && !tab.webView.isLoading
                 let now = ProcessInfo.processInfo.systemUptime
                 quietSince = quiet ? quietSince ?? now : nil
@@ -868,7 +868,7 @@ final class Browser {
         guard ms > 0 else { return }
         let attached = ["fill", "select", "check", "uncheck"].contains(command)
         let enabled = enabled ?? ["click", "dblclick", "fill", "select"].contains(command)
-        let state = { try await tab.call(PageScripts.present, ["target": target, "gone": false, "attached": attached, "enabled": enabled]) }
+        let state = { try await tab.call(PageScripts.present, ["target": target, "gone": false, "attached": attached, "enabled": enabled], timeout: 3) }
         do {
             _ = try await poll(ms / 1000, target) { try await state() == "true" }
         } catch let error as Failure where error.description.hasPrefix("timed out") {

@@ -829,11 +829,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     // MARK: JavaScript
 
     /// Runs a function body; the body must return a string.
-    func call(_ body: String, _ arguments: [String: Any] = [:], world: WKContentWorld? = nil) async throws -> String {
+    /// `timeout`: a script sent to a page as it is replaced can get no answer at all; polls use a short one.
+    func call(_ body: String, _ arguments: [String: Any] = [:], world: WKContentWorld? = nil, timeout: Double = 30) async throws -> String {
         let world = world ?? Tab.agentWorld
         var arguments = arguments
         if arguments["refSeed"] == nil { arguments["refSeed"] = workspace.refSeed }
-        return try await withTimeout(30, "page script") { [webView, arguments, workspace] in
+        return try await withTimeout(timeout, "page script") { [webView, arguments, workspace] in
             try await withCheckedThrowingContinuation { continuation in
                 webView.callAsyncJavaScript(body, arguments: arguments, in: nil, in: world) { result in
                     switch result {

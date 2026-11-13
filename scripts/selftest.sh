@@ -185,6 +185,10 @@ check "Page" -w alpha eval "() => document.getElementById('veiled').remove()"
 check "Cloudflare check.*mousemove [0-9]* [0-9]*" -w alpha goto "$u?challenge=1"
 check '"note":"Cloudflare check' -w alpha --json text
 lacks "Cloudflare check" -w alpha go-back
+# Across a page change to another site (a new web process), as a challenge page hands over to the real one.
+check "Page" -w alpha eval "() => setTimeout(() => location.assign('http://localhost:$port/side.html'), 300)"
+check "waited .* s for text=\"Side button\"" -w alpha wait 'text="Side button"' --timeout=10000
+check "URL: $u\$" -w alpha go-back
 check '"undefined"' -w alpha eval 'typeof Defuddle'
 check "Page" -w alpha fill '#q' again --submit
 check '"submit:again"' -w alpha eval 'log'
