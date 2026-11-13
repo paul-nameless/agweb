@@ -123,9 +123,10 @@ public enum PageScripts {
         return el;
       }
       if (!/^(role|text)=/.test(target)) {
-        const el = document.querySelector(target);
-        if (!el) throw new Error(`no element matches ${target}`);
-        return el;
+        // The first one a person can see: a page often keeps a hidden copy first (a collapsed quick-login form).
+        const els = document.querySelectorAll(target);
+        if (!els.length) throw new Error(`no element matches ${target}`);
+        return [...els].find(visible) ?? els[0];
       }
       const matches = matchesOf(target);
       if (matches.length === 0) {

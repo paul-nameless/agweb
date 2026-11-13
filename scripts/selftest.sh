@@ -182,6 +182,13 @@ check "#veiled is hidden on the page" -w alpha text '#veiled'
 check "Page" -w alpha eval "() => { const g = document.getElementById('veiled'); g.hidden = false; g.textContent = '' }"
 check "#veiled shows no text yet" -w alpha text '#veiled'
 check "Page" -w alpha eval "() => document.getElementById('veiled').remove()"
+# A hidden copy first (a collapsed quick-login form): CSS targets the one a person sees.
+check "Page" -w alpha eval "() => { for (const hidden of [true, false]) { const i = document.createElement('input'); i.className = 'twin'; i.hidden = hidden; document.body.append(i) } }"
+check "already true when wait started" -w alpha wait '.twin'
+check "Page" -w alpha fill '.twin' seen
+check '"seen"' -w alpha eval "() => document.querySelectorAll('.twin')[1].value + document.querySelectorAll('.twin')[0].value"
+fails "now: .twin\[hidden\] is on the page but hidden" -w alpha wait '.twin[hidden]' --timeout=300
+check "Page" -w alpha eval "() => document.querySelectorAll('.twin').forEach(e => e.remove())"
 check "Cloudflare check.*mousemove [0-9]* [0-9]*" -w alpha goto "$u?challenge=1"
 check '"note":"Cloudflare check' -w alpha --json text
 lacks "Cloudflare check" -w alpha go-back

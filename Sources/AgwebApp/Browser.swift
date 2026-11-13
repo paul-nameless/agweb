@@ -755,11 +755,13 @@ final class Browser {
         } catch let error as Failure where error.description.hasPrefix("timed out") && arg != nil && options["gone"] == nil {
             guard let arg else { throw error }
             // Why the target still misses: a role= miss lists that role's visible elements, so the next try needs no snapshot.
+            let now: String
             do {
-                _ = try await tab.call(PageScripts.find + "find(target); return 'ok'", ["target": arg])
+                now = try await tab.call(PageScripts.find + "return visible(find(target)) ? 'ok' : 'hidden'", ["target": arg])
             } catch let miss as Failure {
                 throw Failure("\(error.description); now: \(miss.description)")
             }
+            if now == "hidden" { throw Failure("\(error.description); now: \(arg) is on the page but hidden") }
             throw error
         }
         // The first check runs before any sleep: an agent expecting new text usually matched old text.
