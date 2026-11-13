@@ -174,6 +174,7 @@ final class Browser {
     private func newTabFromUser(in workspace: Workspace?) {
         guard let workspace = workspace ?? model.displayedTab?.workspace ?? (try? existingOrNewWorkspace(named: Self.userWorkspace, profile: nil)) else { return }
         let tab = makeTab(in: workspace, configuration: nil, opener: nil)
+        model.dashboardOpen = false
         model.display(tab.id)
         mainWindow.focusAddress()
     }

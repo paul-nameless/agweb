@@ -174,8 +174,15 @@ final class MainWindow: NSObject, NSWindowDelegate {
         webView.frame = NSRect(x: 0, y: host.bounds.height - height, width: size.width, height: height)
     }
 
-    func focusAddress() {
-        window.makeFirstResponder(urlField)
+    /// The dashboard hides the address item and shows it again a moment after it closes, so the field may join the
+    /// window late (⌘T in the dashboard); tries for about half a second.
+    func focusAddress(tries: Int = 15) {
+        window.layoutIfNeeded()
+        if urlField.window === window, !urlField.isHiddenOrHasHiddenAncestor, window.makeFirstResponder(urlField) {
+            urlField.selectText(nil)
+        } else if tries > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in self?.focusAddress(tries: tries - 1) }
+        }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -192,7 +199,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     }
 
     @objc func openLocation(_ sender: Any?) {
-        if model.displayedTab == nil { model.onNewTab?(nil) } else { focusAddress() }
+        if model.displayedTab == nil { model.onNewTab?(nil) } else { model.dashboardOpen = false; focusAddress() }
     }
 
     /// Every tab in sidebar order, across workspaces, wrapping at either end.
