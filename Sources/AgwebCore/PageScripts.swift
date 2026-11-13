@@ -289,7 +289,10 @@ public enum PageScripts {
     const md = (box) => Defuddle.createMarkdownContent(box.innerHTML, location.href);
     const words = (s) => (s.match(/\\S+/g) || []).length;
     const reply = (markdown, whole = false, kept = 0, shown = 0) => JSON.stringify({ markdown, whole, kept, shown });
-    if (target) return reply(md(shownCopy(find(target), false)));
+    if (target) {
+      const el = find(target);
+      return JSON.stringify({ markdown: md(shownCopy(el, false)), hidden: !el.checkVisibility() });
+    }
     const body = () => md(shownCopy(document.body, true));
     if (everything) return reply(body(), true);
     const page = new Defuddle(document, { url: location.href }).parse();
