@@ -9,10 +9,14 @@ extension Browser {
     func requestList(_ tab: Tab, filter: String?, includeStatic: Bool, clear: Bool) async throws -> String {
         let regex = try filter.map { try NSRegularExpression(pattern: $0) }
         func keep(_ url: String) -> Bool { regex.map { $0.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil } ?? true }
+        let blocked = Set(tab.blocked)
+        let unlisted = { (listed: Set<String>) in NSOrderedSet(array: tab.blocked).array.compactMap { $0 as? String }.filter { !listed.contains($0) && keep($0) } }
+        var listed: Set<String> = []
         var lines = tab.requests.enumerated().compactMap { index, entry -> String? in
             let url = entry["url"] as? String ?? ""
             guard keep(url) else { return nil }
-            let status = entry["failure"].map { "failed: \($0)" } ?? (entry["status"].map { "\($0)" } ?? "pending")
+            listed.insert(url)
+            let status = entry["failure"].map { blocked.contains(url) ? "blocked by adblock" : "failed: \($0)" } ?? (entry["status"].map { "\($0)" } ?? "pending")
             return "\(index + 1). [\(entry["method"] as? String ?? "GET")] \(url) => \(status)\((entry["routed"] as? Bool) == true ? " (routed)" : "") [\(entry["kind"] as? String ?? "")]"
         }
         if includeStatic {
@@ -27,8 +31,14 @@ extension Browser {
                 return "- [\(entry[1])] \(url) => \(status)"
             }
             if !statics.isEmpty { lines += ["### Static"] + statics }
+            // Blocked loads never reach the performance timeline.
+            let stopped = unlisted(listed)
+            if !stopped.isEmpty { lines += ["### Blocked by adblock"] + stopped.map { "- \($0)" } }
+        } else {
+            let stopped = unlisted(listed).count
+            if stopped > 0 { lines.append("(\(stopped) more blocked by adblock: images, scripts, frames; --static lists them; adblock off lets them through in this workspace)") }
         }
-        if clear { tab.requests.removeAll() }
+        if clear { tab.requests.removeAll(); tab.blocked.removeAll() }
         return lines.isEmpty ? "no requests" + (filter.map { " matching \($0)" } ?? "") : lines.joined(separator: "\n")
     }
 

@@ -8,13 +8,14 @@ enum Settings {
     /// never changes or deletes the person's.
     static let store: UserDefaults = {
         let store = Agweb.isDefaultRoot ? .standard : UserDefaults(suiteName: Agweb.settingsSuite(root: Agweb.root))!
-        store.register(defaults: [showUsage: true])
+        store.register(defaults: [showUsage: true, adBlock: true])
         return store
     }()
     static let showUsage = "dashboardShowsUsage"
     /// 0 fits as many as the width allows.
     static let columns = "dashboardColumns"
     static let textSize = "textSize"
+    static let adBlock = "blockAds"
 }
 
 /// The sidebar's and the dashboard's text; pages have their own zoom (⌘+, ⌘−).
@@ -31,6 +32,8 @@ struct SettingsView: View {
     @AppStorage(Settings.showUsage, store: Settings.store) private var showUsage = true
     @AppStorage(Settings.columns, store: Settings.store) private var columns = 0
     @AppStorage(Settings.textSize, store: Settings.store) private var textSize = TextSize.medium
+    @AppStorage(Settings.adBlock, store: Settings.store) private var adBlock = true
+    @State private var adBlockStatus = ""
     @State private var skill: [String] = []
     @State private var cli = ""
 
@@ -40,7 +43,20 @@ struct SettingsView: View {
                 Picker("Text size", selection: $textSize) {
                     ForEach(TextSize.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                Text("Sidebar and dashboard. Zoom a page with ⌘+ and ⌘−.").font(.caption).foregroundStyle(.secondary)
+                Text("Sidebar and dashboard. ⌘+ and ⌘− zoom a page.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Ads and trackers") {
+                Toggle("Block ads and trackers", isOn: $adBlock)
+                    .onChange(of: adBlock) { AdBlock.shared.settingChanged(); adBlockStatus = AdBlock.shared.summary }
+                LabeledContent(adBlockStatus) {
+                    Button("Update") {
+                        let task = AdBlock.shared.update(force: true)
+                        adBlockStatus = AdBlock.shared.summary
+                        Task { await task.value; adBlockStatus = AdBlock.shared.summary }
+                    }
+                    .disabled(!adBlock)
+                }
+                Text("uBlock Origin's lists. Agents can turn it off for their own workspace.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Dashboard") {
                 Picker("Columns", selection: $columns) {
@@ -50,25 +66,22 @@ struct SettingsView: View {
                     ForEach(1...6, id: \.self) { Text("\($0)").tag($0) }
                 }
                 Toggle("Show CPU and memory", isOn: $showUsage)
-                Text("Each page's process, and the total for agweb with its GPU and network processes, sampled every 5 s while the dashboard is open.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Command line tool") {
-                Text(cli)
-                Button("Install") { CLIInstaller.runWithAlert(); cli = CLIInstaller.status }
-                Text("Links agweb into /usr/local/bin, so every terminal and agent can run it, and it updates with the app. Asks for an administrator password if that folder isn't writable.")
-                    .font(.caption).foregroundStyle(.secondary)
+                LabeledContent(cli) {
+                    Button("Install") { CLIInstaller.runWithAlert(); cli = CLIInstaller.status }
+                }
+                Text("Links agweb into /usr/local/bin.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Agent skill") {
                 ForEach(skill, id: \.self) { Text($0) }
                 Button("Install for Claude Code and Codex") { skill = SkillInstaller.install() }
-                Text("Links ~/.claude/skills/agweb and ~/.codex/skills/agweb to the skill inside the app, so agents learn the agweb command and the skill updates with the app. A skill of your own there is left alone.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .onAppear {
             cli = CLIInstaller.status
+            adBlockStatus = AdBlock.shared.summary
             skill = SkillInstaller.agents.map { "\($0.name): \(SkillInstaller.status($0.folder))" }
         }
         .frame(width: 440)

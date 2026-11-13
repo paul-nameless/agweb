@@ -138,6 +138,8 @@ agweb -w t highlight e5 # outline it for the person; --hide clears
 
 `requests` and `route` cover fetch and XHR, not images or scripts (`requests --static` lists those without details).
 
+Ads and trackers are blocked, so analytics, error reporting (Sentry, Datadog) and ad calls fail and `requests` marks them "blocked by adblock". Testing those: `agweb -w t adblock off`, then `reload`.
+
 **Mocking an API.**
 
 ```sh

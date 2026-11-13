@@ -20,6 +20,7 @@ Idle tabs are suspended: on my Mac five open pages sit at 0% CPU, where Chrome's
 - **Acts like a person.** Clicks and keys are native macOS events, and the pointer moves like a hand, so hover menus and drag-and-drop work.
 - **Made for agents.** Snapshots give each element a ref that lasts while it is on the page. `snapshot --diff` and `find` show only what matters, and every action reports what it changed.
 - **Passwords stay out of the transcript.** `fill --secret-cmd 'pass show site'` types a secret the agent never sees in replies. 1Password and Bitwarden CLIs work too.
+- **No ads.** Ads and trackers are blocked with uBlock Origin's lists, which agweb downloads every 4 days. An agent testing analytics can turn it off for its own workspace (`agweb -w task adblock off`).
 - **Demo videos.** `video-start` records a tab to MP4, with the pointer and clicks drawn in.
 
 
@@ -55,7 +56,7 @@ The click's reply already says what it did, so the agent needs no second snapsho
 +       - link "Main page" [ref=e1169]
 ```
 
-`agweb help` lists every command. Settings (⌘,) has text size, dashboard columns and a CPU and memory readout.
+`agweb help` lists every command. Settings (⌘,) has text size, dashboard columns, a CPU and memory readout and the ad blocker switch.
 
 ## Compared with playwright-cli
 
@@ -72,6 +73,7 @@ Same commands where possible, so agents already know them; a Playwright name it 
 
 - WebKit only: no Chrome DevTools Protocol, so Playwright and Chrome extensions can't attach, and Chrome-only sites may misbehave.
 - `route` mocks fetch and XHR only; `requests` lists images, scripts and styles by URL only (`--static`).
+- The ad blocker can't run uBlock's scripts, so YouTube ads and some "turn off your ad blocker" walls get through.
 - For what it can't do, use Playwright.
 
 ## Develop

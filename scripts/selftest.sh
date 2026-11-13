@@ -36,6 +36,9 @@ for _ in 1 2 3; do
 done
 [ -n "$server" ] || { echo "the test server did not start; see $dir/server.log"; cat "$dir/server.log"; exit 1; }
 u="http://127.0.0.1:$port/index.html"
+# Ad blocking is on by default; this instance compiles a local list instead of fetching uBlock Origin's.
+printf '||127.0.0.1^*blockapi\n/blockme.png\n' >"$dir/blocklist.txt"
+export AGWEB_ADBLOCK_LISTS="http://127.0.0.1:$port/blocklist.txt"
 # Downloads and files nobody named land in the test's folder: the checkout may sit under ~/Downloads, which would
 # make every rebuilt (newly signed) test app ask for access to it.
 export AGWEB_DOWNLOAD_DIR="$dir/downloads"
@@ -326,6 +329,25 @@ check "no routes" -w alpha route-list
 check "frame.html" -w alpha requests --static
 check "api" -w alpha requests --clear
 check "no requests" -w alpha requests --filter 'api$'
+
+echo "== ad blocking"
+check "ad blocking on: 3 network and 0 hiding rules from blocklist.txt" -w adb adblock update
+# The page itself always loads, even one a filter names.
+check "Title: agweb test" -w adb open "$u?blockapi"
+check '^blocked$' -w adb --raw eval "() => fetch('/index.html?blockapi').then(() => 'loaded', () => 'blocked')"
+check 'blockapi => blocked by adblock \[fetch\]' -w adb requests --filter 'blockapi$'
+check '^ok$' -w adb --raw eval "() => new Promise(r => { const i = new Image(); i.onload = i.onerror = () => r('ok'); i.src = '/blockme.png' })"
+check '1 more blocked by adblock' -w adb requests --filter blockme
+check '### Blocked by adblock' -w adb requests --static --filter blockme
+check 'ad blocking off in workspace adb' -w adb adblock off
+check '^loaded$' -w adb --raw eval "() => fetch('/index.html?blockapi').then(() => 'loaded', () => 'blocked')"
+check '^blocked$' -w alpha --raw eval "() => fetch('/index.html?blockapi').then(() => 'loaded', () => 'blocked')"
+check 'ad blocking on:' -w adb adblock on
+check '^blocked$' -w adb --raw eval "() => fetch('/index.html?blockapi').then(() => 'loaded', () => 'blocked')"
+fails "adblock takes on, off, update" -w adb adblock bogus
+fails "no workspace 'nosuch'" -w nosuch adblock off
+check "agweb adblock:" help adblock
+check "closed" -w adb close
 check "$dir/dl/saved.html" -w alpha download '#dl' --filename="$dir/dl/saved.html"
 [ -s "$dir/dl/saved.html" ] || fail "download did not save the file"
 check "$dir/dl/saved.html" -w alpha download '#dl' --filename="$dir/dl/saved.html"
@@ -615,6 +637,7 @@ check "Page" -w beta eval "() => { sessionStorage.setItem('access_token', 'tok2'
 check "index.html?beta" -w beta goto "$u?beta"
 check "Page" -w beta eval "() => { sessionStorage.setItem('access_token', 'tok1'); setTimeout(() => sessionStorage.setItem('late', 'L'), 1500) }"
 check "Page" -w eph1 eval "() => { sessionStorage.setItem('fresh', 'F') }"
+check "ad blocking off in workspace eph1" -w eph1 adblock off
 sleep 2
 check "dashboard shown" dashboard
 check "recording" -w beta video-start "$dir/quit.mp4"
@@ -629,6 +652,9 @@ check "index.html?again" -w beta goto "$u?again"
 check 'sso=1' -w beta eval 'document.cookie'
 check '\["tok1","L"\]' -w beta eval "[sessionStorage.getItem('access_token'), sessionStorage.getItem('late')]"
 check '^null$' -w eph1 --raw eval "sessionStorage.getItem('fresh')"
+check "ad blocking off in workspace eph1" -w eph1 adblock
+check '^loaded$' -w eph1 --raw eval "() => fetch('/index.html?blockapi').then(() => 'loaded', () => 'blocked')"
+check '^blocked$' -w beta --raw eval "() => fetch('/index.html?blockapi').then(() => 'loaded', () => 'blocked')"
 check '"dashboard":true' list --json
 check "dashboard hidden" dashboard --hide
 check "beta (profile selftest-shared" list

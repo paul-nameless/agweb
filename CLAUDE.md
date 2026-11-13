@@ -8,8 +8,8 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 
 ## Layout
 
-- `Sources/AgwebCore`: host-free code with unit tests: socket protocol, page scripts (`PageScripts.swift`, the injected JS), reply shaping (`Output.swift`), the command list and did-you-mean (`Commands.swift`), address parsing, the human pointer and typing rhythm (`Motion.swift`).
-- `Sources/AgwebApp`: the app. `Browser.swift` dispatches commands (one at a time per workspace, workspaces in parallel) and `BrowserState.swift` holds requests, routes, cookies and storage state, `Model.swift` holds workspaces, tabs and named profiles (session cookies, locks), `Visibility.swift` decides which tabs WebKit sees, `SavedWorkspaces.swift` saves and reopens workspaces, tabs and their sessionStorage, `Dashboard.swift` the ⌘D grid, `Input.swift` synthesizes native events, `Recorder.swift` records video, `Window.swift`/`Toolbar.swift` the UI.
+- `Sources/AgwebCore`: host-free code with unit tests: socket protocol, page scripts (`PageScripts.swift`, the injected JS), reply shaping (`Output.swift`), the command list and did-you-mean (`Commands.swift`), address parsing, the human pointer and typing rhythm (`Motion.swift`), filter lists to WebKit content rules (`FilterList.swift`).
+- `Sources/AgwebApp`: the app. `Browser.swift` dispatches commands (one at a time per workspace, workspaces in parallel) and `BrowserState.swift` holds requests, routes, cookies and storage state, `Model.swift` holds workspaces, tabs and named profiles (session cookies, locks), `Visibility.swift` decides which tabs WebKit sees, `SavedWorkspaces.swift` saves and reopens workspaces, tabs and their sessionStorage, `Dashboard.swift` the ⌘D grid, `AdBlock.swift` fetches uBlock Origin's lists every 4 days and puts the compiled rules on every content controller (off for the instance in Settings, for one workspace with `agweb -w NAME adblock off`), `Input.swift` synthesizes native events, `Recorder.swift` records video, `Window.swift`/`Toolbar.swift` the UI.
 - `Sources/agweb`: the CLI. It launches the app with `open -g` when nobody holds the socket's lock, passing `AGWEB_ROOT` on.
 
 ## Build and test
@@ -35,7 +35,7 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 ## Storage
 
 - `~/Library/WebKit/<bundle id>/WebsiteDataStore/<uuid>/`: a named profile's WebKit data in the default root; any other root keeps it in `<root>/webkit/<uuid>/` through WebKit SPI (`Profiles.makeStore`) and its settings in the defaults domain `Agweb.settingsSuite`. The uuid is derived from the name. Fresh profiles live in memory only. The launch sweep of deleted profiles' folders is skipped when the registry can't be read.
-- The root (`~/Library/Application Support/agweb/` by default): `agweb.sock`, `workspaces.json`, `profiles/profiles.json` (names), `profiles/session-cookies/<uuid>.plist` (saved a second after each page change and on quit, restored before the profile's first load; a `kill -9` loses what changed since), `profiles/locks/<uuid>.lock`, `logs/`. Files carrying URLs or cookies are 0600.
+- The root (`~/Library/Application Support/agweb/` by default): `agweb.sock`, `workspaces.json`, `profiles/profiles.json` (names), `profiles/session-cookies/<uuid>.plist` (saved a second after each page change and on quit, restored before the profile's first load; a `kill -9` loses what changed since), `profiles/locks/<uuid>.lock`, `adblock/` (the lists, `state.json`, compiled rules in `compiled/`), `logs/`. Files carrying URLs or cookies are 0600.
 
 ## Known gaps
 

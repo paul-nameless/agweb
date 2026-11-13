@@ -10,6 +10,8 @@ struct SavedWorkspaces: Codable {
         var profile: String?
         var current: Int?
         var tabs: [Tab]
+        /// `agweb -w NAME adblock off`; nil when it blocks.
+        var adBlockOff: Bool?
     }
 
     struct Tab: Codable {
@@ -48,7 +50,8 @@ extension Browser {
             workspaces: model.workspaces.map { workspace in
                 .init(name: workspace.name, profile: workspace.profile, current: workspace.tabs.firstIndex { $0.id == workspace.currentID },
                       tabs: workspace.tabs.map { .init(url: $0.currentURL, title: $0.currentTitle,
-                                                       session: workspace.profile == nil || $0.session.isEmpty ? nil : $0.session) })
+                                                       session: workspace.profile == nil || $0.session.isEmpty ? nil : $0.session) },
+                      adBlockOff: workspace.adBlockOff ? true : nil)
             },
             displayed: displayed?.workspace.name, displayedIndex: displayed.flatMap { tab in tab.workspace.tabs.firstIndex { $0 === tab } },
             dashboard: model.dashboardOpen ? true : nil)
@@ -64,6 +67,7 @@ extension Browser {
               let state = try? JSONDecoder().decode(SavedWorkspaces.self, from: data) else { return }
         for saved in state.workspaces where !model.workspaces.contains(where: { $0.name == saved.name }) {
             guard let workspace = try? existingOrNewWorkspace(named: saved.name, profile: saved.profile) else { continue }
+            workspace.adBlockOff = saved.adBlockOff == true
             for savedTab in saved.tabs {
                 let url = URL(string: savedTab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
                 let seeds = workspace.profile == nil ? [:] : savedTab.session ?? [:]
@@ -79,5 +83,6 @@ extension Browser {
             model.display(tabs[index].id)
         }
         if state.dashboard == true { model.dashboardOpen = true }
+        AdBlock.shared.apply()
     }
 }

@@ -188,6 +188,8 @@ final class Browser {
         let previous = queues[request.workspace]
         let work = Task { @MainActor () -> Response in
             _ = await previous?.value
+            // The compiled rules from last time, found in milliseconds: the first page after a launch is filtered too.
+            await AdBlock.shared.loading?.value
             return await self.execute(request)
         }
         queues[request.workspace] = work
@@ -279,6 +281,23 @@ final class Browser {
         case "install-skill":
             if options["check"] != nil { return SkillInstaller.agents.map { "\($0.name): \(SkillInstaller.status($0.folder))" }.joined(separator: "\n") }
             return SkillInstaller.install().joined(separator: "\n")
+        case "adblock":
+            // Agents switch it for their own workspace only; the whole instance is the person's call, in Settings.
+            let workspace = model.workspaces.first { $0.name == request.workspace }
+            switch args.first {
+            case nil, "status": break
+            case "on", "off":
+                guard let workspace else {
+                    throw Failure("no workspace '\(request.workspace)'; adblock on|off applies to one open workspace: agweb -w NAME adblock off")
+                }
+                workspace.adBlockOff = args.first == "off"
+                AdBlock.shared.apply()
+            case "update":
+                guard AdBlock.shared.enabled else { throw Failure("ad blocking is off in Settings") }
+                await AdBlock.shared.update(force: true).value
+            case let other?: throw Failure("adblock takes on, off, update or nothing, not \(other)")
+            }
+            return AdBlock.shared.status(for: workspace)
         case "profile-list":
             let names = Profiles.names
             if names.isEmpty { return "no named profiles; open a workspace with -p NAME to create one" }

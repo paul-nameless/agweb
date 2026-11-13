@@ -79,6 +79,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
                                 --filename=grid.png also saves a picture of it
   profile-list                  named profiles and the workspaces using them
   profile-delete <name>         delete a named profile and everything it stored
+  adblock [on|off|update]       ads and trackers are blocked with uBlock Origin's lists; off/on: for this workspace
+                                only (Settings switches every workspace); pages opened directly always load
   install-cli [--check]         link /usr/local/bin/agweb to this app's CLI (also Help menu); --check says what is there
   install-skill [--check]       link the agent skill for Claude Code and Codex to this app's (also Help menu)
   quit                          stop agweb
@@ -344,8 +346,8 @@ if !isServing(socket) {
         // -n with the root in its environment: an instance for exactly this root, whatever else runs.
         let launch = Process()
         launch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        // The selftest's: a shorter visible time after a command, and install targets away from the person's.
-        let passed = ["AGWEB_AWAKE_SECONDS", "AGWEB_HOME", "AGWEB_CLI_LINK"].flatMap { name in env[name].map { ["--env", "\(name)=\($0)"] } ?? [] }
+        // The selftest's: a shorter visible time after a command, install targets away from the person's, a local filter list.
+        let passed = ["AGWEB_AWAKE_SECONDS", "AGWEB_HOME", "AGWEB_CLI_LINK", "AGWEB_ADBLOCK_LISTS"].flatMap { name in env[name].map { ["--env", "\(name)=\($0)"] } ?? [] }
         launch.arguments = ["-g", "-n", "--env", "AGWEB_ROOT=\(Agweb.root.path)"] + passed + ["-a", app]
         try launch.run()
         launch.waitUntilExit()

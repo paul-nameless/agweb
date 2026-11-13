@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let browser = browser
         Profiles.sweepDeletedStores()
+        AdBlock.shared.start()
         // A test instance on its own root never touches the person's PATH or agents.
         if Agweb.isDefaultRoot {
             SkillInstaller.install(repairOnly: true)

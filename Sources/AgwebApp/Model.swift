@@ -64,6 +64,8 @@ final class Workspace: Identifiable {
     /// What `dialog-accept <text>` answers prompt() with; nil answers with the prompt's default.
     @ObservationIgnored var promptText: String?
     @ObservationIgnored var recorder: Recorder?
+    /// `agweb -w NAME adblock off`: this workspace loads everything until it turns it back on; kept across restarts.
+    @ObservationIgnored var adBlockOff = false
     @ObservationIgnored let dataStore: WKWebsiteDataStore
     @ObservationIgnored let contentController = WKUserContentController()
     @ObservationIgnored var routes: [Route] = [] { didSet { installScripts() } }
@@ -98,6 +100,7 @@ final class Workspace: Identifiable {
         // One controller per workspace: popups get a copy of the opener's configuration, and registering
         // a message handler twice on a shared controller throws.
         for handler in Self.handlers { contentController.add(console, name: handler) }
+        AdBlock.shared.attach(contentController, to: self)
         installScripts()
     }
 
@@ -143,6 +146,7 @@ final class Workspace: Identifiable {
         if ownController {
             let own = WKUserContentController()
             for handler in Self.handlers { own.add(console, name: handler) }
+            AdBlock.shared.attach(own, to: self)
             config.userContentController = own
         } else {
             config.userContentController = contentController
@@ -369,6 +373,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     @ObservationIgnored var unreadErrors = 0
     /// Documents, fetch and XHR calls since the page loaded: the hook's messages, as dictionaries.
     @ObservationIgnored var requests: [[String: Any]] = []
+    /// What the ad blocker stopped since the page loaded, by URL; `requests` marks these.
+    @ObservationIgnored var blocked: [String] = []
     /// The address whose response said `cf-mitigated: challenge`: a Cloudflare challenge page. By address, since a page
     /// restored by back or forward gets no response to clear or set it.
     @ObservationIgnored var challengedURL: URL?
@@ -448,7 +454,11 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     func loadIfPending() async throws {
         if let url = pendingURL {
             pendingURL = nil
-            initialLoad = Task { if await self.load(url) { try await self.waitForLoad() } }
+            // A tab reopened at launch loads before any command: it too waits for last time's ad-blocking rules.
+            initialLoad = Task {
+                await AdBlock.shared.loading?.value
+                if await self.load(url) { try await self.waitForLoad() }
+            }
         }
         guard let task = initialLoad else { return }
         defer { if initialLoad == task { initialLoad = nil } }
@@ -678,6 +688,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         let download = attachment || !navigationResponse.canShowMIMEType
         if navigationResponse.isForMainFrame, !download {
             requests.removeAll()
+            blocked.removeAll()
             challengedURL = http?.value(forHTTPHeaderField: "cf-mitigated")?.lowercased() == "challenge" ? http?.url : nil
         }
         if let http {
@@ -686,6 +697,17 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
                              "responseHeaders": http.allHeaderFields.reduce(into: [String: String]()) { $0["\($1.key)".lowercased()] = "\($1.value)" }])
         }
         decisionHandler(download ? .download : .allow)
+    }
+
+    /// WebKit's private WKNavigationDelegate callback for content rule lists: the ad blocker stopped a load.
+    @objc(_webView:contentRuleListWithIdentifier:performedAction:forURL:)
+    func contentRuleList(_ webView: WKWebView, identifier: String, performedAction action: NSObject, forURL url: URL) {
+        let blockedLoad = NSSelectorFromString("blockedLoad")
+        guard action.responds(to: blockedLoad) else { return }
+        typealias GetBool = @convention(c) (AnyObject, Selector) -> Bool
+        guard unsafeBitCast(action.method(for: blockedLoad), to: GetBool.self)(action, blockedLoad) else { return }
+        blocked.append(url.absoluteString)
+        if blocked.count > 500 { blocked.removeFirst(blocked.count - 500) }
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
