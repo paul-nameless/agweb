@@ -214,7 +214,16 @@ final class Browser {
         #endif
         let response: Response
         do {
-            response = Response(ok: true, output: Self.hide(secrets, in: try await run(request)))
+            var output = try await run(request)
+            // After the Page section's Title line; a page's own text can't hold "### Page\n" (text escapes it).
+            if let tab = model.workspaces.first(where: { $0.name == request.workspace })?.current, tab.challenged,
+               let page = output.range(of: "### Page\n", options: .backwards),
+               let title = output.range(of: "\n- Title: ", range: page.upperBound..<output.endIndex) {
+                let note = await challengeNote(tab)
+                let end = output[title.upperBound...].firstIndex(of: "\n") ?? output.endIndex
+                output.insert(contentsOf: "\n- Note: " + note, at: end)
+            }
+            response = Response(ok: true, output: Self.hide(secrets, in: output))
         } catch {
             response = Response(ok: false, output: Self.hide(secrets, in: "Error: \(error)"))
         }
@@ -1089,6 +1098,18 @@ final class Browser {
     }
 
     // MARK: Output
+
+    /// Cloudflare passes some browsers at once and asks others to tick a checkbox, which sits in a closed shadow root
+    /// in a cross-origin frame: snapshot, text and click can't reach it, a native click at its spot can.
+    /// The checkbox appears by script after the load, so a reply right after goto may not have its spot yet.
+    private func challengeNote(_ tab: Tab) async -> String {
+        let start = "Cloudflare check. If it is still here after about 10 s, it waits for a click on its \"Verify you are human\" "
+            + "checkbox, which snapshot and text can't see"
+        guard let json = try? await tab.call(PageScripts.challengeSpot),
+              let spot = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double],
+              let x = spot["x"], let y = spot["y"] else { return start + "; run any command again then for its spot" }
+        return start + ": mousemove \(Int(x.rounded())) \(Int(y.rounded())), then mousedown and mouseup. A named profile (-p) keeps the pass"
+    }
 
     private func describe(_ tab: Tab, note: String? = nil) -> String {
         var out = "### Page\n- URL: \(tab.currentURL)\n- Title: \(tab.currentTitle)"

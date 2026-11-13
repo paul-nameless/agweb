@@ -58,7 +58,8 @@ public enum Output {
             guard !key.contains(" "), !key.isEmpty else { return nil }
             return (key.lowercased(), line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces))
         }
-        if !lines.isEmpty, pairs.count == lines.count { return Dictionary(pairs, uniquingKeysWith: { a, _ in a }) }
+        // Two notes (a reply's own and the window's or a challenge's) both reach the agent.
+        if !lines.isEmpty, pairs.count == lines.count { return Dictionary(pairs, uniquingKeysWith: { a, b in a + "; " + b }) }
         return body
     }
 }

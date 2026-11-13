@@ -268,11 +268,29 @@ public enum PageScripts {
       for (const svg of box.content.querySelectorAll('svg')) svg.remove();
       return box;
     };
+    // A copy of what the page shows: elements it hides (display: none) stay out, such as a challenge page's
+    // "Verification successful" waiting for its turn, and so do inline SVGs. Defuddle's article drops hidden ones itself.
+    const shownCopy = (el, inner) => {
+      const box = document.createElement('template');
+      // Into the template's inert document: a clone in the page's would upgrade custom elements, running their code.
+      const inert = box.content.ownerDocument;
+      const copy = (node) => {
+        const out = inert.importNode(node, false);
+        for (const child of node.childNodes) {
+          if (child.nodeType === 1 && (child.localName === 'svg' || getComputedStyle(child).display === 'none')) continue;
+          out.appendChild(copy(child));
+        }
+        return out;
+      };
+      const root = copy(el);
+      box.content.append(...(inner ? [...root.childNodes] : [root]));
+      return box;
+    };
     const md = (box) => Defuddle.createMarkdownContent(box.innerHTML, location.href);
     const words = (s) => (s.match(/\\S+/g) || []).length;
     const reply = (markdown, whole = false, kept = 0, shown = 0) => JSON.stringify({ markdown, whole, kept, shown });
-    if (target) return reply(md(bare(find(target).outerHTML)));
-    const body = () => md(bare(document.body.innerHTML));
+    if (target) return reply(md(shownCopy(find(target), false)));
+    const body = () => md(shownCopy(document.body, true));
     if (everything) return reply(body(), true);
     const page = new Defuddle(document, { url: location.href }).parse();
     if (page.wordCount < 50) return reply(body(), true);
@@ -293,6 +311,16 @@ public enum PageScripts {
     const kindOf = (e) => !e ? '' : e.tagName === 'SELECT' ? 'select' : e.tagName === 'INPUT' ? (e.getAttribute('type') || 'text').toLowerCase() : e.tagName.toLowerCase();
     const kind = kindOf(el), hitKind = kindOf(hit);
     return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2, covered, kind, hitKind, width: r.width, height: r.height, viewportWidth: innerWidth, viewportHeight: innerHeight });
+    """
+
+    /// Agent world: where a Cloudflare challenge's checkbox is, in CSS pixels, or null. The widget (300×65, the box
+    /// 21 px in) sits in a closed shadow root next to its hidden response input, so its container stands in for it.
+    public static let challengeSpot = """
+    // The challenge page's own widget id: a login form's Turnstile (name="cf-turnstile-response") is no challenge page.
+    const input = document.querySelector('input[id^="cf-chl-widget-"]');
+    const r = input?.parentElement?.getBoundingClientRect();
+    if (!r || !r.width || !r.height) return null;
+    return JSON.stringify({ x: r.left + 21, y: r.top + Math.min(r.height, 65) / 2 });
     """
 
     /// The element's box in the top viewport, after scrolling it into view, for element screenshots.

@@ -175,6 +175,13 @@ check "$dir/page.md" -w alpha text --filename="$dir/page.md"
 check "no article here" -w alpha text
 lacks "no article" -w alpha --raw text
 grep -q 'Press me' "$dir/page.md" || fail "text --filename did not write the page"
+check "Page" -w alpha eval "() => { const d = document.createElement('div'); d.id = 'gone'; d.hidden = true; d.textContent = 'Hidden waiting state'; document.body.append(d) }"
+lacks "Hidden waiting state" -w alpha text
+lacks "Hidden waiting state" -w alpha text body
+check "Page" -w alpha eval "() => document.getElementById('gone').remove()"
+check "Cloudflare check.*mousemove [0-9]* [0-9]*" -w alpha goto "$u?challenge=1"
+check '"note":"Cloudflare check' -w alpha --json text
+lacks "Cloudflare check" -w alpha go-back
 check '"undefined"' -w alpha eval 'typeof Defuddle'
 check "Page" -w alpha fill '#q' again --submit
 check '"submit:again"' -w alpha eval 'log'

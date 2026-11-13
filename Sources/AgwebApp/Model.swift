@@ -370,6 +370,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     @ObservationIgnored var unreadErrors = 0
     /// Documents, fetch and XHR calls since the page loaded: the hook's messages, as dictionaries.
     @ObservationIgnored var requests: [[String: Any]] = []
+    /// The address whose response said `cf-mitigated: challenge`: a Cloudflare challenge page. By address, since a page
+    /// restored by back or forward gets no response to clear or set it.
+    @ObservationIgnored var challengedURL: URL?
+    var challenged: Bool { challengedURL != nil && webView.url == challengedURL }
     @ObservationIgnored var events: [String] = []
     /// Keys and a button the agent is holding down (keydown, mousedown).
     @ObservationIgnored var held = NativeInput.Held()
@@ -673,7 +677,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         let http = navigationResponse.response as? HTTPURLResponse
         let attachment = http?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased().hasPrefix("attachment") ?? false
         let download = attachment || !navigationResponse.canShowMIMEType
-        if navigationResponse.isForMainFrame, !download { requests.removeAll() }
+        if navigationResponse.isForMainFrame, !download {
+            requests.removeAll()
+            challengedURL = http?.value(forHTTPHeaderField: "cf-mitigated")?.lowercased() == "challenge" ? http?.url : nil
+        }
         if let http {
             requests.append(["kind": navigationResponse.isForMainFrame ? "document" : "frame", "method": "GET", "url": http.url?.absoluteString ?? "",
                              "status": http.statusCode, "statusText": HTTPURLResponse.localizedString(forStatusCode: http.statusCode),
