@@ -67,18 +67,22 @@ public struct Motion {
         // A wobble of about a pixel, smooth and gone at both ends, so the leg still lands exactly.
         let wobble = (x: 0.5 + random(), y: 0.5 + random(), fx: 1.5 + 1.5 * random(), fy: 1.5 + 1.5 * random(),
                       px: 2 * .pi * random(), py: 2 * .pi * random())
-        return (1...count).map { i in
+        return (1...count).map { i -> Step in
             if i == count { return (b, tick) }
             let u = Double(i) / Double(count)
             // Minimum jerk on warped time: the speed peaks at 40% of the way, not halfway, and the hand slows into
             // the target, as aimed movements do.
             let w = pow(u, 0.756)
-            let e = w * w * w * (10 + w * (-15 + 6 * w))
-            let m = 1 - e
-            let (c0, c1, c2, c3) = (m * m * m, 3 * m * m * e, 3 * m * e * e, e * e * e)
-            let fade = sin(.pi * u)
-            return (CGPoint(x: c0 * a.x + c1 * p1.x + c2 * p2.x + c3 * b.x + wobble.x * fade * sin(2 * .pi * wobble.fx * u + wobble.px),
-                            y: c0 * a.y + c1 * p1.y + c2 * p2.y + c3 * b.y + wobble.y * fade * sin(2 * .pi * wobble.fy * u + wobble.py)), tick)
+            let e: Double = w * w * w * (10 + w * (-15 + 6 * w))
+            let m: Double = 1 - e
+            let c0: Double = m * m * m, c1: Double = 3 * m * m * e
+            let c2: Double = 3 * m * e * e, c3: Double = e * e * e
+            let fade: Double = sin(.pi * u)
+            let wx: Double = wobble.x * fade * sin(2 * .pi * wobble.fx * u + wobble.px)
+            let wy: Double = wobble.y * fade * sin(2 * .pi * wobble.fy * u + wobble.py)
+            let x: Double = c0 * a.x + c1 * p1.x + c2 * p2.x + c3 * b.x + wx
+            let y: Double = c0 * a.y + c1 * p1.y + c2 * p2.y + c3 * b.y + wy
+            return (CGPoint(x: x, y: y), tick)
         }
     }
 
