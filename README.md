@@ -26,7 +26,7 @@ Idle tabs are suspended: on my Mac five open pages sit at 0% CPU, where Chrome's
 
 ## Install
 
-Needs macOS 15 or later. Download `Agweb.dmg` from [Releases](../../releases), drag Agweb to Applications and open it. Then:
+Needs macOS 15.4 or later. Download `Agweb.dmg` from [Releases](../../releases), drag Agweb to Applications and open it. Then:
 
 - Help ▸ Install Command Line Tool
 - Help ▸ Install Agent Skill (for Claude Code and Codex).

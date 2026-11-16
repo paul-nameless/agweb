@@ -7,11 +7,19 @@ on:
 
 jobs:
   test:
-    # macOS 26 and Xcode 26 are required. GitHub's macOS runners have a logged-in desktop session, so the app can open its window and run pages.
-    runs-on: macos-26
+    # The oldest macOS the app supports and the newest. Building needs Xcode 26. GitHub's macOS runners have a
+    # logged-in desktop session, so the app can open its window and run pages.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-26, macos-15]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Xcode 26
+        if: matrix.os == 'macos-15'
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)" && xcodebuild -version
       - name: Unit tests
         run: swift test
       - name: Build

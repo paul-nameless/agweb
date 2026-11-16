@@ -77,8 +77,15 @@ enum Updater {
         let staged = work.appendingPathComponent("Agweb.app")
         try run("/usr/bin/ditto", [mount.appendingPathComponent("Agweb.app").path, staged.path])
         try verify(staged)
-        let version = Bundle(url: staged)?.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let info = Bundle(url: staged)?.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         guard version == release.version else { throw Failure("the downloaded app is \(version), not \(release.version)") }
+        // Swapped in, an app this macOS can't run would leave no Agweb at all.
+        if let minimum = info?["LSMinimumSystemVersion"] as? String {
+            let parts = minimum.split(separator: ".").compactMap { Int($0) }
+            let needed = OperatingSystemVersion(majorVersion: parts.first ?? 0, minorVersion: parts.count > 1 ? parts[1] : 0, patchVersion: parts.count > 2 ? parts[2] : 0)
+            guard ProcessInfo.processInfo.isOperatingSystemAtLeast(needed) else { throw Failure("\(release.version) needs macOS \(minimum) or later; not installed") }
+        }
         // An atomic swap: the running process keeps its mapped files, and the next launch gets the new bundle.
         _ = try FileManager.default.replaceItemAt(Bundle.main.bundleURL, withItemAt: staged)
         swapped = true

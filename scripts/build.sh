@@ -18,6 +18,11 @@ if pgrep -f "$app/Contents/MacOS/agweb" >/dev/null; then
     exit 1
 fi
 
+# SwiftPM stamps a binary as built with the SDK of its deployment target, and macOS then runs it as an app of that
+# release (no Liquid Glass on 26); the SDK it was really built with goes in instead.
+stamp() {
+    xcrun vtool -set-build-version macos "$(plutil -extract LSMinimumSystemVersion raw Resources/Info.plist)" "$(xcrun --show-sdk-version)" -replace -output "$1.stamped" "$1" && mv -f "$1.stamped" "$1"
+}
 # The command log (Sources/AgwebCore/CommandLog.swift) is for local builds only; a release build leaves the flag out.
 swift build -c release -Xswiftc -DAGWEB_COMMAND_LOG >&2
 bin=$(swift build -c release -Xswiftc -DAGWEB_COMMAND_LOG --show-bin-path)
@@ -31,6 +36,7 @@ cp -f Resources/AppIcon.icns Resources/defuddle.js Resources/defuddle-LICENSE "$
 cp -f skill/SKILL.md "$app/Contents/Resources/skill/"
 cp -f "$bin/AgwebApp" "$app/Contents/MacOS/agweb"
 cp -f "$bin/agweb" "$app/Contents/Helpers/agweb"
+stamp "$app/Contents/MacOS/agweb" && stamp "$app/Contents/Helpers/agweb"
 # macOS ties privacy grants (Downloads, Desktop, ...) to the signature. An ad-hoc one changes on every build,
 # so each rebuild asks again; a development identity keeps one Allow. AGWEB_SIGN overrides, "-" is ad-hoc.
 identity=${AGWEB_SIGN:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development: .*\)"/\1/p' | head -1)}

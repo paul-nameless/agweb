@@ -155,6 +155,8 @@ final class AddressField: NSTextField {
     override func textDidEndEditing(_ notification: Notification) { super.textDidEndEditing(notification); updateBorder() }
 
     private func updateBorder() {
+        // Before macOS 26 the bezel draws its own edge.
+        guard #available(macOS 26, *) else { return }
         wantsLayer = true
         guard let layer else { return }
         layer.cornerRadius = bounds.height / 2

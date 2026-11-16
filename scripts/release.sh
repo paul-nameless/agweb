@@ -28,6 +28,11 @@ plutil -replace CFBundleVersion -string "$build" Resources/Info.plist
 trap 'git checkout -- Resources/Info.plist' EXIT
 
 echo "building $version ($build)" >&2
+# SwiftPM stamps a binary as built with the SDK of its deployment target, and macOS then runs it as an app of that
+# release (no Liquid Glass on 26); the SDK it was really built with goes in instead.
+stamp() {
+    xcrun vtool -set-build-version macos "$(plutil -extract LSMinimumSystemVersion raw Resources/Info.plist)" "$(xcrun --show-sdk-version)" -replace -output "$1.stamped" "$1" && mv -f "$1.stamped" "$1"
+}
 swift build -c release >&2
 bin=$(swift build -c release --show-bin-path)
 [ -e "$out" ] && trash "$out"
@@ -39,6 +44,7 @@ cp Resources/AppIcon.icns Resources/defuddle.js Resources/defuddle-LICENSE "$app
 cp skill/SKILL.md "$app/Contents/Resources/skill/"
 cp "$bin/AgwebApp" "$app/Contents/MacOS/agweb"
 cp "$bin/agweb" "$app/Contents/Helpers/agweb"
+stamp "$app/Contents/MacOS/agweb" && stamp "$app/Contents/Helpers/agweb"
 
 # Notarization needs the hardened runtime and a secure timestamp on every executable, inside out.
 codesign --force --options runtime --timestamp --sign "$identity" "$app/Contents/Helpers/agweb"
