@@ -33,6 +33,8 @@ Needs macOS 15 or later. Download `Agweb.dmg` from [Releases](../../releases), d
 
 Both are links into the app, so they update with it.
 
+To update, use Agweb ▸ Check for Updates… or `agweb update`. agweb never updates by itself.
+
 To build from source instead (Xcode 26 or later):
 
 ```sh

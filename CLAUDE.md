@@ -39,7 +39,7 @@ Agent actions never activate the app, raise or focus its window, or pop anything
 
 ## Known gaps
 
-- No CDP: Playwright and extensions can't attach; no `run-code`, tracing or cross-origin iframe refs.
+- No CDP: Playwright and extensions can't attach; no `run-code` or tracing. Cross-origin frames are reached through WebKit's private frame tree (`Tab.subframes`): only by their refs, not CSS, role or text targets.
 - `requests` and `route` see documents, fetch and XHR from a page hook (64 KB bodies), not images or scripts; no `--remove-header`. `state-save` reads localStorage only from origins open in the workspace.
 - HTML5 draggables get DOM drag events: a native drag would follow the person's real mouse.
 - `document.hasFocus()` is false, since the window is never key while agents work. The window reports key to WebKit only while the app is in the background (WebKit drops mouse moves otherwise), so pages also react to the person's pointer over it.

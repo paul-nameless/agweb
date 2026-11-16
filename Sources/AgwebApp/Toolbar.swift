@@ -141,3 +141,24 @@ extension MainWindow: NSToolbarDelegate, NSTextFieldDelegate, NSToolbarItemValid
         closeFindIfStale()
     }
 }
+
+/// The address field with a hairline capsule edge while unfocused, so it reads as a field (the rounded bezel
+/// shows none in a unified toolbar); the focus ring replaces it while editing. A layer border, since overriding
+/// `draw` dims the field's text.
+final class AddressField: NSTextField {
+    override func layout() { super.layout(); updateBorder() }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateBorder() }
+    override func becomeFirstResponder() -> Bool {
+        defer { updateBorder() }
+        return super.becomeFirstResponder()
+    }
+    override func textDidEndEditing(_ notification: Notification) { super.textDidEndEditing(notification); updateBorder() }
+
+    private func updateBorder() {
+        wantsLayer = true
+        guard let layer else { return }
+        layer.cornerRadius = bounds.height / 2
+        layer.borderWidth = currentEditor() == nil ? 1 : 0
+        effectiveAppearance.performAsCurrentDrawingAppearance { layer.borderColor = NSColor.separatorColor.cgColor }
+    }
+}

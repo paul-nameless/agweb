@@ -151,6 +151,14 @@ final class Browser {
     private(set) var preparedToQuit = false
 
     /// Finishes every recording, since an MP4 without its index is unplayable, and saves session cookies.
+    /// Quits for the swapped-in app to start; returns what quitting saved (videos).
+    func restartAfterUpdate() async throws -> [String] {
+        try Updater.relaunchAfterExit()
+        let videos = await prepareToQuit()
+        NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0.2)
+        return videos
+    }
+
     func prepareToQuit() async -> [String] {
         var videos: [String] = []
         for workspace in model.workspaces { videos += await describeStop(workspace) }
@@ -330,6 +338,15 @@ final class Browser {
             guard users.isEmpty else { throw Failure("profile \(name) is in use by \(users.joined(separator: ", ")); close them first") }
             try await Profiles.delete(name)
             return "profile \(name) deleted"
+        case "update":
+            let release = try await Updater.latest()
+            guard Version.isNewer(release.version, than: Updater.current) else { return "agweb \(Updater.current) is the latest" }
+            if options["check"] != nil {
+                return "agweb \(release.version) is out (you have \(Updater.current)): \(release.page.absoluteString)\n"
+                    + (Updater.blocker() ?? "install it with: agweb update")
+            }
+            try await Updater.install(release)
+            return (["updated to \(release.version); agweb restarts and reopens every workspace"] + (try await restartAfterUpdate())).joined(separator: "\n")
         case "quit":
             let videos = await prepareToQuit()
             // Not from a main-queue block: terminate would spin the run loop inside it, starving the main queue.
@@ -346,6 +363,7 @@ final class Browser {
             let tab = workspace.current ?? addTab(to: workspace)
             await wake(tab)
             if let url = args.first { try await tab.goto(try Address.url(url)) } else { try await tab.loadIfPending() }
+            tab.markSeen()
             return describe(tab)
         default:
             break
@@ -447,6 +465,11 @@ final class Browser {
         // A tab reopened at launch loads on first use.
         if request.command != "goto" { try await tab.loadIfPending() }
         let webView = tab.webView
+        // Otherwise a go-back from there lands on a page the agent never saw, with nothing saying why.
+        if tab.movedSinceSeen {
+            tab.events.append("the tab moved since your last command, to \(tab.currentURL) (a click in the window or the page itself); agweb history lists the way")
+        }
+        defer { tab.markSeen() }
         let instant = options["instant"] != nil
         if options["js"] == nil {
             let targets = request.command == "drag" ? Array(args.prefix(2)) : Self.actsOnTarget.contains(request.command) ? Array(args.prefix(1)) : []
@@ -463,11 +486,16 @@ final class Browser {
             webView.reload()
             await tab.settle()
         case "go-back":
-            webView.goBack()
+            guard webView.goBack() != nil else { return describe(tab, note: "no earlier page in this tab, so go-back did nothing") }
             await tab.settle()
         case "go-forward":
-            webView.goForward()
+            guard webView.goForward() != nil else { return describe(tab, note: "no later page in this tab, so go-forward did nothing") }
             await tab.settle()
+        case "history":
+            // WebKit leaves out, and go-back skips, a page that moved on or pushed an entry by script without a click.
+            let length = (try? await tab.call("return String(history.length)", world: .page, timeout: 2)).flatMap { Int($0) }
+            guard let limit = Int(options["max-results"] ?? "10"), limit > 0 else { throw Failure("--max-results is a number above 0") }
+            return describe(tab) + "\n" + Self.history(webView.backForwardList, length: length, limit: limit)
         case "snapshot":
             let target = args.first ?? ""
             let snapshot = try await snapshotTree(tab, target)
@@ -577,12 +605,14 @@ final class Browser {
                 throw Failure("type takes only the text and types where the focus is; to type into an element: fill <target> <text>, or click <target> then type <text>")
             }
             let text = try arg(0, "text")
+            // Keys go to the focused frame, a cross-origin one included.
+            let frame = await tab.focusedFrame()
             if instant || text.isEmpty {
-                _ = try await tab.call(PageScripts.insertText, ["text": text])
+                _ = try await tab.call(PageScripts.insertText, ["text": text], frame: frame)
             } else {
                 // Real key presses, so pages see keydown and keyup with a person's rhythm, not text appearing by itself;
                 // a character with no US key is inserted as text.
-                let focused = try await tab.call(PageScripts.focusedKind)
+                let focused = try await tab.call(PageScripts.focusedKind, frame: frame)
                 if Self.pickerKinds.contains(focused) { throw Failure("typing would open the focused \(focused)'s native picker; use: agweb fill <target> <value>") }
                 let chars = Array(text)
                 for (i, char) in chars.enumerated() {
@@ -593,7 +623,7 @@ final class Browser {
                         if let combo = NativeInput.combo(for: char) {
                             try await stroke(tab, combo, hold: hold)
                         } else {
-                            _ = try await tab.call(PageScripts.insertText, ["text": String(char)])
+                            _ = try await tab.call(PageScripts.insertText, ["text": String(char)], frame: frame)
                         }
                     } catch {
                         throw Failure("typed \(i) of \(chars.count) characters: \(error)")
@@ -611,7 +641,8 @@ final class Browser {
             try await pressKey(tab, try arg(0, "key"), phases: [request.command == "keydown" ? .keyDown : .keyUp])
         case "eval":
             let mark = try await args.count > 1 ? tab.call(PageScripts.mark, ["target": args[1]]) : nil
-            let result = try await tab.call(PageScripts.evaluate(try arg(0, "code"), mark: mark), world: .page)
+            let result = try await tab.call(PageScripts.evaluate(try arg(0, "code"), mark: mark), world: .page,
+                                            frame: args.count > 1 ? tab.frameRefs[args[1]] : nil)
             // `location.href = …` returns before the page goes; the next command must see the new one, not the old.
             try? await Task.sleep(for: .milliseconds(50))
             if tab.webView.isLoading { await tab.settle() }
@@ -689,7 +720,7 @@ final class Browser {
 
     /// A native key press (or only its down or up half) on the tab, giving the keyboard back to whoever had it.
     private func pressKey(_ tab: Tab, _ combo: String, phases: [NSEvent.EventType] = [.keyDown, .keyUp], instant: Bool = false) async throws {
-        let focused = try await tab.call(PageScripts.focusedKind)
+        let focused = try await tab.call(PageScripts.focusedKind, frame: await tab.focusedFrame())
         if Self.pickerKinds.contains(focused), Self.pickerKeys.contains(combo.lowercased().components(separatedBy: "+").last ?? "") {
             throw Failure("\(combo) would open the focused \(focused)'s native picker; use: agweb fill <target> <value>")
         }
@@ -743,10 +774,13 @@ final class Browser {
         if windowHidden { throw Failure(MainWindow.notRendering) }
         let scale = tab.webView.pageZoom * tab.webView.magnification
         if let target {
+            if tab.frameRefs[target] != nil { _ = try await reveal(tab, target, instant: true) }
             let json = try await tab.call(PageScripts.box, ["target": target])
             let box = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] ?? [:]
-            let rect = CGRect(x: box["x"] ?? 0, y: box["y"] ?? 0, width: box["width"] ?? 0, height: box["height"] ?? 0)
-                .intersection(CGRect(x: 0, y: 0, width: box["viewportWidth"] ?? 0, height: box["viewportHeight"] ?? 0))
+            let origin = try await origin(tab, of: tab.frameRefs[target])
+            let viewport = try await viewportSize(tab)
+            let rect = CGRect(x: (box["x"] ?? 0) + origin.x, y: (box["y"] ?? 0) + origin.y, width: box["width"] ?? 0, height: box["height"] ?? 0)
+                .intersection(CGRect(origin: .zero, size: viewport))
             guard !rect.isEmpty else { throw Failure("\(target) has no visible area") }
             let config = WKSnapshotConfiguration()
             // Snapshot rects are in view points from the top of the page, below the toolbar band.
@@ -922,10 +956,59 @@ final class Browser {
 
     /// The page tree, and the document it came from; new elements number on from the workspace's last ref.
     private func snapshotTree(_ tab: Tab, _ target: String) async throws -> (doc: String, tree: String) {
-        let reply = try await tab.call(PageScripts.snapshot, ["target": target])
+        var handles: [[Int]: WKFrameInfo]?
+        return try await snapshotTree(tab, target, in: tab.frameRefs[target], handles: &handles)
+    }
+
+    /// One frame's tree with each cross-origin frame in it put in under its iframe, one after another so refs stay
+    /// unique. `handles`: the frames below the page by path, looked up once, when the first one shows.
+    /// `path`: where the frame should be; one that moved since (an iframe added above it) is left out, not misplaced.
+    private func snapshotTree(_ tab: Tab, _ target: String, in frame: Frame?, handles: inout [[Int]: WKFrameInfo]?, path: [Int]? = nil) async throws -> (doc: String, tree: String) {
+        // A frame that never answers (mid-navigation) costs at most a few seconds; it then stays an empty iframe.
+        let reply = try await tab.call(PageScripts.snapshot, ["target": target], frame: frame, timeout: frame == nil ? 30 : 5)
         let parsed = try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any]
+        // Before anything is thrown away: the refs it handed out are taken either way.
         if let next = parsed?["next"] as? Int { tab.workspace.refSeed = max(tab.workspace.refSeed, next) }
-        return (parsed?["doc"] as? String ?? "", parsed?["tree"] as? String ?? "")
+        if let path, parsed?["path"] as? [Int] != path { throw Failure("the frame moved") }
+        let tree = parsed?["tree"] as? String ?? ""
+        let frames = parsed?["frames"] as? [[String: Any]] ?? []
+        if let frame { for ref in parsed?["refs"] as? [String] ?? [] { tab.frameRefs[ref] = frame } }
+        guard !frames.isEmpty else { return (parsed?["doc"] as? String ?? "", tree) }
+        if handles == nil {
+            // All at once: a page may have dozens of frames, and one mid-navigation takes the whole timeout.
+            let asked = await tab.subframes().map { info in
+                (info, Task { try? await tab.call(PageScripts.framePath, frame: Frame(info: info, parent: nil, element: ""), timeout: 2) })
+            }
+            var found: [[Int]: WKFrameInfo] = [:]
+            for (info, answer) in asked {
+                if let json = await answer.value, let path = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Int] { found[path] = info }
+            }
+            handles = found
+        }
+        var lines: [String] = []
+        for line in tree.split(separator: "\n", omittingEmptySubsequences: false) {
+            let indent = line.prefix { $0 == " " }
+            guard line.dropFirst(indent.count).first == "\u{1}", let index = Int(line.dropFirst(indent.count + 1)), frames.indices.contains(index) else {
+                lines.append(String(line))
+                continue
+            }
+            // A frame that doesn't answer (still loading, or gone) stays an empty iframe, as before.
+            guard let path = frames[index]["path"] as? [Int], let info = handles?[path], let element = frames[index]["ref"] as? String,
+                  let inner = try? await snapshotTree(tab, "", in: Frame(info: info, parent: frame, element: element), handles: &handles, path: path).tree,
+                  !inner.isEmpty else { continue }
+            lines += inner.split(separator: "\n").map { String(indent + $0) }
+        }
+        return (parsed?["doc"] as? String ?? "", lines.joined(separator: "\n"))
+    }
+
+    /// Where a frame's content starts in the top viewport (the page: zero): its iframe's content box, through every
+    /// frame above it.
+    private func origin(_ tab: Tab, of frame: Frame?) async throws -> CGPoint {
+        guard let frame else { return .zero }
+        let json = try await tab.call(PageScripts.frameOrigin, ["target": frame.element], frame: frame.parent)
+        let box = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] ?? [:]
+        let above = try await origin(tab, of: frame.parent)
+        return CGPoint(x: (box["x"] ?? 0) + above.x, y: (box["y"] ?? 0) + above.y)
     }
 
     /// Paginated like printing, with print styles, unless `singlePage`: then one page of the screen view.
@@ -1063,7 +1146,8 @@ final class Browser {
     /// WebKit start an AppKit drag session, which tracks the person's real mouse, so those get DOM drag events.
     private func drag(_ tab: Tab, from source: String, to target: String, instant: Bool) async throws {
         if try await tab.call(PageScripts.isDraggable, ["target": source]) == "true" {
-            _ = try await tab.call(PageScripts.html5Drag, ["from": source, "to": target])
+            guard tab.frameRefs[source] === tab.frameRefs[target] else { throw Failure("\(source) is HTML5-draggable and \(target) is in another frame; drag within one frame") }
+            _ = try await tab.call(PageScripts.html5Drag, ["from": source, "to": target], frame: tab.frameRefs[source])
             tab.events.append("\(source) is HTML5-draggable: dropped with DOM drag events, not the pointer")
             return
         }
@@ -1117,8 +1201,12 @@ final class Browser {
 
     /// What sits over the target at `point` and would take a click there, or nil.
     private func coverAt(_ tab: Tab, _ target: String, _ point: CGPoint) async throws -> String? {
-        let json = try await tab.call(PageScripts.locate, ["target": target, "at": ["x": point.x, "y": point.y]])
-        return (try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])?["covered"] as? String
+        let frame = tab.frameRefs[target]
+        let origin = try await origin(tab, of: frame)
+        let json = try await tab.call(PageScripts.locate, ["target": target, "at": ["x": point.x - origin.x, "y": point.y - origin.y]])
+        let covered = (try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])?["covered"] as? String
+        if covered == nil, let frame { return try await coverAt(tab, frame.element, point) }
+        return covered
     }
 
     /// How long a click waits for a covering element to go before refusing: --timeout if given, else 1 s; nil
@@ -1176,7 +1264,24 @@ final class Browser {
     /// Brings the element into view unless all of it shows, gliding there unless `instant`; says what it did.
     @discardableResult
     private func reveal(_ tab: Tab, _ target: String, instant: Bool) async throws -> String {
-        try await tab.call(PageScripts.reveal, ["target": target, "smooth": !instant])
+        let result = try await tab.call(PageScripts.reveal, ["target": target, "smooth": !instant])
+        // In a cross-origin frame that scrolled only the frame: each document above scrolls to the element's spot.
+        guard var frame = tab.frameRefs[target], result != "no size" else { return result }
+        let json = try await tab.call(PageScripts.box, ["target": target])
+        let box = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double] ?? [:]
+        let size = ["width": box["width"] ?? 0, "height": box["height"] ?? 0]
+        var point = ["x": (box["x"] ?? 0) + size["width"]! / 2, "y": (box["y"] ?? 0) + size["height"]! / 2]
+        var moved = false
+        while true {
+            let json = try await tab.call(PageScripts.revealAt, ["target": frame.element, "at": point, "size": size], frame: frame.parent)
+            let spot = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] ?? [:]
+            point = ["x": spot["x"] as? Double ?? 0, "y": spot["y"] as? Double ?? 0]
+            moved = moved || spot["moved"] as? Bool == true
+            guard let parent = frame.parent else { break }
+            frame = parent
+        }
+        // The frame's own answer saw the page before it scrolled.
+        return moved ? "scrolled" : result
     }
 
     private func locate(_ tab: Tab, _ target: String, scroll: Bool = true, instant: Bool = true) async throws -> Spot {
@@ -1184,9 +1289,17 @@ final class Browser {
         let json = try await tab.call(PageScripts.locate, ["target": target])
         let spot = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] ?? [:]
         func number(_ key: String) -> Double { spot[key] as? Double ?? 0 }
-        return Spot(center: CGPoint(x: number("x"), y: number("y")), size: CGSize(width: number("width"), height: number("height")),
-                    viewport: CGSize(width: number("viewportWidth"), height: number("viewportHeight")),
-                    kind: spot["kind"] as? String ?? "", hitKind: spot["hitKind"] as? String ?? "", covered: spot["covered"] as? String)
+        var found = Spot(center: CGPoint(x: number("x"), y: number("y")), size: CGSize(width: number("width"), height: number("height")),
+                         viewport: CGSize(width: number("viewportWidth"), height: number("viewportHeight")),
+                         kind: spot["kind"] as? String ?? "", hitKind: spot["hitKind"] as? String ?? "", covered: spot["covered"] as? String)
+        // In a cross-origin frame: points are the top viewport's, and the iframe itself may be covered.
+        if let frame = tab.frameRefs[target] {
+            let origin = try await origin(tab, of: frame)
+            found.center = CGPoint(x: found.center.x + origin.x, y: found.center.y + origin.y)
+            found.viewport = try await viewportSize(tab)
+            if found.covered == nil { found.covered = try await coverAt(tab, frame.element, found.center) }
+        }
+        return found
     }
 
     // MARK: Output
@@ -1201,6 +1314,27 @@ final class Browser {
               let spot = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Double],
               let x = spot["x"], let y = spot["y"] else { return start + "; run any command again then for its spot" }
         return start + ": mousemove \(Int(x.rounded())) \(Int(y.rounded())), then mousedown and mouseup. A named profile (-p) keeps the pass"
+    }
+
+    /// The tab's back-forward list, oldest first, numbered from the current entry: -1 is where go-back leads.
+    /// The tab's back-forward list, oldest first, numbered from the current entry: -1 is where go-back leads. Only the
+    /// `limit` entries around the current one; WebKit keeps up to 100.
+    private static func history(_ list: WKBackForwardList, length: Int?, limit: Int) -> String {
+        guard let current = list.currentItem else { return "### History\n(empty: the tab has loaded nothing)" }
+        let back = list.backList, entries = back + [current] + list.forwardList
+        let hidden = (length ?? 0) - entries.count
+        // Centred on the current entry, sliding to the ends of the list when one side runs short.
+        let start = max(0, min(back.count - (limit - 1) / 2, entries.count - limit)), end = min(entries.count, start + limit)
+        let earlier = start, later = entries.count - end
+        let lines = entries[start..<end].enumerated().map { index, item in
+            let offset = start + index - back.count
+            let redirect = item.initialURL == item.url ? "" : " (asked for \(item.initialURL.absoluteString))"
+            return "- \(offset > 0 ? "+" : "")\(offset)\(offset == 0 ? " (current)" : ""): [\(item.title ?? "")](\(item.url.absoluteString))\(redirect)"
+        }
+        let left = [earlier > 0 ? "\(earlier) earlier" : nil, later > 0 ? "\(later) later" : nil].compactMap { $0 }
+        return "### History\n" + lines.joined(separator: "\n")
+            + (left.isEmpty ? "" : "\n- Note: \(left.joined(separator: " and ")) not shown; --max-results=100 for all")
+            + (hidden > 0 ? "\n- Note: \(hidden) more entr\(hidden == 1 ? "y is" : "ies are") hidden and skipped by go-back: pages that moved on by script without a click" : "")
     }
 
     private func describe(_ tab: Tab, note: String? = nil) -> String {
@@ -1221,7 +1355,7 @@ final class Browser {
         }
         if tab.unreadErrors > 0 {
             out += "\n- Console: \(tab.unreadErrors) new error\(tab.unreadErrors == 1 ? "" : "s") (agweb console error)"
-            if !workspace.rawReply { tab.unreadErrors = 0 }
+            tab.unreadErrors = 0
         }
         return out
     }
@@ -1253,7 +1387,11 @@ final class Browser {
                     secret.addingPercentEncoding(withAllowedCharacters: form)?.replacingOccurrences(of: " ", with: "+")].compactMap { $0 }
                 + escaped + escaped.compactMap { json($0, .withoutEscapingSlashes) }
         }
-        return Set(forms).sorted { $0.count > $1.count }.reduce(output) { $0.replacingOccurrences(of: $1, with: "<hidden>") }
+        let hidden = Set(forms).sorted { $0.count > $1.count }.reduce(output) { $0.replacingOccurrences(of: $1, with: "<hidden>") }
+        // A card or account number a field shows in groups (Stripe's "4242 4242 4242 4242").
+        return secrets.filter { $0.count >= 8 && $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }.reduce(hidden) { text, digits in
+            text.replacingOccurrences(of: digits.map(String.init).joined(separator: "[ -]?"), with: "<hidden>", options: .regularExpression)
+        }
     }
 
     /// Actions whose reply says what they changed.

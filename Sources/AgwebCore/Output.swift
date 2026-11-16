@@ -5,7 +5,7 @@ public enum Output {
     /// Sections that describe the tab rather than answer the command.
     static let context: Set = ["Page", "Tabs", "Events"]
     /// Every title the app emits; a `### Heading` in an answer (an article from `text`, a response body) is content.
-    static let titles: Set = context.union(["Result", "Snapshot", "Changes", "Found", "Download", "PDF", "Screenshot", "Video", "Routes", "Static"])
+    static let titles: Set = context.union(["Result", "Snapshot", "Changes", "Found", "Download", "PDF", "Screenshot", "Video", "Routes", "Static", "History"])
 
     static func isTitle(_ title: Substring) -> Bool {
         titles.contains(String(title)) || title.hasPrefix("Request ") || title.hasPrefix("Static ")
@@ -32,6 +32,14 @@ public enum Output {
         return body
     }
 
+    /// What a `--raw` reply leaves out of the answer, for stderr: the Events and the Page notes.
+    public static func rawNotes(_ text: String) -> [String] {
+        sections(text).flatMap { section in
+            section.title == "Events" ? section.body.split(separator: "\n")
+                : section.title == "Page" ? section.body.split(separator: "\n").filter { $0.hasPrefix("- Note: ") || $0.hasPrefix("- Console: ") } : []
+        }.map { String($0.dropFirst(2)) }
+    }
+
     /// One JSON object: `ok`, then each section by lowercased title. JSON bodies stay JSON, `- Key: value` lists
     /// become objects, anything else is a string. Output that is already a JSON object passes through.
     public static func json(_ text: String, ok: Bool) -> String {
@@ -40,9 +48,9 @@ public enum Output {
         if !ok {
             object["error"] = text.hasPrefix("Error: ") ? String(text.dropFirst(7)) : text
         } else {
-            // Changes and Found are lists of lines; read as `- key: value` pairs, two calls would collapse into one.
+            // Changes, Found and History are lists of lines; read as `- key: value` pairs, two calls would collapse into one.
             for (title, body) in sections(text) {
-                object[title.lowercased()] = ["Changes", "Found"].contains(title) ? body.split(separator: "\n").map(String.init) : value(body)
+                object[title.lowercased()] = ["Changes", "Found", "History"].contains(title) ? body.split(separator: "\n").map(String.init) : value(body)
             }
         }
         let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()

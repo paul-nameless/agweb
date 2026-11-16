@@ -60,6 +60,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         unlink(Agweb.socketPath)
     }
 
+    /// Only ever on the person's click: tells whether a newer release is out and, if they choose, installs it and
+    /// restarts. Never checks by itself.
+    @objc func checkForUpdates(_ sender: Any?) {
+        let window = browser.mainWindow.window
+        // A sheet on a closed or minimized window shows nowhere. This is the person's own click, so the window may
+        // come forward, checked again when the answer arrives.
+        func present(_ alert: NSAlert, _ handler: ((NSApplication.ModalResponse) -> Void)? = nil) {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            if !window.isVisible { window.makeKeyAndOrderFront(nil) }
+            alert.beginSheetModal(for: window, completionHandler: handler)
+        }
+        func tell(_ title: String, _ text: String) {
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = text
+            present(alert)
+        }
+        Task { @MainActor in
+            let release: Updater.Release
+            do { release = try await Updater.latest() } catch { return tell("Can't check for updates", "\(error)") }
+            guard Version.isNewer(release.version, than: Updater.current) else {
+                return tell("Agweb is up to date", "\(Updater.current) is the latest version.")
+            }
+            if let blocker = Updater.blocker() { return tell("Agweb \(release.version) is out", "You have \(Updater.current), but \(blocker).") }
+            let busy = browser.model.workspaces.filter(\.busy).count
+            let alert = NSAlert()
+            alert.messageText = "Agweb \(release.version) is out"
+            let notes = release.notes.count > 900 ? release.notes.prefix(900) + "…" : release.notes[...]
+            alert.informativeText = "You have \(Updater.current). Agweb restarts and reopens every workspace"
+                + (busy > 0 ? "; \(busy) agent\(busy == 1 ? " is" : "s are") working now and will see the command fail." : ".")
+                + (notes.isEmpty ? "" : "\n\n\(notes)")
+            alert.addButton(withTitle: "Update and Restart")
+            alert.addButton(withTitle: "Release Notes")
+            alert.addButton(withTitle: "Not Now")
+            present(alert) { [browser] response in
+                switch response {
+                case .alertFirstButtonReturn:
+                    Task { @MainActor in
+                        do {
+                            try await Updater.install(release)
+                            _ = try await browser.restartAfterUpdate()
+                        } catch {
+                            tell("Can't update Agweb", "\(error)")
+                        }
+                    }
+                case .alertSecondButtonReturn: NSWorkspace.shared.open(release.page)
+                default: break
+                }
+            }
+        }
+    }
+
     /// The standard About panel with a link to the repo; the commit stamped into the bundle as `AgwebCommit`, when
     /// there is one, replaces the build number in the version's parenthetical.
     @objc func showAbout(_ sender: Any?) {
@@ -100,6 +152,7 @@ private func makeMainMenu(target: MainWindow, settings: SettingsWindow, about: A
 
     submenu("Agweb", [
         item("About Agweb", #selector(AppDelegate.showAbout(_:)), "", to: about),
+        item("Check for Updates…", #selector(AppDelegate.checkForUpdates(_:)), "", to: about),
         .separator(),
         item("Settings…", #selector(SettingsWindow.show(_:)), ",", to: settings),
         .separator(),

@@ -39,6 +39,11 @@ u="http://127.0.0.1:$port/index.html"
 # Ad blocking is on by default; this instance compiles a local list instead of fetching uBlock Origin's.
 printf '||127.0.0.1^*blockapi\n/blockme.png\n' >"$dir/blocklist.txt"
 export AGWEB_ADBLOCK_LISTS="http://127.0.0.1:$port/blocklist.txt"
+# Check for Updates reads this release instead of GitHub's; the checks below rewrite it.
+release() { printf '{"tag_name":"v%s","html_url":"http://127.0.0.1:%s/","body":"notes","assets":[{"name":"Agweb.dmg","browser_download_url":"http://127.0.0.1:%s/Agweb.dmg"}]}' "$1" "$port" "$port" >"$dir/release.json"; }
+version=$(plutil -extract CFBundleShortVersionString raw "$(dirname "$(realpath "$agweb")")/../Info.plist")
+release "$version"
+export AGWEB_UPDATE_FEED="http://127.0.0.1:$port/release.json"
 # Downloads and files nobody named land in the test's folder: the checkout may sit under ~/Downloads, which would
 # make every rebuilt (newly signed) test app ask for access to it.
 export AGWEB_DOWNLOAD_DIR="$dir/downloads"
@@ -185,7 +190,20 @@ check "Screenshot" -w alpha screenshot --full-page --filename="$dir/full.jpg"
 check '^\[Next page\](/index.html?next)$' -w alpha --raw text 'a'
 check "$dir/page.md" -w alpha text --filename="$dir/page.md"
 check "no article here" -w alpha text
-lacks "no article" -w alpha --raw text
+check "^agweb: Note: no article here" -w alpha --raw text
+# A listing whose main part keeps under half the page comes back whole; a page that says it is an article stays one.
+links=$(for i in $(seq 1 60); do printf '<li><a href="/s%d">Story number %d about something new today</a></li>' $i $i; done)
+para="<p>$(for i in $(seq 1 90); do printf 'word%d ' $i; done)</p>"
+printf '<html><head><title>List</title>%s</head><body><nav><ul>%s</ul></nav><main><article><h1>Top</h1>%s</article></main></body></html>' '' "$links" "$para" > "$dir/listing.html"
+printf '<html><head><title>Story</title>%s</head><body><nav><ul>%s</ul></nav><main><article><h1>Top</h1>%s</article></main></body></html>' '<meta property="og:type" content="article">' "$links" "$para" > "$dir/story.html"
+check "Page" -w lst open "http://127.0.0.1:$port/listing.html"
+check "no article here, so this is the whole page" -w lst text
+check "agweb: Note: no article here" -w lst --raw text
+check "Story number 60" -w lst --raw text
+check "Page" -w lst goto "http://127.0.0.1:$port/story.html"
+check "main content only: [0-9]* of [0-9]* words on the page; text --all for all of it" -w lst text
+lacks "Story number 60" -w lst --raw text
+check "closed" -w lst close
 grep -q 'Press me' "$dir/page.md" || fail "text --filename did not write the page"
 check "Page" -w alpha eval "() => { const d = document.createElement('div'); d.id = 'veiled'; d.hidden = true; d.textContent = 'Hidden waiting state'; document.body.append(d) }"
 lacks "Hidden waiting state" -w alpha text
@@ -261,6 +279,9 @@ check '\["inner","inner"\]' -w alpha eval 'log.filter(x => x === "inner")'
 fails 'matches .* elements: button "Press me" \[ref=e2\]; ' -w alpha click 'role=button'
 check '^- form' -w alpha snapshot '#f'
 lacks 'Press me' -w alpha snapshot '#f'
+# CSS compares a URL attribute as written; the miss names the element whose resolved URL matched.
+fails 'no element matches .*CSS matches action as the page writes it ("go"), not the resolved URL: form' -w alpha snapshot "form[action=\"${u%/*}/go\"]"
+check 'hidden on the page, so no tree; eval reads it' -w alpha --raw snapshot '#tok'
 check '^inner$' -w alpha --raw eval '(el) => el.id' 'role=button[name="inner"]'
 # eval hands over a target in a shadow root and in an iframe inside an iframe.
 check "Page" -w ev open "$u"
@@ -273,6 +294,42 @@ check "Page" -w ev eval "() => { const b = document.createElement('button'); b.t
 check 'button "Long word word word word word word word word word word word word word word word word word word word word word word word…"' -w ev snapshot
 check '^BUTTON$' -w ev --raw eval '(el) => el.tagName' 'role=button[name="Long word word word word word word word word word word word word word word word word word word word word word word word…"]'
 check "closed" -w ev close
+# history lists the tab's entries; go-back says when it has nowhere to go, and the next command when something else moved the tab.
+check "Page" -w hist open "$u"
+check "no earlier page in this tab" -w hist go-back
+check "index.html?next" -w hist click 'text=Next page'
+check "(current): \[.*\](.*index.html?next)" -w hist history
+check "- -1: \[.*\]($u)$" -w hist history
+check "Page" -w hist eval "() => { setTimeout(() => location.assign('$u?moved'), 100) }"
+# Not a command meanwhile: it would count as having seen the move.
+sleep 1
+check "the tab moved since your last command, to .*?moved" -w hist go-back
+check "+1: .*?moved" -w hist history
+# --raw keeps only the answer, so the move goes to stderr.
+check "Page" -w hist eval "() => { setTimeout(() => location.assign('$u?moved2'), 100) }"
+sleep 1
+check "agweb: the tab moved since your last command, to .*?moved2" -w hist --raw eval "1"
+# A script replacing the page counts too; a URL change inside the page doesn't.
+check "Page" -w hist eval "() => { setTimeout(() => location.replace('$u?swapped'), 100) }"
+sleep 1
+check "the tab moved since your last command, to .*?swapped" -w hist eval "1"
+check "Page" -w hist eval "() => { setTimeout(() => history.replaceState(null, '', '?state'), 100) }"
+sleep 1
+lacks "the tab moved" -w hist eval "1"
+# The agent's own navigations are no move.
+check "Page" -w hist open "$u?again"
+lacks "the tab moved" -w hist reload
+lacks "the tab moved" -w hist goto "$u?gone"
+lacks "the tab moved" -w hist go-back
+check "Page" -w hist eval "location.href = '$u?evalnav'"
+lacks "the tab moved" -w hist history
+# Only the entries around the current one, saying how many are left out.
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do "$agweb" -w hist goto "$u?n=$i" >/dev/null; done
+check "Note: [0-9]* earlier not shown; --max-results=100 for all" -w hist history
+lacks "^- -13: " -w hist history
+check "^- -13: " -w hist history --max-results=100
+lacks "^- -8: " -w hist history --max-results=8
+check "closed" -w hist close
 check "Page" -w alpha check 'text=Remember me'
 check "Page" -w alpha check '#r2'
 check '\[true,true\]' -w alpha eval '[cb.checked, r2.checked]'
@@ -541,6 +598,13 @@ fails "boom" -w alpha eval '() => { throw new Error("boom") }'
 fails "is not a field" -w alpha fill '#b' x
 fails "no workspace\|no session" -w nobody snapshot
 
+echo "== update only says what is out unless asked to install"
+check "agweb $version is the latest" update --check
+release 99.0.0
+check "agweb 99.0.0 is out (you have $version): http://127.0.0.1:$port/" update --check
+check "install it with: agweb update" update --check
+fails "did you mean update" upgrade
+
 echo "== a click on a covered target fails and names the cover, as Playwright's does; --force clicks anyway"
 check "Title: agweb test" -w alpha goto "$u"
 check "Page" -w alpha eval "() => { document.body.insertAdjacentHTML('beforeend', '<div id=\"ov\"><div class=\"dark-filter\" style=\"position:fixed;inset:0;z-index:9\"></div><div role=\"dialog\" aria-modal=\"true\" aria-label=\"Cookie Settings\" style=\"position:fixed;bottom:0;right:0;width:40px;height:40px;z-index:10\">x</div></div>') }"
@@ -603,6 +667,41 @@ check 'text "Side text"' -w fs wait --text='Side text'
 check "Page" -w fs click 'text=Side button'
 check '"side"' -w fs eval 'window.clicked'
 check "workspace fs closed" -w fs close
+# Cross-origin frames (127.0.0.1 and localhost are different sites), one inside the other, below the fold: a card
+# field that shows the number back in groups, as Stripe's does.
+printf '<title>checkout</title><div style="height:1500px">spacer</div><iframe id="pay" title="Payment" style="width:420px;height:220px;border:4px solid" src="http://localhost:%s/xcard.html"></iframe>' "$port" >"$dir/xpay.html"
+printf '<style>body{padding:10px}</style><input id="num" aria-label="Card number"><span id="shown"></span><iframe title="ZIP frame" style="margin-left:30px;width:300px;height:60px" src="http://127.0.0.1:%s/xzip.html"></iframe><script>num.oninput = () => shown.textContent = num.value.replace(/(\\d{4})(?=\\d)/g, "$1 ")</script>' "$port" >"$dir/xcard.html"
+printf '<input id="zip" aria-label="ZIP"><button onclick="this.textContent = \x27zip \x27 + zip.value">Zip</button>' >"$dir/xzip.html"
+check "Title: checkout" -w xo open "http://127.0.0.1:$port/xpay.html"
+check '^  - textbox "Card number" \[ref=e2\]' -w xo snapshot
+check '^    - textbox "ZIP" \[ref=e4\]' -w xo snapshot
+check "Page" -w xo fill e2 --secret-cmd 'echo 4242424242424242'
+lacks "4242" -w xo snapshot
+check "^16 http://localhost:$port\$" -w xo --raw eval "el => el.value.length + ' ' + origin" e2
+check "Page" -w xo click e4
+check "Page" -w xo type 90210
+check 'button "zip 90210"' -w xo click e5
+check "Page" -w xo eval "() => { const d = document.createElement('div'); d.id = 'xveil'; d.style = 'position:fixed;inset:0'; document.body.append(d) }"
+fails 'covered by <div#xveil>' -w xo click e5 --timeout=0
+check "Page" -w xo eval "() => pay.remove()"
+fails 'its frame reloaded or closed; take a new snapshot' -w xo click e5
+check "workspace xo closed" -w xo close
+# A frame taller than the window, whose own scrolling can't move the page; one with role=presentation in a table cell.
+printf '<title>tall</title><iframe style="width:400px;height:2500px" src="http://localhost:%s/xtall.html"></iframe><table><tr><td>Card<iframe role="presentation" style="height:60px" src="http://localhost:%s/xzip.html"></iframe></td></tr></table>' "$port" "$port" >"$dir/xlong.html"
+printf '<div style="height:2200px">x</div><button onclick="this.textContent = \x27low ok\x27">Low</button>' >"$dir/xtall.html"
+check "Title: tall" -w xt open "http://127.0.0.1:$port/xlong.html"
+check '^  - button "Low" \[ref=e6\]' -w xt snapshot
+check '^      - textbox "ZIP" \[ref=e7\]' -w xt snapshot
+check 'button "low ok"' -w xt click e6
+check "Page" -w xt fill e7 123
+check 'button "zip 123"' -w xt click e8
+check "workspace xt closed" -w xt close
+# An app shell, whose body scrolls and its window can't.
+printf '<title>shell</title><style>html{height:100%%;overflow:hidden}body{height:100%%;overflow:auto;margin:0}</style><div style="height:1800px">x</div><iframe style="width:400px;height:900px" src="http://localhost:%s/xtall.html"></iframe>' "$port" >"$dir/xshell.html"
+check "Title: shell" -w xs open "http://127.0.0.1:$port/xshell.html"
+check '^  - button "Low" \[ref=e2\]' -w xs snapshot
+check 'button "low ok"' -w xs click e2
+check "workspace xs closed" -w xs close
 
 echo "== an idle tab nobody watches is hidden; a command wakes it"
 check "Title" -w vis open "$u"

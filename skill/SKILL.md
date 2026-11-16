@@ -1,6 +1,6 @@
 ---
 name: agweb
-description: "Drive a real, visible web browser from the shell with the agweb CLI (WebKit; never steals focus; agents work in parallel, each in its own workspace). Use for any browser task: opening sites, logging in with a saved profile or a password from pass, 1Password or Bitwarden kept out of the transcript, clicking, filling and submitting forms, reading page text or tables, screenshots, PDFs, waiting for SPAs, checking network calls and console errors, mocking APIs, cookies, uploads and downloads, recording demo videos, and testing web apps. Use instead of playwright-cli."
+description: "Drive a real, visible WebKit browser from the shell with the agweb CLI (never steals focus; agents work in parallel, one workspace each). Use for any browser task: opening sites, logging in with a saved profile or a password from pass, 1Password or Bitwarden kept out of the transcript, clicking, filling forms, reading page text or tables, screenshots, PDFs, waiting for SPAs, network calls and console errors, mocking APIs, cookies, uploads, downloads, demo videos, testing web apps. Use instead of playwright-cli."
 allowed-tools: Bash(agweb:*)
 ---
 
@@ -13,26 +13,26 @@ A browser window shared with other agents. Each task gets its own **workspace** 
 ```sh
 agweb -w fix-login open https://app.example.com # one workspace per task, a unique name (fresh profile)
 agweb -w fix-login snapshot # page tree with [ref=eN] handles
-agweb -w fix-login click e12 # act; the reply waits for the fetch it caused and lists it under ### Changes
-agweb -w fix-login snapshot --diff                  # only what changed; often unneeded, see below
-agweb -w fix-login goto https://app.example.com/x # navigate; never eval "location.href=..."
+agweb -w fix-login click e12 # act; the reply lists what changed under ### Changes
+agweb -w fix-login snapshot --diff # after goto, wait or eval, or when the page changed by itself
+agweb -w fix-login goto https://app.example.com/x # navigate; never eval "location.href=...", which tells you nothing
 agweb -w fix-login close # when done; otherwise the workspace reopens after a restart
 ```
 
-- Name the workspace uniquely: another agent may be running the same kind of task, and two agents in one workspace act on each other's tabs. Prefer an id you already have (ticket `PROJ-123`, branch, PR number), else a task name plus a random suffix (`fix-login-7f3a`). Run `agweb list` first; a name already listed belongs to someone else.
-- Pass `-w` on every call, or `export AGWEB_WORKSPACE=fix-login`. A shell function `a() { agweb -w fix-login "$@"; }` works; a variable holding `agweb -w fix-login` does not in zsh. Never touch a workspace you didn't open (`agweb list` shows them all).
-- "Clean up" or "close the tabs" means yours: `agweb -w fix-login close`, or `tab-close` for one tab. Other agents' workspaces only when the person names them.
-- `goto`, `go-back`, `reload` wait for the new page; `goto` and `open` also report `redirected to ...` under Events when a login or SSO bounce moved you, to another host or path. `eval "location.href=..."` tells you nothing.
-- Keep stderr. Errors say why and exit 1: an ambiguous target, a timeout over the cap, a misspelled option. Never `2>/dev/null`; chain dependent steps with `&&`, not `;`.
-- Actions (not `upload`) wait up to 5 s for their target to show (`--timeout=MS`, 0 to skip; fields only need to exist), so `click` right after the page changed is fine; `wait` for anything slower. A ref from an earlier page fails with `ref eN not found`.
-- After a snapshot, `click`, `fill`, `type`, `press`, `check`, `select`, `hover` and `drag` replies carry `### Changes`: the fetch/XHR calls they started and the tree lines added (`+`) or removed (`-`) under their parents, so read that before taking another snapshot. Over 20 lines it is cut; `snapshot --diff` has the rest.
-- Every reply ends with `### Page` (URL, title). `### Events` lists alerts, confirms, popups, downloads and redirects; `- Console: N new errors` means run `console error`.
-- Logins need a named profile (`-p`). If none exists and you have no credentials, `ask` the person to log in once; never guess. `ask` is also for MFA codes, CAPTCHAs, a bot check that fails ("verify your browser") and anything only a person may click: it shows a bar with Done on the tab, without taking focus, and returns on Done, when the target, `--text` or `--url` appears, or after `--timeout` (default 10 min, up to 1 h). A Cloudflare checkbox ("Verify you are human") is the exception: the `### Page` note gives its spot, and `mousemove x y`, `mousedown`, `mouseup` there passes it.
-- Between commands your tab is hidden after 30 s and suspended after ~4 min; every command wakes it, so nothing is lost.
+- Name the workspace uniquely (a ticket, branch or PR id, else `task-7f3a`); a name in `agweb list` is someone else's. Never touch a workspace you didn't open: "clean up" means `close` yours (`tab-close` for one tab).
+- Pass `-w` on every call or `export AGWEB_WORKSPACE=fix-login`; in zsh a function `a() { agweb -w fix-login "$@"; }` works, a variable holding `agweb -w fix-login` doesn't.
+- `update`, `quit` and `close-all` hit every agent: only when the person asks.
+- `goto`, `go-back` and `reload` wait for the page; Events say `redirected to ...` after a login or SSO bounce.
+- If Events say `the tab moved since your last command`, or `go-back` lands somewhere unexpected, `agweb history` shows the tab's entries (`-1` is where `go-back` goes).
+- Keep stderr: errors say why and exit 1. Never `2>/dev/null`; chain dependent steps with `&&`, not `;`.
+- Actions wait up to 5 s for their target to be visible and enabled (`--timeout=MS`, 0 to skip), so no `wait` before a `click`; `wait` for anything slower, `wait <target> --enabled` for a disabled button.
+- After a snapshot, action replies carry `### Changes`: the fetch/XHR calls they started (the reply waits for them) and the tree lines added (`+`) or removed (`-`). Read it instead of taking another snapshot; over 20 lines it is cut, then `snapshot`.
+- `### Events` lists alerts, confirms, popups, downloads and redirects.
+- Logins need a named profile (`-p`). With no profile and no credentials, `ask` the person to log in; never guess. Also `ask` for MFA codes, CAPTCHAs, a failed bot check and anything only a person may click. A Cloudflare checkbox ("Verify you are human") is the exception: the `### Page` note gives its spot, and `mousemove x y`, `mousedown`, `mouseup` there passes it.
 
 ## Targets
 
-`e12` from the last snapshot; `role=button[name="Save"]` (name is a case-insensitive substring); `text=Save` (substring) or `text="Save"` (exact); a CSS selector. Role and text targets must match exactly one visible element; the error lists the matches with their refs. Append `>> nth=0` (or `nth=-1` for the last) to pick one of several. Same-origin iframes and open shadow roots are searched and appear in snapshots.
+`e12` from the last snapshot; `role=button[name="Save"]` (name is a case-insensitive substring); `text=Save` (substring) or `text="Save"` (exact); a CSS selector. Role and text targets must match exactly one visible element; the error lists the matches with their refs. Append `>> nth=0` (or `nth=-1` for the last) to pick one of several. Open shadow roots and same-origin frames are searched.
 
 ## Patterns
 
@@ -41,28 +41,25 @@ agweb -w fix-login close # when done; otherwise the workspace reopens after a re
 ```sh
 agweb profile-list # existing profiles; the project's notes may name one
 agweb -w task open -p work https://app.example.com # lands logged in if the profile has been used before
-agweb -w task snapshot # a login form? credentials come from the project (pass, env), never from you
-agweb -w task fill 'role=textbox[name="Email"]' "$EMAIL"
-agweb -w task fill 'role=textbox[name="Password"]' --secret-cmd 'pass show site'   # never "$(pass show site)": that puts it in your transcript
+agweb -w task fill 'role=textbox[name="Email"]' "$EMAIL" # credentials come from the project (pass, env), never from you
+agweb -w task fill 'role=textbox[name="Password"]' --secret-cmd 'pass show site' # never "$(pass show site)": that puts it in your transcript
 agweb -w task click 'role=button[name="Sign in"]' && agweb -w task wait --url=/dashboard --timeout=60000
-agweb -w task ask "Please sign in, then click Done" --url=/dashboard   # no credentials: hand the tab to the person (10 min)
+agweb -w task ask "Please sign in, then click Done" --url=/dashboard # no credentials: hand the tab to the person
 ```
 
-A profile can't change on an open workspace: `close` it, then `open -p`. `--secret-cmd CMD` takes the first line CMD prints (`pass show site`, `op read op://vault/site/password`, `bw get password site`); `--secret-file PATH` the first line of a file. The value is never in a reply: the field shows `[value=<hidden>]` in snapshots, and `eval`, `console` and `request-body` print `<hidden>` wherever it appears. Use them for passwords and tokens; a one-time code is short and expires, so fill it plainly.
+The profile is fixed at `open`: `close`, then `open -p`. `--secret-cmd CMD` (`pass show site`, `op read op://vault/site/password`, `bw get password site`) and `--secret-file PATH` take the first line; the value shows as `<hidden>` in every reply.
 
 **Filling a form and verifying it.**
 
 ```sh
-agweb -w t snapshot # find the fields
 agweb -w t fill e3 "Paul" # replaces the field's text at once
 agweb -w t select e4 "Green" # <select>: label or value; never click one
 agweb -w t check e5
-agweb -w t click 'role=button[name="Save"]' # the reply waits for the fetch/XHR the click started (up to 5 s)
-agweb -w t snapshot --diff # verify, when ### Changes was cut short: [value="..."], [checked], [disabled], new text
+agweb -w t click 'role=button[name="Save"]'
 agweb -w t wait --text="Saved" && agweb -w t console error # the result, then anything the page logged
 ```
 
-`fill --submit` or `type --submit` presses Enter after. A validation message is just text: `wait --text="required"` catches it. For a custom field the snapshot lists as a `combobox` without an input, see dropdowns.
+`fill --submit` or `type --submit` presses Enter after.
 
 **SPA navigation and waiting.** Prefer a condition over a pause.
 
@@ -74,23 +71,23 @@ agweb -w t wait --url=/orders/ --timeout=60000 # default 30000, cap 600000
 agweb -w t wait 1500 # fixed pause; last resort
 ```
 
-`--text=` matches anywhere in the page's text, off-screen and screen-reader-only text included; `wait "text=..."` needs a visible element. `already true when wait started` in the reply means it matched text the page had before, such as your own message echoed in a chat. For a streamed answer, wait for the stop button or spinner to go (`wait e14 --gone`), or for text only the finished answer has. `wait` on a target fails when several match, as the `click` after it would: use more of the name, or the ref. A timed-out `wait` on a `role=` target lists that role's visible elements. `--gone` that is `already true` on a target that never matched means the selector is off, not that the element left. Actions that operate a control (`click`, `fill`, `check`, `select`) wait for it to be enabled as well as visible, up to `--timeout`; `wait <target> --enabled` waits for a disabled button on its own.
+`--text=` matches anywhere in the page's text, hidden text included; `wait "text=..."` needs a visible element. `already true when wait started` means it matched text already there, such as your own message echoed in a chat. For a streamed answer, wait for the stop button or spinner to go (`wait e14 --gone`).
 
 **Reading data.**
 
 ```sh
-agweb -w t --raw text # an article as markdown (a page with no article comes back whole; without --raw the reply says so)
-agweb -w t --raw text e12 # one element as markdown; on a feed or listing, the list's container reads cleaner than the page
-agweb -w t --raw text --all # the whole page: the article can leave out plans, prices or sidebars (without --raw the reply notes when it kept under half the words)
+agweb -w t --raw text # an article as markdown; a listing or other page with no article comes back whole
+agweb -w t --raw text e12 # one element; on a feed or listing, the list's container reads cleaner than the page
+agweb -w t --raw text --all # the whole page: the article can leave out plans, prices or sidebars
 agweb -w t snapshot e12 # structure: rows, cells, links, with refs to act on
 agweb -w t --raw eval "[...document.querySelectorAll('table tr')].map(r => [...r.cells].map(c => c.innerText.trim()).join(' | ')).join('\n')"
+agweb -w t --raw eval "[...document.querySelectorAll('article')].map(a => ({title: a.querySelector('h2')?.innerText, url: a.querySelector('a')?.href}))" # records as JSON: each field read inside its row, so a missing one can't shift the others
 agweb -w t --raw eval "(el) => el.value" e5 # what a snapshot hides: values, attributes, computed style
-agweb -w t --raw eval "(el) => el.closest('.form-field').innerText" e9 # a custom control's shown choice
 agweb -w t --json eval "document.title" # {ok, result, page} for scripts
-agweb -w t find "Invoice"                              # just the lines holding the text, with refs and the lines above them
+agweb -w t find "Invoice" # just the lines holding the text, with refs and the lines above them
 ```
 
-`--raw` prints just the answer, strings unquoted. A snapshot stops at 2000 lines and says so: snapshot a subtree or use `eval`. Lists and tables: `snapshot` the container for refs, `eval` for clean rows. A ref also works as a function argument in `eval`. `js` is the same command as `eval`, for sandboxes that refuse the word.
+`--raw` prints just the answer; Events and notes go to stderr. A snapshot stops at 2000 lines: snapshot a subtree or use `eval`. `js` is `eval`, for sandboxes that refuse the word.
 
 **Dropdowns and custom selects.**
 
@@ -100,13 +97,12 @@ agweb -w t click e9 && agweb -w t click 'role=option[name="Alpha"]' # mat-select
 agweb -w t snapshot e9 # [value="Alpha"] confirms the choice
 ```
 
-A custom combobox is not a field: `fill` says "is not a field". Open it, then click the option (the click waits for it to show).
+A custom combobox is not a field (`fill` says so): open it, then click the option.
 
-**Iframes and frames.** Same-origin frames are in the snapshot and every target reaches into them. A cross-origin frame shows as an empty `iframe`: open its URL in a tab instead.
+**Iframes and frames.** Frames are in the snapshot, cross-origin ones too (a Stripe card field, a login widget). Every target reaches into a same-origin frame; in a cross-origin one, use its refs. `type` and `press` go to the focused frame.
 
 ```sh
-agweb -w t --raw eval "[...document.querySelectorAll('iframe')].map(f => f.src).join('\n')"
-agweb -w t tab-new https://widget.example.com/embed
+agweb -w t fill e31 --secret-cmd 'pass show card/number' # a card field in Stripe's iframe; grouped digits are hidden too
 ```
 
 **Dialogs, popups, new tabs.**
@@ -125,19 +121,17 @@ agweb -w t upload e7 ./report.pdf # the <input type=file> or the button that ope
 agweb -w t download e8 --filename=out.csv # clicks and waits for the file (up to 2 min); replaces out.csv
 ```
 
-Downloads a plain click starts go to `.agweb/` in your folder, or `--download-dir=DIR`, and appear under Events.
+Downloads a plain click starts go to `.agweb/` in your folder, or `--download-dir=DIR`.
 
 **Debugging a broken page.**
 
 ```sh
-agweb -w t console error # since page load; `- Console: N new errors` in a reply is the cue
-agweb -w t requests --filter=api # fetch/XHR and documents since load, numbered with status
+agweb -w t console error # since page load
+agweb -w t requests --filter=api # fetch/XHR and documents since load, numbered with status; --static lists images and scripts
 agweb -w t response-body 3 # also request-headers, request-body, response-headers
-agweb -w t screenshot --filename=bug.png # then look at it; screenshot e5 for one element, --full-page for all of it; read a long answer with text e5
+agweb -w t screenshot --filename=bug.png # then look at it; screenshot e5 for one element, --full-page for all of it
 agweb -w t highlight e5 # outline it for the person; --hide clears
 ```
-
-`requests` and `route` cover fetch and XHR, not images or scripts (`requests --static` lists those without details).
 
 Ads and trackers are blocked, so analytics, error reporting (Sentry, Datadog) and ad calls fail and `requests` marks them "blocked by adblock". Testing those: `agweb -w t adblock off`, then `reload`.
 
@@ -161,33 +155,22 @@ agweb -w demo video-stop
 **Alongside other agents.**
 
 ```sh
-agweb list # who is here; their workspaces are not yours
+agweb list # who is here
 agweb dashboard --filename=grid.png # every tab at once, to check on parallel work; dashboard --hide
 agweb -w t show # put your tab in view for the person, without activating the window
 agweb -w t scroll-into-view e40 # glide an element on screen for a screenshot or the person; actions scroll there by themselves
 ```
 
-Use `--instant` for pointer verbs and `type` when looking human doesn't matter. Everything else (cookies, `state-save`/`state-load`, `pdf`, `emulate`, `drag`, `mousewheel`, `keydown`) is in `agweb help`; `agweb help <command>` shows one. Put `agweb version` in a bug report about agweb. `type` takes only text and types where the focus is: `fill <target> <text>` types into an element.
+`--instant` skips human pacing for pointer verbs and `type`. `type` types where the focus is; `fill <target> <text>` types into an element. The rest (cookies, `state-save`/`state-load`, `pdf`, `emulate`, `drag`, `mousewheel`) is in `agweb help [command]`.
 
 ## Troubleshooting
 
-- `no visible element matches ...`: the page isn't there yet (`wait` for it), the name is wrong (a `role=` miss lists that role's visible elements with refs; `find` the text), or the element is hidden.
-- `... matches N elements: ...`: the error lists them with refs; use the ref, or more of the name.
-- `ref eN not found: the page changed`: that element is gone (removed, re-rendered, or the page navigated); `snapshot --diff` or `find` for its new ref.
+- `no visible element matches ...`: not there yet (`wait` for it), a wrong name (`find` the text), or hidden.
 - Empty or stale snapshot after navigating: `wait --load` or `wait` for a known element, then snapshot again.
-- `timed out after N s waiting for ...`: the condition never held; check `### Page` for where you are, `snapshot`, `console error`. `--timeout is milliseconds, up to 600000` means the value was over the cap.
-- `select opens a native picker; use: agweb select ...` / `fill ... is not a field`: see dropdowns.
-- `has no size on screen`: the element is collapsed; snapshot again, or `click --js` for a scripted click.
-- `is covered by <...>, which would get the click`: nothing was clicked. A cookie banner or dialog: close or accept it (`find` its button), then click again. A spinner: `wait` for it to go. `--js` clicks the element by script; `--force` clicks the spot anyway, landing on the cover.
-- Logged out in a new workspace with the same profile: the site keeps its token in sessionStorage, which belongs to a tab, not the profile (a restart keeps it, a new workspace starts without it); log in again there.
-- `workspace X already uses fresh profile; close it first`: profiles are fixed at `open`.
-- `no file chooser opened` / `no download started within 10 s`: target the input or the button that really opens it; snapshot again.
-- `unknown option --x`: a misspelling is never ignored; text starting with dashes goes after `--`.
-- `the window is closed or minimized` in a reply: pages are frozen and screenshots refuse; `agweb show`.
-- `no workspace 'x'`: `open` first; `-w` differs from the one you opened.
+- Logged out in a new workspace with the same profile: the site keeps its token in sessionStorage, which belongs to a tab, not the profile; log in again there.
 
 ## Coming from playwright-cli
 
-- `-w name` replaces `-s=name`; `-p name` replaces `--profile`, `--persistent` and `--config`. Always WebKit, always visible.
+- `-w name` replaces `-s=name`; `-p name` replaces `--profile`, `--persistent` and `--config`.
 - No `run-code`: role and text targets, `eval`, `wait` and separate commands cover it. No `localstorage-*`: use `eval`.
 - `state-load` reads playwright-cli's `state-save` files, so logins carry over: `open -p work`, then `state-load state.json`.

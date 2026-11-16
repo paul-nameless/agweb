@@ -10,7 +10,7 @@ import WebKit
 final class MainWindow: NSObject, NSWindowDelegate {
     let window: NSWindow
     let model: BrowserModel
-    let urlField = NSTextField()
+    let urlField = AddressField()
     let container = NSView()
     lazy var findBar = FindBar(webView: { [weak self] in self?.model.displayedTab?.webView }, close: { [weak self] in self?.closeFind() })
     var findOpen = false

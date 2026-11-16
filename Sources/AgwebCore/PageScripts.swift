@@ -106,6 +106,22 @@ public enum PageScripts {
     };
     const label = (el) => `${roleOf(el) || el.tagName.toLowerCase()} ${JSON.stringify(nameOf(el) || clean(el.innerText).slice(0, 40))} [ref=${refOf(el)}]`;
     const list = (els) => els.slice(0, 5).map(label).join('; ') + (els.length > 5 ? `; and ${els.length - 5} more` : '');
+    // A CSS miss on a URL attribute: CSS compares the attribute as the page wrote it (HN's form has action="comment"),
+    // while eval's form.action is the resolved URL.
+    const urlHint = (selector) => {
+      const m = /\\[\\s*(href|src|action|formaction)\\s*([\\^$*]?=)\\s*(?:"([^"]*)"|'([^']*)'|([^\\]\\s]+))\\s*\\]/i.exec(selector);
+      if (!m) return '';
+      const attr = m[1].toLowerCase(), op = m[2], value = m[3] ?? m[4] ?? m[5];
+      // Only a full URL with a host: a[href^="http"] means links written absolute, and every relative one resolves to http.
+      if (!/:\\/\\/[^/]/.test(value)) return '';
+      const prop = { href: 'href', src: 'src', action: 'action', formaction: 'formAction' }[attr];
+      const hit = (url) => typeof url === 'string' && (op === '=' ? url === value : op === '^=' ? url.startsWith(value) : op === '$=' ? url.endsWith(value) : url.includes(value));
+      let els = [];
+      try { els = [...document.querySelectorAll(selector.slice(0, m.index) + `[${attr}]` + selector.slice(m.index + m[0].length))]; } catch { return ''; }
+      els = els.filter(el => hit(el[prop]));
+      if (!els.length) return '';
+      return `; CSS matches ${attr} as the page writes it (${JSON.stringify(els[0].getAttribute(attr))}), not the resolved URL: ${list(els)}`;
+    };
     // `<target> >> nth=N` picks one of several matches, counting from 0; -1 is the last.
     const find = (target) => {
       const nth = /^(.*?)\\s*>>\\s*nth=(-?\\d+)$/.exec(target);
@@ -125,7 +141,7 @@ public enum PageScripts {
       if (!/^(role|text)=/.test(target)) {
         // The first one a person can see: a page often keeps a hidden copy first (a collapsed quick-login form).
         const els = document.querySelectorAll(target);
-        if (!els.length) throw new Error(`no element matches ${target}`);
+        if (!els.length) throw new Error(`no element matches ${target}` + urlHint(target));
         return [...els].find(visible) ?? els[0];
       }
       const matches = matchesOf(target);
@@ -139,6 +155,18 @@ public enum PageScripts {
         throw new Error(`${target} matches ${matches.length} elements: ${list(matches)}. Be more specific, use a ref from snapshot, or add >> nth=0`);
       }
       return matches[0];
+    };
+    // Where a window sits in the frame tree: its index among its parent's frames at each level, from the top. The
+    // same numbers work across origins, so a cross-origin frame and the iframe showing it give the same path.
+    const framePath = (w) => {
+      const path = [];
+      for (; w !== w.parent; w = w.parent) {
+        let i = 0;
+        while (i < w.parent.length && w.parent[i] !== w) i++;
+        if (i === w.parent.length) return null;
+        path.unshift(i);
+      }
+      return path;
     };
     // The element's rect in the top page's viewport, through same-origin iframes.
     const rectOf = (el) => {
@@ -159,7 +187,8 @@ public enum PageScripts {
     public static let snapshot = find + """
     const root = target ? find(target) : null;
     for (const [ref, weak] of W.refs) if (!weak.deref()) W.refs.delete(ref);
-    const lines = [];
+    // `shown`: the refs on lines, for the app to tell a frame's refs from the page's.
+    const lines = [], frames = [], shown = [];
     let truncated = false;
     const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'svg', 'HEAD']);
     const leaf = new Set(['link', 'button', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio', 'slider', 'heading', 'img', 'switch', 'tab', 'menuitem', 'option',
@@ -197,7 +226,7 @@ public enum PageScripts {
       if (style.display === 'contents' || node.tagName === 'BODY' || node.tagName === 'FRAMESET') { walk(node, depth); return; }
       if (node.getClientRects().length === 0 || style.visibility === 'hidden') return;
       const role = controlRole(node);
-      if (!role) { walk(node, depth); return; }
+      if (!role) { if (!crossFrame(node, depth)) walk(node, depth); return; }
       const ref = refOf(node);
       let line = `${'  '.repeat(depth)}- ${role}`;
       // A container's text shows as its children, so only a leaf is named by its content.
@@ -208,8 +237,8 @@ public enum PageScripts {
       if (node.getAttribute('aria-selected') === 'true') line += ' [selected]';
       if (node.getAttribute('aria-expanded') === 'true') line += ' [expanded]';
       if (node.disabled) line += ' [disabled]';
-      // A password someone typed by hand must not reach an agent's transcript.
-      if (node.type === 'password' || W.secrets?.has(node)) { if (node.value) line += ' [value=<hidden>]'; }
+      // A password or card someone typed by hand must not reach an agent's transcript.
+      if (node.type === 'password' || /\\bcc-(number|csc|exp)/.test(node.autocomplete) || W.secrets?.has(node)) { if (node.value) line += ' [value=<hidden>]'; }
       else if (['textbox', 'searchbox', 'combobox'].includes(role) && node.tagName !== 'SELECT' && node.value) line += ` [value=${JSON.stringify(clean(node.value))}]`;
       // A custom select (mat-select, a div with role=combobox) shows its choice as its text, not a value.
       else if (role === 'combobox' && !('value' in node)) {
@@ -222,6 +251,8 @@ public enum PageScripts {
       line += ` [ref=${ref}]`;
       if (node === document.activeElement) line += ' [focused]';
       if (!emit(line)) return;
+      shown.push(ref);
+      if (crossFrame(node, depth + 1)) return;
       if (node.tagName === 'SELECT') {
         for (const option of node.options) {
           emit(`${'  '.repeat(depth + 1)}- option ${JSON.stringify(clean(option.label))}${option.selected ? ' [selected]' : ''}`);
@@ -229,6 +260,18 @@ public enum PageScripts {
       } else {
         walk(node, depth + 1, leaf.has(role));
       }
+    };
+    // A cross-origin frame (Stripe's has role=presentation) shows as a marker line the app replaces with the frame's
+    // own snapshot; its iframe's ref places the frame on screen.
+    const isCrossFrame = (node) => {
+      if (!['IFRAME', 'FRAME'].includes(node.tagName) || !node.contentWindow) return false;
+      try { return !node.contentDocument; } catch { return true; }
+    };
+    const crossFrame = (node, depth) => {
+      if (!isCrossFrame(node)) return false;
+      const path = framePath(node.contentWindow);
+      if (path && emit(`${'  '.repeat(depth)}\\u0001${frames.length}`)) { frames.push({ path, ref: refOf(node) }); shown.push(refOf(node)); }
+      return true;
     };
     // Inside a leaf (a button, a link, a combobox) its text is already the name, so only elements with a role
     // show: a search box in a dialog the page made a button, the options of an open custom select.
@@ -250,12 +293,71 @@ public enum PageScripts {
     };
     const roled = function* (node) {
       if (node.nodeType !== Node.ELEMENT_NODE) return;
-      if (controlRole(node)) { yield node; return; }
+      if (controlRole(node) || isCrossFrame(node)) { yield node; return; }
       for (const child of childrenOf(node)) yield* roled(child);
     };
     if (root) visit(root, 0); else walk(document.body || document.documentElement, 0);
     if (truncated) lines.push(`- (truncated at \(maxSnapshotLines) lines; use eval to read the rest)`);
-    return JSON.stringify({ tree: lines.join('\\n'), next: W.next, doc: W.doc });
+    if (root && !lines.length && (skip.has(root.tagName) || !root.checkVisibility({ visibilityProperty: true }))) lines.push('- (hidden on the page, so no tree; eval reads it)');
+    return JSON.stringify({ tree: lines.join('\\n'), next: W.next, doc: W.doc, frames, refs: shown, path: framePath(window) });
+    """
+
+    /// The frame's path in the frame tree (see `framePath`), to tell which cross-origin frame a handle is.
+    public static let framePath = find + """
+    return JSON.stringify(framePath(window));
+    """
+
+    /// Scrolls whatever holds the iframe so `at`, a point in its content, shows; returns where that point is then in this
+    /// document's top viewport. A cross-origin frame's own scrollIntoView never scrolls the page around it.
+    public static let revealAt = find + """
+    // A box of `size` at `at` in the iframe's content, in that document's viewport; each scroller holding the iframe
+    // (through shadow hosts and same-origin frames, a body that scrolls included) scrolls it fully into view, to the
+    // middle as the page's own targets go.
+    const el = find(target), style = el.ownerDocument.defaultView.getComputedStyle(el), r = el.getBoundingClientRect();
+    const box = { x: r.left + el.clientLeft + parseFloat(style.paddingLeft) + at.x - size.width / 2,
+                  y: r.top + el.clientTop + parseFloat(style.paddingTop) + at.y - size.height / 2 };
+    let moved = false;
+    // How far to scroll one axis so the box shows within [start, start + length].
+    const delta = (from, extent, start, length) =>
+      extent <= length ? (from < start || from + extent > start + length ? from + extent / 2 - (start + length / 2) : 0)
+                       : (from > start || from + extent < start + length ? from - start : 0);
+    const scroll = (scroller, dx, dy, read) => {
+      if (!dx && !dy) return;
+      const [x0, y0] = read();
+      scroller.scrollBy({ left: dx, top: dy, behavior: 'instant' });
+      const [x1, y1] = read();
+      box.x -= x1 - x0;
+      box.y -= y1 - y0;
+      moved ||= x1 !== x0 || y1 !== y0;
+    };
+    for (let n = el; n; ) {
+      const doc = n.ownerDocument, win = doc.defaultView;
+      const up = n.assignedSlot || n.parentElement || n.getRootNode().host;
+      if (up) {
+        if (up !== doc.scrollingElement && /auto|scroll|overlay/.test(win.getComputedStyle(up).overflow)) {
+          const b = up.getBoundingClientRect();
+          scroll(up, delta(box.x, size.width, b.left + up.clientLeft, up.clientWidth), delta(box.y, size.height, b.top + up.clientTop, up.clientHeight),
+                 () => [up.scrollLeft, up.scrollTop]);
+        }
+        n = up;
+        continue;
+      }
+      // The top of a document: its window, then out to the iframe holding it, while that one is same-origin.
+      scroll(win, delta(box.x, size.width, 0, win.innerWidth), delta(box.y, size.height, 0, win.innerHeight), () => [win.scrollX, win.scrollY]);
+      const f = win.frameElement;
+      if (!f) break;
+      const fb = f.getBoundingClientRect(), fs = f.ownerDocument.defaultView.getComputedStyle(f);
+      box.x += fb.left + f.clientLeft + parseFloat(fs.paddingLeft);
+      box.y += fb.top + f.clientTop + parseFloat(fs.paddingTop);
+      n = f;
+    }
+    return JSON.stringify({ x: box.x + size.width / 2, y: box.y + size.height / 2, moved });
+    """
+
+    /// Where an iframe's content starts in its document's top viewport: frame content there is offset by this.
+    public static let frameOrigin = find + """
+    const el = find(target), r = rectOf(el), style = el.ownerDocument.defaultView.getComputedStyle(el);
+    return JSON.stringify({ x: r.x + el.clientLeft + parseFloat(style.paddingLeft), y: r.y + el.clientTop + parseFloat(style.paddingTop) });
     """
 
     /// Markdown through Defuddle (loaded into this world first): one element converted whole, or the page's main
@@ -301,7 +403,13 @@ public enum PageScripts {
     // The article can leave out what a reader came for, such as a pricing page's plans: say how much it kept,
     // counting both sides the same way.
     const article = bare(page.content);
-    return reply((page.title ? `# ${page.title}\\n\\n` : '') + md(article), false, words(article.content.textContent), words(document.body.innerText));
+    const kept = words(article.content.textContent), shown = words(document.body.innerText);
+    // A listing or docs index kept under half loses its rows, so it comes back whole, unless the page says it is an
+    // article or one of Defuddle's site extractors (Hacker News, Reddit, GitHub) read it.
+    const declared = document.querySelector('meta[property="og:type"]')?.content === 'article' ||
+      [...document.querySelectorAll('script[type="application/ld+json"]')].some(s => /"@type"\\s*:\\s*\\[?\\s*"(\\w*Article|BlogPosting)"/.test(s.textContent));
+    if (shown > 300 && kept * 2 < shown && !declared && !page.extractorType) return reply(body(), true);
+    return reply((page.title ? `# ${page.title}\\n\\n` : '') + md(article), false, kept, shown);
     """
 
     // Returns the element's center in CSS pixels (`reveal` brings it into view first), what actually sits there (at

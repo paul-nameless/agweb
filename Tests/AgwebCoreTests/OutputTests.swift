@@ -34,3 +34,18 @@ let evalReply = "### Result\n\"a\\nb\"\n### Page\n- URL: https://example.com/\n-
     let object = try #require(JSONSerialization.jsonObject(with: Data(Output.json(reply, ok: true).utf8)) as? [String: Any])
     #expect(object["changes"] as? [String] == ["- call: POST https://a/1 => 201", "- call: POST https://a/2 => 201"])
 }
+
+@Test func historyIsItsOwnList() throws {
+    let reply = "### Page\n- URL: https://a/2\n- Title: Two\n### History\n- -1: [One](https://a/1)\n- 0 (current): [Two](https://a/2)"
+    #expect(Output.raw(reply) == "- -1: [One](https://a/1)\n- 0 (current): [Two](https://a/2)")
+    let object = try #require(JSONSerialization.jsonObject(with: Data(Output.json(reply, ok: true).utf8)) as? [String: Any])
+    #expect(object["history"] as? [String] == ["- -1: [One](https://a/1)", "- 0 (current): [Two](https://a/2)"])
+    #expect(object["page"] as? [String: String] == ["url": "https://a/2", "title": "Two"])
+}
+
+@Test func rawNotesAreTheEventsAndPageNotes() {
+    let reply = "### Result\n\"42\"\n### Page\n- URL: https://a.test/\n- Note: main content only\n- Console: 2 new errors\n### Events\n- the tab moved since your last command"
+    #expect(Output.raw(reply) == "42")
+    #expect(Output.rawNotes(reply) == ["Note: main content only", "Console: 2 new errors", "the tab moved since your last command"])
+    #expect(Output.rawNotes("### Result\n1\n### Page\n- URL: x").isEmpty)
+}

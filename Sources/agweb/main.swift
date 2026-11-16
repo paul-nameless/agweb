@@ -14,7 +14,9 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
 
   open [url]                    start the workspace (-p to reuse a named profile's logins)
   goto <url> | reload | go-back | go-forward
-  snapshot [target]             page (or one element) as a tree with [ref=eN] handles; same-origin iframes included
+  history                       the tab's back-forward list: where go-back (-1) and go-forward (+1) lead, current is 0
+                                (the 10 around the current one; --max-results=N for more)
+  snapshot [target]             page (or one element) as a tree with [ref=eN] handles; iframes included
                                 (--diff: only what changed since the last snapshot; an element keeps its ref)
   find <text>                   the snapshot lines containing text, with the lines around them (--max-results=20)
   text [target]                 the page's main content (an article) or one element as markdown (--all: the whole page)
@@ -85,6 +87,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
                                 only (Settings switches every workspace); pages opened directly always load
   install-cli [--check]         link /usr/local/bin/agweb to this app's CLI (also Help menu); --check says what is there
   install-skill [--check]       link the agent skill for Claude Code and Codex to this app's (also Help menu)
+  update [--check]              install the latest release from GitHub and restart, every workspace reopening
+                                (--check: only say whether one is out); agweb never updates by itself
   quit                          stop agweb
   version                       this agweb's version and the commit it was built from (also --version); put it in bug reports
 
@@ -93,7 +97,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"], text=Save (substring) o
                                 to go (default 1000); 0: don't wait; wait: 30000
 --filename=PATH                 snapshot, text, eval, request and response-body: write the answer to a file instead
 --download-dir=DIR              where downloads nobody named go (default $AGWEB_DOWNLOAD_DIR, else .agweb/)
---raw                           print only the answer (eval's value, a snapshot), strings unquoted
+--raw                           print only the answer (eval's value, a snapshot), strings unquoted; events and notes go to stderr
 --json                          print the reply as one JSON object
 -w NAME, --workspace=NAME       default $AGWEB_WORKSPACE, else "default"
 -p NAME, --profile=NAME         default $AGWEB_PROFILE, else a fresh profile
@@ -202,6 +206,7 @@ func absolute(_ path: String) -> String {
 /// Prints a reply in the chosen shape and exits with its status.
 func finish(_ output: String, ok: Bool) -> Never {
     let text = json ? Output.json(output, ok: ok) : raw && ok ? Output.raw(output) : output
+    if raw && ok { for note in Output.rawNotes(output) { FileHandle.standardError.write(Data("agweb: \(note)\n".utf8)) } }
     if ok { print(text) } else if json { print(text) } else { fail(text) }
     exit(ok ? 0 : 1)
 }
@@ -351,7 +356,7 @@ if !isServing(socket) {
         let launch = Process()
         launch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         // The selftest's: a shorter visible time after a command, install targets away from the person's, a local filter list.
-        let passed = ["AGWEB_AWAKE_SECONDS", "AGWEB_HOME", "AGWEB_CLI_LINK", "AGWEB_ADBLOCK_LISTS"].flatMap { name in env[name].map { ["--env", "\(name)=\($0)"] } ?? [] }
+        let passed = ["AGWEB_AWAKE_SECONDS", "AGWEB_HOME", "AGWEB_CLI_LINK", "AGWEB_ADBLOCK_LISTS", "AGWEB_UPDATE_FEED"].flatMap { name in env[name].map { ["--env", "\(name)=\($0)"] } ?? [] }
         launch.arguments = ["-g", "-n", "--env", "AGWEB_ROOT=\(Agweb.root.path)"] + passed + ["-a", app]
         try launch.run()
         launch.waitUntilExit()
