@@ -1033,11 +1033,13 @@ final class Browser {
             _ = try await tab.call(PageScripts.highlight, ["target": args.first ?? "", "hide": options["hide"] != nil, "style": options["style"] ?? ""])
         case "screenshot":
             let path = try options["filename"] ?? { throw Failure("missing --filename") }()
-            let (image, shotNote) = try await screenshot(tab, target: args.first, fullPage: options["full-page"] != nil)
+            let fullResolution = options["full-resolution"] != nil
+            let (image, shotNote) = try await screenshot(tab, target: args.first, fullPage: options["full-page"] != nil, fullResolution: fullResolution)
             let jpeg = ["jpg", "jpeg"].contains(URL(fileURLWithPath: path).pathExtension.lowercased())
             guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { throw Failure("could not encode screenshot") }
-            // Tagged at the screen's density, as NSImage's TIFF was: at 72 dpi a Retina shot opens twice its size.
-            let dpi = 72 * Double(cgImage.width) / max(1, image.size.width)
+            // One pixel per CSS pixel opens at its size at 72 dpi; a full-resolution shot is tagged at the screen's density,
+            // or a Retina shot opens twice its size.
+            let dpi = fullResolution ? 72 * Double(cgImage.width) / max(1, image.size.width) : 72
             // Off the main thread: a full page's PNG takes about half a second, and every workspace's commands wait
             // on the main thread meanwhile.
             let data = try await Task.detached(priority: .userInitiated) { try Self.encode(cgImage, jpeg: jpeg, dpi: dpi) }.value
@@ -1291,7 +1293,10 @@ final class Browser {
     }
 
     /// The shot, and a note when part of what was asked for doesn't show in it.
-    private func screenshot(_ tab: Tab, target: String?, fullPage: Bool) async throws -> (image: NSImage, note: String?) {
+    /// One pixel per CSS pixel unless `fullResolution`: a Retina shot has four times the pixels, and a model reading it pays
+    /// four times the image tokens for sharper glyphs (Claude Code passes a 2160×1536 viewport through whole, about 4,300
+    /// tokens), and its pixel positions are twice mousemove's CSS ones.
+    private func screenshot(_ tab: Tab, target: String?, fullPage: Bool, fullResolution: Bool) async throws -> (image: NSImage, note: String?) {
         if windowHidden { throw Failure(MainWindow.notRendering(mainWindow.window)) }
         let scale = tab.webView.pageZoom * tab.webView.magnification
         let cap = 16_384.0
@@ -1310,8 +1315,23 @@ final class Browser {
         func shot(_ rect: CGRect) async throws -> NSImage {
             let config = WKSnapshotConfiguration()
             // Snapshot rects are in view points from the top of the page, below the toolbar band.
-            config.rect = CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale)
-            return try await tab.snapshot(config)
+            func points(_ rect: CGRect) -> CGRect {
+                CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale)
+            }
+            config.rect = points(rect)
+            let backing = tab.webView.window?.backingScaleFactor ?? 1
+            guard !fullResolution, backing > 0 else { return try await tab.snapshot(config) }
+            // snapshotWidth is in points, and the image comes at the screen's density, in whole points: on Retina a side
+            // of odd CSS pixels would be resampled to an even one. So a rect padded to whole points, then cropped back.
+            let size = CGSize(width: max(1, rect.width.rounded()), height: max(1, rect.height.rounded()))
+            let padded = CGSize(width: (size.width / backing).rounded(.up) * backing, height: (size.height / backing).rounded(.up) * backing)
+            config.rect = points(CGRect(x: rect.minX, y: rect.minY, width: rect.width + padded.width - size.width,
+                                        height: rect.height + padded.height - size.height))
+            config.snapshotWidth = NSNumber(value: padded.width / backing)
+            let image = try await tab.snapshot(config)
+            guard padded != size, let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+                  let cropped = cgImage.cropping(to: CGRect(origin: .zero, size: size)) else { return image }
+            return NSImage(cgImage: cropped, size: CGSize(width: size.width / backing, height: size.height / backing))
         }
         func take() async throws -> (image: NSImage, note: String?) {
             if let target {

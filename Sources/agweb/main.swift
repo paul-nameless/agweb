@@ -54,8 +54,10 @@ Targets: a snapshot ref (e12), role=button[name="Save"] or role=heading[level=1]
   scroll-into-view <target>     glide an element to the middle of the viewport unless it is in view already
                                 (--instant jumps; clicks, hovers and drags scroll the same way)
   highlight [target]            outline an element on the page (--style=css; --hide removes one, or all)
-  screenshot [target]           PNG of the viewport or a whole element (--full-page, a scrolling message list
-                                included; --filename, default .agweb/page-<time>.png; .jpg/.jpeg saves JPEG)
+  screenshot [target]           PNG of the viewport or a whole element, one pixel per CSS pixel (--full-page, a
+                                scrolling message list included; --full-resolution: the screen's pixels, 2x on
+                                Retina, for small text or icons; --filename, default .agweb/page-<time>.png;
+                                .jpg/.jpeg saves JPEG)
   pdf [path]                    the page as a PDF, paginated with print styles (--format=A4|Letter|Legal), or
                                 --single-page: the screen view on one page (default .agweb/page-<time>.pdf)
   resize <w> <h>                set this tab's viewport size in CSS pixels; the shared window stays as it is
@@ -151,7 +153,7 @@ var options: [String: String] = [:]
 var positional: [String] = []
 var input = Array(CommandLine.arguments.dropFirst())[...]
 // --headed and --browser are accepted for playwright-cli habits; agweb is always headed WebKit.
-let flags: Set = ["js", "help", "instant", "headed", "full-page", "submit", "raw", "json", "static", "clear", "hide", "diff",
+let flags: Set = ["js", "help", "instant", "headed", "full-page", "full-resolution", "submit", "raw", "json", "static", "clear", "hide", "diff",
                   "httpOnly", "secure", "gone", "load", "single-page", "check", "all", "enabled", "version", "force"]
 let valued: Set = ["profile", "workspace", "max-idle", "filename", "size", "filter", "status", "body", "content-type",
                    "header", "domain", "path", "expires", "sameSite", "style", "description", "duration", "browser", "text", "url",

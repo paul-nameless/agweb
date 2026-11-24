@@ -266,19 +266,22 @@ printf '<html><body style="height:100vh;display:flex;flex-direction:column"><div
 printf '<!doctype html><html style="overflow-y:scroll"><body style="margin:0"><div style="height:5000px">tall</div></body></html>' > "$dir/rootscroll.html"
 height() { sips -g pixelHeight "$1" | awk '/pixelHeight/ {print $2}'; }
 check "Page" -w out goto "http://127.0.0.1:$port/chat.html"
-dpr=$("$agweb" -w out --raw eval 'devicePixelRatio')
 check "Screenshot" -w out screenshot --full-page --filename="$dir/chat.png"
-[ "$(height "$dir/chat.png")" -ge $((4000 * dpr)) ] || fail "screenshot --full-page missed a chat's scrolled messages"
+[ "$(height "$dir/chat.png")" -ge 4000 ] || fail "screenshot --full-page missed a chat's scrolled messages"
 check "Screenshot" -w out screenshot '#big' --filename="$dir/big.png"
-[ "$(height "$dir/big.png")" -eq $((2500 * dpr)) ] || fail "screenshot of an element taller than the viewport is not all of it"
+[ "$(height "$dir/big.png")" -eq 2500 ] || fail "screenshot of an element taller than the viewport is not all of it"
+# One pixel per CSS pixel; --full-resolution has the screen's.
+dpr=$("$agweb" -w out --raw eval 'devicePixelRatio')
+check "Screenshot" -w out screenshot '#big' --full-resolution --filename="$dir/bighi.png"
+[ "$(height "$dir/bighi.png")" -eq $((2500 * dpr)) ] || fail "screenshot --full-resolution is not at the screen's density"
 check "Page" -w out goto "http://127.0.0.1:$port/rootscroll.html"
 check "Screenshot" -w out screenshot --full-page --filename="$dir/root.png"
-[ "$(height "$dir/root.png")" -eq $((5000 * dpr)) ] || fail "screenshot --full-page of a page with root overflow is not its height"
+[ "$(height "$dir/root.png")" -eq 5000 ] || fail "screenshot --full-page of a page with root overflow is not its height"
 # An app shell with a max-height stops growing: the shot ends with it and says what stays hidden.
 printf '<!doctype html><body style="margin:0"><div style="height:100vh;max-height:1200px;display:flex;flex-direction:column"><div style="flex:1;overflow:auto"><div style="height:4000px">msgs</div></div><div style="height:100px">composer</div></div></body>' > "$dir/capped.html"
 check "Page" -w out goto "http://127.0.0.1:$port/capped.html"
 check "box that doesn't grow with the window" -w out screenshot --full-page --filename="$dir/capped.png"
-[ "$(height "$dir/capped.png")" -eq $((1200 * dpr)) ] || fail "screenshot --full-page of a capped app shell has a blank band"
+[ "$(height "$dir/capped.png")" -eq 1200 ] || fail "screenshot --full-page of a capped app shell has a blank band"
 "$agweb" -w out close >/dev/null 2>&1
 }
 lanes="$lanes out"
@@ -651,11 +654,12 @@ check 'true' -w st2 eval "matchMedia('(prefers-color-scheme: dark)').matches"
 check "$dir/page.pdf" -w st2 pdf "$dir/page.pdf" --format A4
 LC_ALL=C grep -qa '/Type */Page' "$dir/page.pdf" || fail "pdf wrote no pages"
 check "$dir/one.pdf" -w st2 pdf --single-page --filename="$dir/one.pdf"
-check "viewport is 400x300" -w st2 resize 400 300
-check '\[400,300\]' -w st2 eval '[innerWidth, innerHeight]'
+check "viewport is 401x301" -w st2 resize 401 301
+check '\[401,301\]' -w st2 eval '[innerWidth, innerHeight]'
 check "Page" -w st2 click '#b'
+# One pixel per CSS pixel, odd sides included (on Retina WebKit rounds a snapshot to whole points).
 check "Screenshot" -w st2 screenshot --filename="$dir/small.png"
-[ "$(sips -g pixelHeight "$dir/small.png" | awk '/pixelHeight/ {print $2}')" -le 600 ] || fail "a 400x300 viewport's screenshot is taller than the viewport"
+[ "$(sips -g pixelWidth -g pixelHeight "$dir/small.png" | awk '/pixel/ {printf "%s ", $2}')" = "401 301 " ] || fail "a 401x301 viewport's screenshot is not 401x301"
 check "Page" -w st2 resize 1600 1200
 check '\[1600,1200\]' -w st2 eval '[innerWidth, innerHeight]'
 check "workspace st closed" -w st close
