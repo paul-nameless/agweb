@@ -1,151 +1,151 @@
 {
- "commit": "467bbd8",
- "date": "2026-11-20",
- "machine": "Mac14,6 arm64, macOS 27.2",
+ "commit": "cf6525e",
+ "date": "2026-11-24",
+ "machine": "Mac14,6 arm64, macOS 27.2.1",
  "cases": {
   "goto (54k)": {
-   "s": 0.564,
-   "cpu": 0.327,
+   "s": 0.543,
+   "cpu": 0.277,
    "mb": 511,
    "added": 51
   },
   "snapshot (54k)": {
-   "s": 0.027,
-   "cpu": 0.037,
-   "mb": 532,
+   "s": 0.026,
+   "cpu": 0.036,
+   "mb": 531,
    "added": 11
   },
   "click CSS (54k)": {
-   "s": 0.198,
-   "cpu": 0.057,
+   "s": 0.195,
+   "cpu": 0.047,
    "mb": 544,
-   "added": 4
+   "added": 5
   },
   "fill (54k)": {
-   "s": 0.039,
-   "cpu": 0.057,
-   "mb": 559,
-   "added": 7
+   "s": 0.038,
+   "cpu": 0.066,
+   "mb": 564,
+   "added": 12
   },
   "press (54k)": {
-   "s": 0.24,
-   "cpu": 0.067,
-   "mb": 596,
-   "added": 25
+   "s": 0.242,
+   "cpu": 0.056,
+   "mb": 593,
+   "added": 17
   },
   "click role= with a name (54k)": {
-   "s": 0.275,
+   "s": 0.276,
    "cpu": 0.197,
-   "mb": 656,
-   "added": 28
+   "mb": 718,
+   "added": 61
   },
   "hover role= with a name (54k)": {
-   "s": 0.102,
-   "cpu": 0.177,
-   "mb": 657,
-   "added": 1
+   "s": 0.092,
+   "cpu": 0.147,
+   "mb": 720,
+   "added": 2
   },
   "wait --text (54k)": {
-   "s": 0.038,
-   "cpu": 0.057,
-   "mb": 657,
+   "s": 0.036,
+   "cpu": 0.046,
+   "mb": 721,
    "added": 0
   },
   "markdown (54k)": {
-   "s": 0.338,
-   "cpu": 0.499,
-   "mb": 1303,
-   "added": 515
+   "s": 0.328,
+   "cpu": 0.469,
+   "mb": 1357,
+   "added": 568
   },
   "markdown --all (54k)": {
-   "s": 0.3,
-   "cpu": 0.429,
-   "mb": 1304,
-   "added": 2
+   "s": 0.295,
+   "cpu": 0.419,
+   "mb": 1359,
+   "added": 1
   },
   "eval returning 2 MB (54k)": {
-   "s": 0.098,
+   "s": 0.092,
    "cpu": 0.084,
-   "mb": 1317,
-   "added": 6
+   "mb": 1366,
+   "added": 5
   },
   "screenshot (54k)": {
-   "s": 0.061,
-   "cpu": 0.067,
-   "mb": 1317,
-   "added": 0
-  },
-  "screenshot --full-page (54k)": {
-   "s": 1.003,
-   "cpu": 1.307,
-   "mb": 1670,
-   "added": 301
-  },
-  "snapshot (rapidoc)": {
-   "s": 0.037,
-   "cpu": 0.047,
-   "mb": 829,
-   "added": 9
-  },
-  "snapshot --filename (rapidoc, 165k lines)": {
-   "s": 0.828,
-   "cpu": 1.115,
-   "mb": 1598,
-   "added": 474
-  },
-  "find TRY (rapidoc)": {
-   "s": 0.951,
-   "cpu": 1.176,
-   "mb": 1601,
+   "s": 0.035,
+   "cpu": 0.066,
+   "mb": 1368,
    "added": 2
   },
+  "screenshot --full-page (54k)": {
+   "s": 0.479,
+   "cpu": 0.756,
+   "mb": 1512,
+   "added": 98
+  },
+  "snapshot (rapidoc)": {
+   "s": 0.031,
+   "cpu": 0.037,
+   "mb": 832,
+   "added": 8
+  },
+  "snapshot --filename (rapidoc, 165k lines)": {
+   "s": 0.795,
+   "cpu": 1.085,
+   "mb": 1598,
+   "added": 523
+  },
+  "find TRY (rapidoc)": {
+   "s": 0.952,
+   "cpu": 1.177,
+   "mb": 1629,
+   "added": 34
+  },
   "find resource_4999/ (rapidoc)": {
-   "s": 0.976,
-   "cpu": 1.207,
-   "mb": 1605,
+   "s": 0.957,
+   "cpu": 1.126,
+   "mb": 1625,
    "added": 2
   },
   "wait CSS in a shadow root (rapidoc)": {
-   "s": 0.086,
-   "cpu": 0.177,
-   "mb": 1607,
-   "added": 3
+   "s": 0.092,
+   "cpu": 0.207,
+   "mb": 1627,
+   "added": 2
   },
   "snapshot #op77 in a shadow root (rapidoc)": {
-   "s": 0.08,
-   "cpu": 0.117,
-   "mb": 1607,
+   "s": 0.063,
+   "cpu": 0.107,
+   "mb": 1627,
    "added": 0
   },
   "markdown (article)": {
-   "s": 0.123,
-   "cpu": 0.15,
-   "mb": 554,
+   "s": 0.151,
+   "cpu": 0.12,
+   "mb": 559,
    "added": 342
   },
   "pdf (article)": {
-   "s": 0.85,
-   "cpu": 0.776,
-   "mb": 568,
+   "s": 0.86,
+   "cpu": 0.796,
+   "mb": 571,
    "added": 11
   },
   "markdown --all (table)": {
-   "s": 0.593,
-   "cpu": 0.781,
-   "mb": 1475,
-   "added": 1056
+   "s": 0.586,
+   "cpu": 0.749,
+   "mb": 1490,
+   "added": 1025
   },
   "snapshot --filename (table)": {
-   "s": 0.179,
+   "s": 0.18,
    "cpu": 0.259,
-   "mb": 1545,
-   "added": 65
+   "mb": 1565,
+   "added": 69
   },
   "playwright-cli snapshot (rapidoc, 165k lines)": {
-   "s": 2.868,
-   "cpu": 3.842,
-   "mb": 2696,
-   "added": 159
+   "s": 2.781,
+   "cpu": 3.639,
+   "mb": 2905,
+   "added": 406
   }
  }
 }
