@@ -104,6 +104,9 @@ func appIDs(appID: String, host: String, allowed: Bool) {
     // A key's own attestation statement goes in as it came; "fmt" sorts before "attStmt" and "authData" by length.
     let statement = CBOR.map([(CBOR.text("alg"), CBOR.int(-7))])
     let object = WebAuthn.attestationObject(format: "packed", statement: statement, authenticatorData: [9])
-    #expect(object == [0xa3, 0x63] + Array("fmt".utf8) + CBOR.text("packed") + [0x67] + Array("attStmt".utf8) + statement
-        + [0x68] + Array("authData".utf8) + [0x41, 9])
+    // Built in parts: macOS 15's compiler gives up type-checking it as one expression.
+    let format: [UInt8] = [0xa3, 0x63] + Array("fmt".utf8) + CBOR.text("packed")
+    let statementPart: [UInt8] = [0x67] + Array("attStmt".utf8) + statement
+    let authDataPart: [UInt8] = [0x68] + Array("authData".utf8) + [0x41, 9]
+    #expect(object == format + statementPart + authDataPart)
 }
