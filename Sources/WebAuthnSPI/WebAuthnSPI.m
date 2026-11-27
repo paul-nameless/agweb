@@ -41,8 +41,12 @@
 @property (nullable, nonatomic, copy) NSArray *excludeCredentials;
 @property (nonatomic) NSInteger attestation;
 @end
+@interface _WKAuthenticationExtensionsClientOutputs : NSObject
+@property (nonatomic, readonly) BOOL appid;
+@end
 @interface _WKAuthenticatorResponse : NSObject
 @property (nonatomic, readonly) NSData *rawId;
+@property (nullable, nonatomic, strong, readonly) _WKAuthenticationExtensionsClientOutputs *extensions;
 @property (nullable, nonatomic, copy) NSData *extensionOutputsCBOR;
 @end
 @interface _WKAuthenticatorAttestationResponse : _WKAuthenticatorResponse
@@ -147,7 +151,7 @@ static NSNumber *milliseconds(NSTimeInterval seconds) { return @((long long)(sec
 
 - (void)getAssertionWithHash:(NSData *)hash rpID:(NSString *)rpID allow:(NSArray<NSData *> *)allow userVerification:(NSInteger)userVerification
                        appID:(NSString *)appID timeout:(NSTimeInterval)timeout
-                  completion:(void (^)(NSData *, NSData *, NSData *, NSData *, NSData *, NSError *))completion {
+                  completion:(void (^)(NSData *, NSData *, NSData *, NSData *, NSNumber *, NSData *, NSError *))completion {
     @try {
         _WKPublicKeyCredentialRequestOptions *options = [[NSClassFromString(@"_WKPublicKeyCredentialRequestOptions") alloc] init];
         options.relyingPartyIdentifier = rpID;
@@ -169,13 +173,19 @@ static NSNumber *milliseconds(NSTimeInterval seconds) { return @((long long)(sec
         [self log:[NSString stringWithFormat:@"webkit: getAssertion rp %@, %lu allowed, uv %ld, appid %@, timeout %.0fs",
                    rpID, (unsigned long)allow.count, (long)userVerification, appID ?: @"none", timeout]];
         [[self freshPanel] getAssertionWithClientDataHash:hash options:options completionHandler:^(id response, NSError *error) {
-            if (!response) return completion(nil, nil, nil, nil, nil, error ?: failure(@"WebKit gave no response"));
+            if (!response) return completion(nil, nil, nil, nil, nil, nil, error ?: failure(@"WebKit gave no response"));
             _WKAuthenticatorAssertionResponse *signedResponse = response;
+            // WebKit reports the AppID result in `extensions` (its U2F path), not in extensionOutputsCBOR.
+            NSNumber *viaAppID = nil;
+            _WKAuthenticationExtensionsClientOutputs *outputs = [signedResponse respondsToSelector:@selector(extensions)] ? signedResponse.extensions : nil;
+            if ([outputs respondsToSelector:@selector(appid)]) viaAppID = @(outputs.appid);
+            [self log:[NSString stringWithFormat:@"webkit: extensions %@, appid %@, extensionOutputsCBOR %lu bytes", outputs ? NSStringFromClass([outputs class]) : @"none",
+                       viaAppID ?: @"-", (unsigned long)signedResponse.extensionOutputsCBOR.length]];
             completion(signedResponse.rawId, signedResponse.authenticatorData, signedResponse.signature, signedResponse.userHandle,
-                       signedResponse.extensionOutputsCBOR, nil);
+                       viaAppID, signedResponse.extensionOutputsCBOR, nil);
         }];
     } @catch (NSException *exception) {
-        completion(nil, nil, nil, nil, nil, failure([NSString stringWithFormat:@"WebKit raised %@: %@", exception.name, exception.reason]));
+        completion(nil, nil, nil, nil, nil, nil, failure([NSString stringWithFormat:@"WebKit raised %@: %@", exception.name, exception.reason]));
     }
 }
 

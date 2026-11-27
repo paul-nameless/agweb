@@ -83,12 +83,12 @@ final class WebKitSecurityKey: SecurityKeyBackend {
         wire(ui)
         return try await withCheckedThrowingContinuation { done in
             panel.getAssertion(hash: Data(request.clientDataHash), rpID: request.rpID, allow: request.allow.map { Data($0) },
-                               userVerification: Self.requirement(request.userVerification), appID: request.appID, timeout: request.timeout) { rawId, authData, signature, userHandle, extensions, error in
+                               userVerification: Self.requirement(request.userVerification), appID: request.appID, timeout: request.timeout) { rawId, authData, signature, userHandle, viaAppID, extensions, error in
                 guard let rawId, let authData, let signature else { return done.resume(throwing: self.failed ?? Self.failure(error)) }
                 let outputs = extensions.flatMap { CBOR.decode([UInt8]($0)) }
                 KeyLog.write("webkit: signed with credential \(rawId.count) bytes, authData \(authData.count) bytes, userHandle \(userHandle?.count ?? 0) bytes, extensions \(extensions.map { KeyLog.hex([UInt8]($0)) } ?? "none")")
                 done.resume(returning: KeySigned(id: [UInt8](rawId), authData: [UInt8](authData), signature: [UInt8](signature),
-                                                 userHandle: userHandle.map { [UInt8]($0) }, viaAppID: outputs?["appid"]?.bool ?? false))
+                                                 userHandle: userHandle.map { [UInt8]($0) }, viaAppID: viaAppID?.boolValue ?? outputs?["appid"]?.bool ?? false))
             }
         }
     }

@@ -483,6 +483,8 @@ public enum CTAP2 {
     public static let ok: UInt8 = 0x00, credentialExcluded: UInt8 = 0x19, noCredentials: UInt8 = 0x2E, keepaliveCancel: UInt8 = 0x2D
     public static let pinInvalid: UInt8 = 0x31, pinBlocked: UInt8 = 0x32, pinAuthInvalid: UInt8 = 0x33, pinAuthBlocked: UInt8 = 0x34
     public static let pinNotSet: UInt8 = 0x35, pinRequired: UInt8 = 0x36
+    /// The key stopped waiting for a touch, which can be sooner than the site's timeout.
+    public static let touchTimeouts: Set<UInt8> = [0x2F, 0x3A]
 
     private static let statuses: [UInt8: (name: String, message: String)] = [
         0x00: ("OK", "no error"),
@@ -503,6 +505,7 @@ public enum CTAP2 {
         0x2D: ("KEEPALIVE_CANCEL", "the security key request was cancelled"),
         0x2E: ("NO_CREDENTIALS", "the security key has no passkey for this site"),
         0x2F: ("USER_ACTION_TIMEOUT", "nobody touched the security key in time"),
+        0x3A: ("ACTION_TIMEOUT", "nobody touched the security key in time"),
         0x31: ("PIN_INVALID", "wrong PIN"),
         0x32: ("PIN_BLOCKED", "the security key's PIN is blocked; only resetting the key unblocks it"),
         0x33: ("PIN_AUTH_INVALID", "the security key refused agweb's PIN token"),

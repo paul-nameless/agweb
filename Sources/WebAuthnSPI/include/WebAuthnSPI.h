@@ -41,7 +41,8 @@ NS_ASSUME_NONNULL_BEGIN
                        appID:(nullable NSString *)appID
                      timeout:(NSTimeInterval)timeout
                   completion:(void (^)(NSData *_Nullable rawId, NSData *_Nullable authenticatorData, NSData *_Nullable signature,
-                                       NSData *_Nullable userHandle, NSData *_Nullable extensionsCBOR, NSError *_Nullable error))completion
+                                       NSData *_Nullable userHandle, NSNumber *_Nullable viaAppID, NSData *_Nullable extensionsCBOR,
+                                       NSError *_Nullable error))completion
     NS_SWIFT_NAME(getAssertion(hash:rpID:allow:userVerification:appID:timeout:completion:));
 
 - (void)cancel;

@@ -306,6 +306,11 @@ private final class CTAPSession: @unchecked Sendable {
                                                userName: request.userName, displayName: request.displayName, algorithm: algorithm, exclude: exclude,
                                                residentKey: residentKey, uv: builtIn, auth: auth)
             let (status, body) = try cbor(key, "makeCredential", command, touch: true)
+            // As WebKit does: the key gave up waiting for the touch before the site did, so ask it again.
+            if CTAP2.touchTimeouts.contains(status), !stop() {
+                KeyLog.write("ctap: the key stopped waiting for a touch; asking again")
+                continue
+            }
             if status == CTAP2.pinRequired, auth == nil, info.options["clientPin"] == true {
                 auth = try pinAuth(key, info, permissions: CTAP2.permissionMakeCredential, rpID: request.rpID, clientDataHash: request.clientDataHash)
                 continue
@@ -358,6 +363,11 @@ private final class CTAPSession: @unchecked Sendable {
         while true {
             let command = CTAP2.getAssertion(rpID: rpID, clientDataHash: request.clientDataHash, allow: chunk, uv: builtIn, auth: auth)
             let (status, body) = try cbor(key, "getAssertion", command, touch: true)
+            // As WebKit does: the key gave up waiting for the touch before the site did, so ask it again.
+            if CTAP2.touchTimeouts.contains(status), !stop() {
+                KeyLog.write("ctap: the key stopped waiting for a touch; asking again")
+                continue
+            }
             if status == CTAP2.pinRequired, auth == nil, info.options["clientPin"] == true {
                 auth = try pinAuth(key, info, permissions: CTAP2.permissionGetAssertion, rpID: rpID, clientDataHash: request.clientDataHash)
                 continue
