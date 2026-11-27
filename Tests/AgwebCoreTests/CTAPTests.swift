@@ -164,7 +164,12 @@ func pinProtocolsAgreeWithTheKey(version: Int) throws {
 
 /// Authenticator data as a key returns it on creation: rpIdHash, flags UP|UV|AT, count, AAGUID, id, COSE key.
 private func madeAuthData(id: [UInt8], cose: [UInt8]) -> [UInt8] {
-    [UInt8](repeating: 0xaa, count: 32) + [0x45, 0, 0, 0, 3] + [UInt8](repeating: 0xcc, count: 16) + [0, UInt8(id.count)] + id + cose
+    // Appended in parts: macOS 15's compiler gives up type-checking it as one expression.
+    var data = [UInt8](repeating: 0xaa, count: 32)
+    data += [0x45, 0, 0, 0, 3]
+    data += [UInt8](repeating: 0xcc, count: 16)
+    data += [0, UInt8(id.count)]
+    return data + id + cose
 }
 
 @Test func responsesParse() throws {
