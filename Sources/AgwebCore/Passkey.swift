@@ -27,7 +27,22 @@ public enum WebAuthn {
     }
 
     public static func attestationObject(authenticatorData: [UInt8]) -> [UInt8] {
-        CBOR.map([(CBOR.text("fmt"), CBOR.text("none")), (CBOR.text("attStmt"), CBOR.map([])), (CBOR.text("authData"), CBOR.bytes(authenticatorData))])
+        attestationObject(format: "none", statement: CBOR.map([]), authenticatorData: authenticatorData)
+    }
+
+    /// `statement`: the attStmt map, already CBOR, as a security key gave it.
+    public static func attestationObject(format: String, statement: [UInt8], authenticatorData: [UInt8]) -> [UInt8] {
+        CBOR.map([(CBOR.text("fmt"), CBOR.text(format)), (CBOR.text("attStmt"), statement), (CBOR.text("authData"), CBOR.bytes(authenticatorData))])
+    }
+
+    /// The FIDO AppID extension's id: https, on the page's own registrable domain. Google's sign-in names the gstatic
+    /// facet list, which Chrome allows for google.com.
+    public static func appIDAllowed(_ appID: String, host: String, suffixes: PublicSuffixes) -> Bool {
+        guard let url = URL(string: appID), url.scheme == "https", let appHost = url.host?.lowercased() else { return false }
+        let host = host.lowercased()
+        if appID == "https://www.gstatic.com/securitykey/origins.json" { return host == "google.com" || host.hasSuffix(".google.com") }
+        guard let site = suffixes.registrableDomain(of: host) else { return false }
+        return suffixes.registrableDomain(of: appHost) == site
     }
 
     /// In the key order the spec serializes, which some servers compare byte for byte.
@@ -103,6 +118,14 @@ public struct PublicSuffixes: Sendable {
             if rules.contains(tails[i]) || (i + 1 < tails.count && wildcards.contains(tails[i + 1])) { return tails[i] }
         }
         return tails[tails.count - 1]
+    }
+
+    /// The public suffix and one label more; nil for a public suffix itself.
+    public func registrableDomain(of domain: String) -> String? {
+        let domain = domain.lowercased()
+        guard !isPublicSuffix(domain) else { return nil }
+        let suffix = publicSuffix(of: domain)
+        return domain.dropLast(suffix.count + 1).split(separator: ".").last.map { "\($0).\(suffix)" }
     }
 
     public func isPublicSuffix(_ domain: String) -> Bool {

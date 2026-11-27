@@ -1115,6 +1115,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         console.removeAll()
         unreadErrors = 0
         liveCaptures = 0
+        Passkeys.shared.pageGone(self, "the page changed")
         browser?.updateLoginBar(self)
     }
 
