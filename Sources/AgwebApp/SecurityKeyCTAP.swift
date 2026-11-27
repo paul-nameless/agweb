@@ -88,6 +88,8 @@ private final class CTAPSession: @unchecked Sendable {
     private var cancelled = false
     private var key: HIDKey?
     private var cid = CTAPHID.broadcast
+    /// The key's maxMsgSize from getInfo; CTAP's default until then.
+    private var maxMessage = 1024
 
     init(ui: KeyUIBridge, deadline: Date) { (self.ui, self.deadline) = (ui, deadline) }
 
@@ -117,6 +119,11 @@ private final class CTAPSession: @unchecked Sendable {
     // MARK: Transport
 
     private func transact(_ key: HIDKey, cid: UInt32, command: UInt8, payload: [UInt8], keepalive: ((UInt8) -> Void)? = nil) throws -> [UInt8] {
+        // The page decides how many credential ids, and how long, a request carries.
+        guard payload.count <= min(maxMessage, CTAPHID.maxPayload(reportSize: key.outputSize)) else {
+            KeyLog.write("ctap: a \(payload.count)-byte request is over the key's \(maxMessage)-byte limit; not sent")
+            throw KeyError("NotAllowedError", "the site's request is too large for the security key")
+        }
         for packet in CTAPHID.packets(cid: cid, command: command, payload: payload, reportSize: key.outputSize) { try key.write(packet) }
         var reassembler = CTAPHID.Reassembler(cid: cid)
         while true {
@@ -204,6 +211,7 @@ private final class CTAPSession: @unchecked Sendable {
                 let (status, body) = try cbor(key, "getInfo", [CTAP2.getInfo])
                 guard status == CTAP2.ok else { throw Self.failure(status) }
                 guard let info = CTAP2.parseInfo(body) else { throw Self.garbled }
+                if let size = info.maxMsgSize, size >= 64 { maxMessage = size }
                 KeyLog.write("ctap: getInfo versions \(info.versions), aaguid \(KeyLog.hex(info.aaguid)), options \(info.options.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")), "
                              + "pinUvAuthProtocols \(info.pinUvAuthProtocols), extensions \(info.extensions), algorithms \(info.algorithms), maxMsgSize \(info.maxMsgSize.map(String.init) ?? "-"), "
                              + "maxCredentialCountInList \(info.maxCredentialCountInList.map(String.init) ?? "-"), maxCredentialIdLength \(info.maxCredentialIdLength.map(String.init) ?? "-")")
@@ -287,7 +295,7 @@ private final class CTAPSession: @unchecked Sendable {
         let residentKey = request.residentKey == "required" || (request.residentKey == "preferred" && info.options["rk"] == true && (usePIN || builtIn))
         var exclude = request.exclude
         if let longest = info.maxCredentialIdLength { exclude = exclude.filter { $0.count <= longest } }
-        if let most = info.maxCredentialCountInList, exclude.count > most {
+        if let most = info.maxCredentialCountInList, most > 0, exclude.count > most {
             KeyLog.write("ctap: excludeList of \(exclude.count) cut to the key's \(most)")
             exclude = Array(exclude.prefix(most))
         }
@@ -321,7 +329,8 @@ private final class CTAPSession: @unchecked Sendable {
             if allow.count < request.allow.count { KeyLog.write("ctap: \(request.allow.count - allow.count) ids longer than the key's \(longest) bytes left out") }
             if allow.isEmpty && !request.allow.isEmpty { throw Self.failure(CTAP2.noCredentials) }
         }
-        let size = max(1, info.maxCredentialCountInList ?? allow.count)
+        // A key that doesn't say how many ids it takes gets one at a time, as Chrome does.
+        let size = max(1, info.maxCredentialCountInList ?? 1)
         let chunks = allow.isEmpty ? [[]] : stride(from: 0, to: allow.count, by: size).map { Array(allow[$0..<min(allow.count, $0 + size)]) }
         var rpID = request.rpID, chunk = chunks[0]
         if chunks.count > 1 || (request.appID != nil && !allow.isEmpty) {

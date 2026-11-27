@@ -8,6 +8,9 @@ import WebAuthnSPI
 final class WebKitSecurityKey: SecurityKeyBackend {
     private let panel = AGWKeyPanel()
     private var pinWrong = false
+    /// What a panel update said went wrong. WebKit only reports it there and keeps looking for a key, so the ceremony is
+    /// cancelled and this is what the page gets.
+    private var failed: KeyError?
 
     static var missing: String? { AGWKeyPanel.missing() }
 
@@ -17,8 +20,21 @@ final class WebKitSecurityKey: SecurityKeyBackend {
 
     private func wire(_ ui: KeyUI) {
         pinWrong = false
+        failed = nil
         panel.onLog = { KeyLog.write($0) }
-        panel.onUpdate = { [weak self] update in if update == 4 { self?.pinWrong = true } }
+        panel.onUpdate = { [weak self] update in
+            guard let self else { return }
+            // _WKWebAuthenticationPanelUpdate; -1 is AGWKeyPanel's own: WebKit wanted to set the key's first PIN.
+            switch update {
+            case 4, 9, 10: pinWrong = true // PIN invalid, too short, too long: WebKit asks again
+            case 1: fail(KeyError("NotAllowedError", "the security key has no passkey for this site"))
+            case 2: fail(KeyError("NotAllowedError", "the security key's PIN is blocked; only resetting the key unblocks it"))
+            case 3: fail(KeyError("NotAllowedError", "too many wrong PINs; unplug the security key and plug it in again"))
+            case 8: fail(KeyError("NotAllowedError", "the security key is full; delete a passkey on it (ykman fido credentials delete)"))
+            case -1: fail(KeyError("NotAllowedError", "the site needs a PIN on the security key, and it has none; set one with ykman fido access change-pin"))
+            default: break
+            }
+        }
         panel.onPIN = { [weak self, weak ui] retries, reply in
             Task { @MainActor in
                 let wrong = self?.pinWrong ?? false
@@ -28,6 +44,13 @@ final class WebKitSecurityKey: SecurityKeyBackend {
             }
         }
         ui.show(.touch)
+    }
+
+    private func fail(_ error: KeyError) {
+        guard failed == nil else { return }
+        failed = error
+        KeyLog.write("webkit: giving up: \(error.message)")
+        panel.cancel()
     }
 
     private static func failure(_ error: Error?) -> KeyError {
@@ -45,10 +68,11 @@ final class WebKitSecurityKey: SecurityKeyBackend {
                                  userName: request.userName, displayName: request.displayName, algorithms: request.algorithms.map { NSNumber(value: $0) },
                                  residentKey: residentKey, userVerification: Self.requirement(request.userVerification), attestation: attestation,
                                  exclude: request.exclude.map { Data($0) }, timeout: request.timeout) { rawId, attestationObject, transports, error in
-                guard let rawId, let attestationObject else { return done.resume(throwing: Self.failure(error)) }
+                guard let rawId, let attestationObject else { return done.resume(throwing: self.failed ?? Self.failure(error)) }
                 KeyLog.write("webkit: made credential \(rawId.count) bytes, attestationObject \(attestationObject.count) bytes, transports \(transports ?? [])")
-                // _WKWebAuthenticationTransport: 0 usb, 1 nfc, 2 internal, 3 ble?, the rest unknown here.
-                let names = (transports ?? []).compactMap { ["usb", "nfc", "internal", "ble"].indices.contains($0.intValue) ? ["usb", "nfc", "internal", "ble"][$0.intValue] : nil }
+                // _WKWebAuthenticationTransport: usb, nfc, ble, internal, cable, hybrid, smart-card.
+                let known = ["usb", "nfc", "ble", "internal", "cable", "hybrid", "smart-card"]
+                let names = (transports ?? []).compactMap { known.indices.contains($0.intValue) ? known[$0.intValue] : nil }
                 done.resume(returning: KeyMade(id: [UInt8](rawId), attestationObject: [UInt8](attestationObject), transports: names.isEmpty ? ["usb"] : names,
                                                discoverable: request.residentKey == "required" ? true : nil))
             }
@@ -60,7 +84,7 @@ final class WebKitSecurityKey: SecurityKeyBackend {
         return try await withCheckedThrowingContinuation { done in
             panel.getAssertion(hash: Data(request.clientDataHash), rpID: request.rpID, allow: request.allow.map { Data($0) },
                                userVerification: Self.requirement(request.userVerification), appID: request.appID, timeout: request.timeout) { rawId, authData, signature, userHandle, extensions, error in
-                guard let rawId, let authData, let signature else { return done.resume(throwing: Self.failure(error)) }
+                guard let rawId, let authData, let signature else { return done.resume(throwing: self.failed ?? Self.failure(error)) }
                 let outputs = extensions.flatMap { CBOR.decode([UInt8]($0)) }
                 KeyLog.write("webkit: signed with credential \(rawId.count) bytes, authData \(authData.count) bytes, userHandle \(userHandle?.count ?? 0) bytes, extensions \(extensions.map { KeyLog.hex([UInt8]($0)) } ?? "none")")
                 done.resume(returning: KeySigned(id: [UInt8](rawId), authData: [UInt8](authData), signature: [UInt8](signature),

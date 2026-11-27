@@ -11,7 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// The key wants its PIN: `retries` left (NSNotFound when unknown); reply nil to cancel.
 @property (nonatomic, copy, nullable) void (^onPIN)(NSInteger retries, void (^reply)(NSString *_Nullable pin));
-/// WebKit's panel updates (`_WKWebAuthenticationPanelUpdate`), raw.
+/// WebKit's panel updates (`_WKWebAuthenticationPanelUpdate`), raw; -1 when WebKit asked to set the key's first PIN.
 @property (nonatomic, copy, nullable) void (^onUpdate)(NSInteger update);
 /// Debug lines for the security key log.
 @property (nonatomic, copy, nullable) void (^onLog)(NSString *line);

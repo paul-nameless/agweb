@@ -205,6 +205,7 @@ static NSNumber *milliseconds(NSTimeInterval seconds) { return @((long long)(sec
     // Setting a key's first PIN is for the key's own tools (ykman), not a site's sign-up.
     [self log:[NSString stringWithFormat:@"webkit: key has no PIN and WebKit asks to set one (min %lu); refused", (unsigned long)minLength]];
     completionHandler(nil);
+    if (self.onUpdate) self.onUpdate(-1);
 }
 
 - (void)panel:(id)panel selectAssertionResponse:(NSArray *)responses source:(NSInteger)source completionHandler:(void (^)(id))completionHandler {

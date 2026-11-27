@@ -225,7 +225,11 @@ public enum CTAPHID {
 
     static func channel(_ cid: UInt32) -> [UInt8] { (0..<4).reversed().map { UInt8(truncatingIfNeeded: cid >> ($0 * 8)) } }
 
-    /// `payload` split into one init packet and continuation packets, each zero-padded to `reportSize`.
+    /// The most one message can carry: an init packet and 128 continuation packets (sequence numbers 0 to 127).
+    public static func maxPayload(reportSize: Int = 64) -> Int { reportSize - 7 + 128 * (reportSize - 5) }
+
+    /// `payload` split into one init packet and continuation packets, each zero-padded to `reportSize`. Callers keep
+    /// `payload` within `maxPayload`; past it the sequence numbers would be wrong, never a crash.
     public static func packets(cid: UInt32, command: UInt8, payload: [UInt8], reportSize: Int = 64) -> [[UInt8]] {
         let channel = channel(cid)
         func padded(_ packet: [UInt8]) -> [UInt8] { packet + [UInt8](repeating: 0, count: reportSize - packet.count) }
@@ -236,7 +240,7 @@ public enum CTAPHID {
             let end = min(payload.count, offset + reportSize - 5)
             out.append(padded(channel + [sequence] + payload[offset..<end]))
             offset = end
-            sequence += 1
+            sequence &+= 1
         }
         return out
     }
@@ -485,7 +489,8 @@ public enum CTAP2 {
         0x01: ("INVALID_COMMAND", "the security key doesn't know this command"),
         0x02: ("INVALID_PARAMETER", "the security key refused a parameter of agweb's request"),
         0x03: ("INVALID_LENGTH", "the security key refused the length of agweb's request"),
-        0x0B: ("TIMEOUT", "the security key timed out"),
+        0x05: ("TIMEOUT", "the security key timed out"),
+        0x0B: ("INVALID_CHANNEL", "the security key refused agweb's channel"),
         0x11: ("CBOR_UNEXPECTED_TYPE", "the security key couldn't read agweb's request"),
         0x12: ("INVALID_CBOR", "the security key couldn't read agweb's request"),
         0x14: ("MISSING_PARAMETER", "the security key missed a parameter in agweb's request"),

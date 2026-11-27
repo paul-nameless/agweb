@@ -173,7 +173,9 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     private static func keyTimeout(_ options: [String: Any]) -> TimeInterval {
-        min(max((options["timeout"] as? Double).map { $0 / 1000 } ?? 120, 30), 300)
+        // A page's NaN or infinity gets the default, not a trap.
+        let asked = (options["timeout"] as? Double).flatMap { $0.isFinite ? $0 / 1000 : nil } ?? 120
+        return min(max(asked, 30), 300)
     }
 
     /// Runs one ceremony on the key, with the tab's bar showing each step.
@@ -244,16 +246,18 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
                   let authData = WebAuthn.parseAuthenticatorData(parsed.authData), let cose = authData.coseKey,
                   let key = WebAuthn.publicKeyInfo(cose: cose) else {
                 KeyLog.write("ceremony: unreadable attestation object \(KeyLog.hex(made.attestationObject, limit: 512))")
-                throw Refusal("NotAllowedError", "the security key's answer couldn't be read (see \(KeyLog.file.path))")
+                throw Refusal("NotAllowedError", "the security key's answer couldn't be read (Agweb's security-key.log has it)")
             }
             KeyLog.write("ceremony: attestation fmt \(parsed.format), algorithm \(key.algorithm), aaguid \(authData.aaguid.map { KeyLog.hex($0) } ?? "-"), site asked \(attestation)")
             // As browsers do: a site that didn't ask for attestation doesn't get the key's make and model.
-            let object = attestation == "none" && parsed.format != "none"
-                ? WebAuthn.attestationObject(format: "none", statement: CBOR.map([]), authenticatorData: parsed.authData) : made.attestationObject
+            let strip = attestation == "none" && parsed.format != "none"
+            // The AAGUID names the model too; it sits after the rp id hash, flags and counter.
+            let shownAuthData = strip && parsed.authData.count >= 53 ? Array(parsed.authData[..<37]) + [UInt8](repeating: 0, count: 16) + parsed.authData[53...] : parsed.authData
+            let object = strip ? WebAuthn.attestationObject(format: "none", statement: CBOR.map([]), authenticatorData: shownAuthData) : made.attestationObject
             tab.events.append("passkey created on the security key for \(rpID) (user \(userName.isEmpty ? displayName : userName))")
             var reply: [String: Any] = [
                 "id": WebAuthn.base64url(made.id), "clientDataJSON": WebAuthn.base64url(clientData), "attestationObject": WebAuthn.base64url(object),
-                "authenticatorData": WebAuthn.base64url(parsed.authData), "algorithm": key.algorithm, "transports": made.transports,
+                "authenticatorData": WebAuthn.base64url(shownAuthData), "algorithm": key.algorithm, "transports": made.transports,
                 "attachment": "cross-platform", "credProps": credProps,
             ]
             if let discoverable = made.discoverable { reply["rk"] = discoverable }
@@ -493,7 +497,7 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
             return ["id": passkey.id, "clientDataJSON": WebAuthn.base64url(clientData),
                     "attestationObject": WebAuthn.base64url(WebAuthn.attestationObject(authenticatorData: authData)),
                     "authenticatorData": WebAuthn.base64url(authData), "publicKey": WebAuthn.base64url(key.publicKey.derRepresentation),
-                    "credProps": credProps]
+                    "credProps": credProps, "rk": true]
         }
     }
 

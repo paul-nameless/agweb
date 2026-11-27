@@ -1329,7 +1329,7 @@ public enum PageScripts {
       const aborted = (signal) => signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
       // A security key's reply names its algorithm, transport and attachment; agweb's own passkeys leave them out.
       const credential = (r, create) => {
-        const ext = { ...r.extensions, ...(r.credProps ? { credProps: { rk: r.rk ?? true } } : {}) };
+        const ext = { ...r.extensions, ...(r.credProps ? { credProps: r.rk === undefined ? {} : { rk: r.rk } } : {}) };
         const alg = r.algorithm ?? -7, transports = r.transports ?? ['internal'], attachment = r.attachment ?? 'platform';
         const response = Object.create(((create ? window.AuthenticatorAttestationResponse : window.AuthenticatorAssertionResponse) || Object).prototype);
         let json;
