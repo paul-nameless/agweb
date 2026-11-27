@@ -206,7 +206,7 @@ private final class CTAPSession: @unchecked Sendable {
                 lock.withLock { self.cid = cid }
                 key.setChannel(cid)
                 guard capabilities & CTAPHID.capabilityCBOR != 0 else {
-                    throw KeyError("NotSupportedError", "this security key only speaks U2F (CTAP1), which agweb's own client doesn't yet")
+                    throw KeyError("NotSupportedError", "this security key only speaks U2F (CTAP1), which agweb doesn't support: use a FIDO2 key")
                 }
                 let (status, body) = try cbor(key, "getInfo", [CTAP2.getInfo])
                 guard status == CTAP2.ok else { throw Self.failure(status) }

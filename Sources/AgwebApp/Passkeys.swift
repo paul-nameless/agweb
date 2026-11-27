@@ -159,14 +159,14 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
         ceremony.cancel(reason, quiet: true)
     }
 
-    /// For `agweb passkey hardware`: whether the workspace may use a key, and how.
+    /// For `agweb passkey hardware`: whether the workspace may use a key.
     func keyStatus(_ workspace: Workspace) -> String {
         let owner = PasskeyOwner(workspace)
         let whose = workspace.profile.map { "profile \($0)" } ?? "fresh workspace \(workspace.name)"
         guard usesKey(owner) else {
             return "security keys off for \(whose): only the person turns them on, in Settings ▸ Passkeys (for one profile or every workspace)"
         }
-        return "security keys on for \(whose), : a site's passkey sign-up, "
+        return "security keys on for \(whose): a site's passkey sign-up, "
             + "and a sign-in no agweb passkey answers, go to the key plugged into this Mac. The person touches it and types its PIN in the tab's bar, "
             + "so ask them first. Log: \(KeyLog.file.path)" + (enabled ? "" : "\nPasskeys are off in Agweb's Settings, so sites get no answer.")
     }
