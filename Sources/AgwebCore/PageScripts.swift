@@ -1327,24 +1327,26 @@ public enum PageScripts {
         : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)])) : v;
       const define = (o, props) => { for (const [k, v] of Object.entries(props)) Object.defineProperty(o, k, { value: v, enumerable: true }); return o; };
       const aborted = (signal) => signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+      // A security key's reply names its algorithm, transport and attachment; agweb's own passkeys leave them out.
       const credential = (r, create) => {
-        const ext = r.credProps ? { credProps: { rk: true } } : {};
+        const ext = { ...r.extensions, ...(r.credProps ? { credProps: { rk: r.rk ?? true } } : {}) };
+        const alg = r.algorithm ?? -7, transports = r.transports ?? ['internal'], attachment = r.attachment ?? 'platform';
         const response = Object.create(((create ? window.AuthenticatorAttestationResponse : window.AuthenticatorAssertionResponse) || Object).prototype);
         let json;
         if (create) {
           define(response, { clientDataJSON: buffer(r.clientDataJSON), attestationObject: buffer(r.attestationObject),
-            getAuthenticatorData: () => buffer(r.authenticatorData), getPublicKey: () => buffer(r.publicKey),
-            getPublicKeyAlgorithm: () => -7, getTransports: () => ['internal'] });
+            getAuthenticatorData: () => buffer(r.authenticatorData), getPublicKey: () => r.publicKey ? buffer(r.publicKey) : null,
+            getPublicKeyAlgorithm: () => alg, getTransports: () => [...transports] });
           json = { clientDataJSON: r.clientDataJSON, attestationObject: r.attestationObject, authenticatorData: r.authenticatorData,
-            publicKey: r.publicKey, publicKeyAlgorithm: -7, transports: ['internal'] };
+            publicKey: r.publicKey, publicKeyAlgorithm: alg, transports };
         } else {
           define(response, { clientDataJSON: buffer(r.clientDataJSON), authenticatorData: buffer(r.authenticatorData),
             signature: buffer(r.signature), userHandle: r.userHandle ? buffer(r.userHandle) : null });
           json = { clientDataJSON: r.clientDataJSON, authenticatorData: r.authenticatorData, signature: r.signature, userHandle: r.userHandle ?? undefined };
         }
         return define(Object.create(PublicKeyCredential.prototype), { id: r.id, rawId: buffer(r.id), type: 'public-key',
-          authenticatorAttachment: 'platform', response, getClientExtensionResults: () => ({ ...ext }),
-          toJSON: () => ({ id: r.id, rawId: r.id, type: 'public-key', authenticatorAttachment: 'platform', clientExtensionResults: { ...ext }, response: json }) });
+          authenticatorAttachment: attachment, response, getClientExtensionResults: () => ({ ...ext }),
+          toJSON: () => ({ id: r.id, rawId: r.id, type: 'public-key', authenticatorAttachment: attachment, clientExtensionResults: { ...ext }, response: json }) });
       };
       // One request at a time, as in browsers: a double click must not create a second passkey that replaces the first.
       let pending = false;
@@ -1360,7 +1362,8 @@ public enum PageScripts {
         pending = true;
         return new Promise((resolve, reject) => {
           let done = false;
-          signal?.addEventListener('abort', () => { if (!done) { done = true; reject(aborted(signal)); } }, { once: true });
+          // An abort also stops a security key waiting for the person.
+          signal?.addEventListener('abort', () => { if (!done) { done = true; reject(aborted(signal)); post({ kind: 'cancel' }).catch(() => {}); } }, { once: true });
           const publicKey = plain(options.publicKey);
           const answered = post({ kind, publicKey, credProps: !!options.publicKey.extensions?.credProps });
           const free = () => { pending = false; };

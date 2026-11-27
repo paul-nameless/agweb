@@ -87,6 +87,7 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
     /// A deleted profile's passkeys go with it, or the profile stays: one made later with that name would get them.
     func forget(profile name: String) throws {
         defer { revision += 1 }
+        setUsesKey(false, .profile(name))
         for passkey in try store.all() where passkey.profile == name { try? store.delete(passkey.id, interactive: false) }
         let left = try store.all().filter { $0.profile == name }.count
         if left > 0 { throw Failure("\(left) of profile \(name)'s passkeys couldn't be deleted from the Keychain, so the profile stays; try again, or delete them in Settings ▸ Passkeys") }
@@ -130,6 +131,160 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
         return passkey
     }
 
+    // MARK: Security key
+
+    /// Whether the owner's sign-ups, and sign-ins no agweb passkey answers, go to a security key: the person's switch in
+    /// Settings, never an agent's.
+    func usesKey(_ owner: PasskeyOwner) -> Bool {
+        if Settings.store.bool(forKey: Settings.securityKeyAll) { return true }
+        guard case .profile(let name) = owner else { return false }
+        return (Settings.store.stringArray(forKey: Settings.securityKeyProfiles) ?? []).contains(name)
+    }
+
+    func setUsesKey(_ on: Bool, _ owner: PasskeyOwner) {
+        guard case .profile(let name) = owner else { return }
+        let names = (Settings.store.stringArray(forKey: Settings.securityKeyProfiles) ?? []).filter { $0 != name } + (on ? [name] : [])
+        Settings.store.set(names.sorted(), forKey: Settings.securityKeyProfiles)
+        revision += 1
+    }
+
+    func keySettingChanged() { revision += 1 }
+
+    /// The one ceremony the key serves (there is one key, and one person to touch it).
+    @ObservationIgnored private var ceremony: KeyCeremony?
+
+    /// The tab's page went away (its next page, the tab closing): a ceremony it started ends.
+    func pageGone(_ tab: Tab, _ reason: String) {
+        guard let ceremony, ceremony.tab === tab else { return }
+        ceremony.cancel(reason, quiet: true)
+    }
+
+    /// For `agweb passkey hardware`: whether the workspace may use a key, and how.
+    func keyStatus(_ workspace: Workspace) -> String {
+        let owner = PasskeyOwner(workspace)
+        let whose = workspace.profile.map { "profile \($0)" } ?? "fresh workspace \(workspace.name)"
+        let choice = KeyBackendChoice.current
+        guard usesKey(owner) else {
+            return "security keys off for \(whose): only the person turns them on, in Settings ▸ Passkeys (for one profile or every workspace)"
+        }
+        return "security keys on for \(whose), through \(choice.label)\(choice.missing.map { " (unavailable: \($0))" } ?? ""): a site's passkey sign-up, "
+            + "and a sign-in no agweb passkey answers, go to the key plugged into this Mac. The person touches it and types its PIN in the tab's bar, "
+            + "so ask them first. Log: \(KeyLog.file.path)" + (enabled ? "" : "\nPasskeys are off in Agweb's Settings, so sites get no answer.")
+    }
+
+    private static func keyTimeout(_ options: [String: Any]) -> TimeInterval {
+        min(max((options["timeout"] as? Double).map { $0 / 1000 } ?? 120, 30), 300)
+    }
+
+    /// Runs one ceremony on the key, with the tab's bar showing each step.
+    private func withKey<T>(_ tab: Tab, origin: String, site: String, doing: String, timeout: TimeInterval,
+                            _ body: (SecurityKeyBackend, KeyUI) async throws -> T) async throws -> T {
+        guard ceremony == nil else { throw Refusal("NotAllowedError", "the security key is busy with another request") }
+        let choice = KeyBackendChoice.current
+        if let missing = choice.missing { throw Refusal("NotAllowedError", "security keys through \(choice.label) can't run here: \(missing)") }
+        let ceremony = KeyCeremony(tab: tab, origin: origin, site: site, doing: doing, choice: choice)
+        self.ceremony = ceremony
+        ceremony.onPhase = { [weak self, weak tab, weak ceremony] in
+            guard let self, let tab, let ceremony, self.ceremony === ceremony else { return }
+            self.browser?.mainWindow.showKey(on: tab.webView, ceremony)
+        }
+        ceremony.onPhase?()
+        let started = Date()
+        KeyLog.write("ceremony: \(doing) \(site) for \(origin) in workspace \(tab.workspace.name) through \(choice.rawValue), timeout \(Int(timeout))s")
+        let timer = Task { [weak ceremony] in
+            try? await Task.sleep(for: .seconds(timeout))
+            if !Task.isCancelled { ceremony?.cancel("nobody used the security key in time") }
+        }
+        defer {
+            timer.cancel()
+            self.ceremony = nil
+            browser?.mainWindow.hideKey(on: tab.webView)
+        }
+        do {
+            let result = try await body(ceremony.backend, ceremony)
+            if let cancelled = ceremony.cancelled { throw Refusal("NotAllowedError", cancelled.reason, quiet: cancelled.quiet) }
+            KeyLog.write("ceremony: done in \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
+            return result
+        } catch {
+            if let cancelled = ceremony.cancelled {
+                KeyLog.write("ceremony: ended: \(cancelled.reason)")
+                throw Refusal("NotAllowedError", cancelled.reason, quiet: cancelled.quiet)
+            }
+            KeyLog.write("ceremony: failed: \(error)")
+            if let failure = error as? KeyError { throw Refusal(failure.name, failure.message) }
+            throw error
+        }
+    }
+
+    private func keyCreate(_ options: [String: Any], challenge: [UInt8], origin: String, host: String, tab: Tab, credProps: Bool) throws -> Prepared {
+        let rpID = try rpID(options, key: "rp", host: host)
+        let rpName = Self.clean((options["rp"] as? [String: Any])?["name"] as? String)
+        let user = options["user"] as? [String: Any] ?? [:]
+        guard let handle = (user["id"] as? String).flatMap(WebAuthn.fromBase64url), (1...64).contains(handle.count) else {
+            throw Refusal("TypeError", "user.id must be 1 to 64 bytes")
+        }
+        let userName = Self.clean(user["name"] as? String), displayName = Self.clean(user["displayName"] as? String)
+        let params = (options["pubKeyCredParams"] as? [[String: Any]] ?? []).filter { ($0["type"] as? String ?? "public-key") == "public-key" }
+        // The spec's default when the site names none: ES256, then RS256.
+        let algorithms = params.isEmpty ? [WebAuthn.es256, -257] : params.compactMap { $0["alg"] as? Int }
+        let selection = options["authenticatorSelection"] as? [String: Any] ?? [:]
+        let residentKey = selection["residentKey"] as? String ?? (selection["requireResidentKey"] as? Bool == true ? "required" : "discouraged")
+        let attestation = options["attestation"] as? String ?? "none"
+        let clientData = WebAuthn.clientDataJSON(type: "webauthn.create", challenge: challenge, origin: origin, crossOrigin: false)
+        let request = KeyCreate(
+            clientDataHash: [UInt8](SHA256.hash(data: Data(clientData))), rpID: rpID, rpName: rpName, userID: handle, userName: userName, displayName: displayName, algorithms: algorithms,
+            residentKey: residentKey, userVerification: selection["userVerification"] as? String ?? "preferred", attestation: attestation,
+            exclude: (options["excludeCredentials"] as? [[String: Any]] ?? []).compactMap { ($0["id"] as? String).flatMap(WebAuthn.fromBase64url) },
+            timeout: Self.keyTimeout(options))
+        return Prepared(title: "", detail: "", button: "", key: true) { [self] _ in
+            let made = try await withKey(tab, origin: origin, site: rpID, doing: "create a passkey for", timeout: request.timeout) { backend, ui in
+                try await backend.create(request, ui)
+            }
+            guard let parsed = WebAuthn.parseAttestationObject(made.attestationObject),
+                  let authData = WebAuthn.parseAuthenticatorData(parsed.authData), let cose = authData.coseKey,
+                  let key = WebAuthn.publicKeyInfo(cose: cose) else {
+                KeyLog.write("ceremony: unreadable attestation object \(KeyLog.hex(made.attestationObject, limit: 512))")
+                throw Refusal("NotAllowedError", "the security key's answer couldn't be read (see \(KeyLog.file.path))")
+            }
+            KeyLog.write("ceremony: attestation fmt \(parsed.format), algorithm \(key.algorithm), aaguid \(authData.aaguid.map { KeyLog.hex($0) } ?? "-"), site asked \(attestation)")
+            // As browsers do: a site that didn't ask for attestation doesn't get the key's make and model.
+            let object = attestation == "none" && parsed.format != "none"
+                ? WebAuthn.attestationObject(format: "none", statement: CBOR.map([]), authenticatorData: parsed.authData) : made.attestationObject
+            tab.events.append("passkey created on the security key for \(rpID) (user \(userName.isEmpty ? displayName : userName))")
+            var reply: [String: Any] = [
+                "id": WebAuthn.base64url(made.id), "clientDataJSON": WebAuthn.base64url(clientData), "attestationObject": WebAuthn.base64url(object),
+                "authenticatorData": WebAuthn.base64url(parsed.authData), "algorithm": key.algorithm, "transports": made.transports,
+                "attachment": "cross-platform", "credProps": credProps,
+            ]
+            if let discoverable = made.discoverable { reply["rk"] = discoverable }
+            if let spki = key.spki { reply["publicKey"] = WebAuthn.base64url(spki) }
+            return reply
+        }
+    }
+
+    private func keyGet(_ options: [String: Any], challenge: [UInt8], origin: String, rpID: String, host: String, tab: Tab) throws -> Prepared {
+        let allow = (options["allowCredentials"] as? [[String: Any]] ?? []).compactMap { ($0["id"] as? String).flatMap(WebAuthn.fromBase64url) }
+        let appID = (options["extensions"] as? [String: Any])?["appid"] as? String
+        if let appID, !(PublicSuffixes.bundled.map { WebAuthn.appIDAllowed(appID, host: host, suffixes: $0) } ?? false) {
+            throw Refusal("SecurityError", "\(host) can't use the AppID \(Self.clean(appID))")
+        }
+        let clientData = WebAuthn.clientDataJSON(type: "webauthn.get", challenge: challenge, origin: origin, crossOrigin: false)
+        let request = KeyGet(clientDataHash: [UInt8](SHA256.hash(data: Data(clientData))), rpID: rpID, allow: allow,
+                             userVerification: options["userVerification"] as? String ?? "preferred", appID: appID, timeout: Self.keyTimeout(options))
+        return Prepared(title: "", detail: "", button: "", key: true) { [self] _ in
+            let signed = try await withKey(tab, origin: origin, site: rpID, doing: "sign in to", timeout: request.timeout) { backend, ui in
+                try await backend.get(request, ui)
+            }
+            tab.events.append("signed in to \(rpID) with the security key")
+            var reply: [String: Any] = ["id": WebAuthn.base64url(signed.id), "clientDataJSON": WebAuthn.base64url(clientData),
+                                        "authenticatorData": WebAuthn.base64url(signed.authData), "signature": WebAuthn.base64url(signed.signature),
+                                        "attachment": "cross-platform"]
+            if let handle = signed.userHandle, !handle.isEmpty { reply["userHandle"] = WebAuthn.base64url(handle) }
+            if appID != nil { reply["extensions"] = ["appid": signed.viaAppID] }
+            return reply
+        }
+    }
+
     // MARK: Ceremonies
 
     /// `quiet`: the page gets the error, the agent's Events don't, for a request nobody made (a page's own timer).
@@ -141,12 +296,23 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
     /// What a ceremony would do, checked; `commit` does it. The person's own click asks them first.
     private struct Prepared {
         let title: String, detail: String, button: String
+        /// A security key's: the person's touch is their OK, so no sheet asks first.
+        var key = false
         /// `byPerson`: the person said yes in the sheet, so the Keychain may ask them too.
         let commit: (_ byPerson: Bool) async throws -> [String: Any]
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
         let tab = browser?.tab(for: message.webView)
+        // The page aborted its request: a ceremony it started on the key ends (only that page's own, by origin).
+        if (message.body as? [String: Any])?["kind"] as? String == "cancel" {
+            let origin = message.frameInfo.securityOrigin
+            if let tab, let ceremony, ceremony.tab === tab,
+               WebAuthn.origin(scheme: origin.protocol.lowercased(), host: origin.host.lowercased(), port: origin.port) == ceremony.origin {
+                ceremony.cancel("the page cancelled the request", quiet: true)
+            }
+            return replyHandler(nil, nil)
+        }
         func refuse(_ refusal: Refusal) {
             if !refusal.quiet { tab?.events.append("passkey request refused: \(refusal.message)") }
             replyHandler(["error": ["name": refusal.name, "message": refusal.message]], nil)
@@ -163,7 +329,7 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
         do {
             guard let tab else { throw Refusal("NotAllowedError", "agweb doesn't know this page") }
             let (prepared, byPerson) = try prepare(message, tab)
-            guard byPerson else { return run(prepared, byPerson: false) }
+            guard byPerson && !prepared.key else { return run(prepared, byPerson: byPerson) }
             // An agent's request needs no prompt; the person sees what agweb's passkey is before it's made or used.
             guard let window = browser?.mainWindow.window, window.isVisible, window.attachedSheet == nil else {
                 throw Refusal("NotAllowedError", "another question is open in the window")
@@ -225,6 +391,15 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
             throw Refusal("TypeError", "the request has no challenge")
         }
         let owner = PasskeyOwner(tab.workspace)
+        if kind == "create" && usesKey(owner) {
+            return (try keyCreate(options, challenge: challenge, origin: originText, host: host, tab: tab, credProps: body["credProps"] as? Bool ?? false), !byAgent)
+        }
+        if kind == "get" && usesKey(owner) {
+            let rpID = try rpID(options, key: nil, host: host)
+            if try matching(owner, rpID: rpID, options) == nil {
+                return (try keyGet(options, challenge: challenge, origin: originText, rpID: rpID, host: host, tab: tab), !byAgent)
+            }
+        }
         switch kind {
         case "create": return (try create(options, challenge: challenge, origin: originText, host: host, owner: owner, tab: tab, credProps: body["credProps"] as? Bool ?? false), !byAgent)
         case "get": return (try get(options, challenge: challenge, origin: originText, host: host, owner: owner, tab: tab), !byAgent)
@@ -265,7 +440,7 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
             throw Refusal("NotSupportedError", "agweb's passkeys are ES256 (-7) only")
         }
         if (options["authenticatorSelection"] as? [String: Any])?["authenticatorAttachment"] as? String == "cross-platform" {
-            throw Refusal("NotAllowedError", "the site asked for a security key; agweb's passkeys are platform passkeys")
+            throw Refusal("NotAllowedError", "the site asked for a security key; the person can let this profile use one in Settings ▸ Passkeys")
         }
         let handleText = WebAuthn.base64url(handle)
         let excluded = Set((options["excludeCredentials"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
@@ -324,12 +499,10 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
 
     private func get(_ options: [String: Any], challenge: [UInt8], origin: String, host: String, owner: PasskeyOwner, tab: Tab) throws -> Prepared {
         let rpID = try rpID(options, key: nil, host: host)
-        let candidates = try stored(owner)
-        let allowedIDs = Set((options["allowCredentials"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
-        // With no list, the site lets the authenticator choose: the one used last.
-        guard let chosen = candidates.filter({ $0.rpID == rpID && (allowedIDs.isEmpty || allowedIDs.contains($0.id)) })
-            .max(by: { ($0.lastUsed ?? $0.created) < ($1.lastUsed ?? $1.created) }) else {
-            throw Refusal("NotAllowedError", "no agweb passkey for \(rpID) in this " + (tab.workspace.profile.map { "profile (\($0))" } ?? "fresh workspace"))
+        guard let chosen = try matching(owner, rpID: rpID, options) else {
+            let named = !(options["allowCredentials"] as? [Any] ?? []).isEmpty
+            throw Refusal("NotAllowedError", "no agweb passkey for \(rpID) in this " + (tab.workspace.profile.map { "profile (\($0))" } ?? "fresh workspace")
+                + (named && !usesKey(owner) ? "; if the account uses a security key, the person can let this profile use one in Settings ▸ Passkeys" : ""))
         }
         let shown = chosen.userName.isEmpty ? chosen.displayName : chosen.userName
         return Prepared(
@@ -361,6 +534,13 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
             return ["id": passkey.id, "clientDataJSON": WebAuthn.base64url(clientData), "authenticatorData": WebAuthn.base64url(authData),
                     "signature": WebAuthn.base64url(signature), "userHandle": secret.userHandle]
         }
+    }
+
+    /// The agweb passkey a sign-in would use: for the rp id, among those the site lists; with no list, the one used last.
+    private func matching(_ owner: PasskeyOwner, rpID: String, _ options: [String: Any]) throws -> Passkey? {
+        let allowedIDs = Set((options["allowCredentials"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
+        return try stored(owner).filter { $0.rpID == rpID && (allowedIDs.isEmpty || allowedIDs.contains($0.id)) }
+            .max(by: { ($0.lastUsed ?? $0.created) < ($1.lastUsed ?? $1.created) })
     }
 
     /// Page-supplied names reach replies and Settings: one line, no control characters, short.

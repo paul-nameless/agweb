@@ -85,3 +85,25 @@ func rpIDs(rpID: String, host: String, allowed: Bool) {
     #expect(key.publicKey.isValidSignature(try P256.Signing.ECDSASignature(derRepresentation: signature.derRepresentation), for: signed))
     #expect(WebAuthn.fromBase64url(WebAuthn.base64url([255, 254, 253, 0])) == [255, 254, 253, 0])
 }
+
+@Test(arguments: [
+    ("https://www.gstatic.com/securitykey/origins.json", "accounts.google.com", true),
+    ("https://www.gstatic.com/securitykey/origins.json", "evil.com", false),
+    ("https://login.example.com/app", "www.example.com", true),
+    ("https://example.org/app", "example.com", false),
+    ("http://example.com/app", "example.com", false),
+    ("https://b.github.io", "a.github.io", false),
+])
+func appIDs(appID: String, host: String, allowed: Bool) {
+    #expect(WebAuthn.appIDAllowed(appID, host: host, suffixes: suffixes) == allowed)
+}
+
+@Test func registrableDomains() {
+    #expect(suffixes.registrableDomain(of: "a.b.example.co.uk") == "example.co.uk")
+    #expect(suffixes.registrableDomain(of: "co.uk") == nil)
+    // A key's own attestation statement goes in as it came; "fmt" sorts before "attStmt" and "authData" by length.
+    let statement = CBOR.map([(CBOR.text("alg"), CBOR.int(-7))])
+    let object = WebAuthn.attestationObject(format: "packed", statement: statement, authenticatorData: [9])
+    #expect(object == [0xa3, 0x63] + Array("fmt".utf8) + CBOR.text("packed") + [0x67] + Array("attStmt".utf8) + statement
+        + [0x68] + Array("authData".utf8) + [0x41, 9])
+}

@@ -190,6 +190,7 @@ final class Browser {
     func closeTab(_ tab: Tab) {
         let workspace = tab.workspace
         guard let index = workspace.tabs.firstIndex(where: { $0 === tab }) else { return }
+        Passkeys.shared.pageGone(tab, "the tab was closed")
         tab.cancelLoads()
         tab.finishLoad(Failure("the tab was closed"))
         tab.webView.stopLoading()
@@ -657,18 +658,25 @@ final class Browser {
             let whose = workspace.profile.map { "profile \($0)" } ?? "fresh workspace \(workspace.name), in memory"
             let off = Passkeys.shared.enabled ? "" : "\nPasskeys are off in Agweb's Settings: sites get no answer from agweb."
             let list = Passkeys.shared.list(owner)
-            if list.isEmpty { return "no passkeys in \(whose); a site's sign-up or \"add a passkey\" button creates one" + off }
+            let key = Passkeys.shared.usesKey(owner) ? "\nSecurity keys on: sign-ups, and sign-ins none of these answer, go to the key plugged into this Mac (agweb passkey hardware)." : ""
+            if list.isEmpty { return "no passkeys in \(whose); a site's sign-up or \"add a passkey\" button creates one" + key + off }
             let date = Date.FormatStyle(date: .numeric, time: .shortened)
             return "### Passkeys (\(whose))\n" + list.map { passkey in
                 "- \(passkey.id): \(passkey.label), created \(passkey.created.formatted(date))"
                     + (passkey.lastUsed.map { ", last used \($0.formatted(date))" } ?? "")
-            }.joined(separator: "\n") + off
+            }.joined(separator: "\n") + key + off
+        case "passkey" where args.first == "hardware":
+            // Status only: the person switches security keys on, in Settings.
+            if let wanted = args.dropFirst().first, wanted != "status" {
+                throw Failure("only the person turns security keys \(wanted == "off" ? "off" : "on"), in Agweb's Settings ▸ Passkeys; agweb passkey hardware shows whether they're on")
+            }
+            return Passkeys.shared.keyStatus(workspace)
         case "passkey" where args.first == "delete":
             let id = try arg(1, "id")
             let removed = try Passkeys.shared.agentDelete(id, PasskeyOwner(workspace))
             return "deleted the passkey for \(removed.label); the site still lists it until it's removed in the account's settings there"
         case "passkey":
-            throw Failure("use: agweb passkey list | passkey delete <id>")
+            throw Failure("use: agweb passkey list | passkey delete <id> | passkey hardware")
         case "close":
             let video = await describeStop(workspace)
             closeWorkspace(workspace)

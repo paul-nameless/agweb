@@ -18,6 +18,12 @@ enum Settings {
     static let textSize = "textSize"
     static let adBlock = "blockAds"
     static let passkeys = "agwebPasskeys"
+    /// Named profiles whose passkey requests may use a security key (Passkeys.usesKey); only the person sets them.
+    static let securityKeyProfiles = "agwebSecurityKeyProfiles"
+    /// Every workspace's, fresh ones included.
+    static let securityKeyAll = "agwebSecurityKeyAll"
+    /// `webkit` or `agweb` (KeyBackendChoice).
+    static let securityKeyBackend = "agwebSecurityKeyBackend"
     /// Workspaces and tabs unused this many days close by themselves (Cleanup.swift); 0 never.
     static let closeUnusedDays = "closeUnusedDays"
     /// Tabs unused this many minutes lose their page's memory and reload when used (Unload.swift); 0 never.
@@ -38,6 +44,8 @@ enum TextSize: Int, CaseIterable {
 /// sites and users (as `agweb passkey list` does); deleting waits for the Mac owner's check.
 struct PasskeySettings: View {
     @AppStorage(Settings.passkeys, store: Settings.store) private var enabled = true
+    @AppStorage(Settings.securityKeyAll, store: Settings.store) private var keyEverywhere = false
+    @AppStorage(Settings.securityKeyBackend, store: Settings.store) private var keyBackend = KeyBackendChoice.webkit.rawValue
     private let passkeys = Passkeys.shared
     @State private var deleting: PasskeyEntry?
     @State private var problem: String?
@@ -55,12 +63,31 @@ struct PasskeySettings: View {
                      + (passkeys.store is KeychainPasskeyStore ? "Kept in your login Keychain." : "This instance runs on its own folder and keeps them in a file there."))
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section {
+                Toggle("Use a security key plugged into this Mac in every workspace", isOn: $keyEverywhere)
+                    .onChange(of: keyEverywhere) { passkeys.keySettingChanged() }
+                Picker("Talk to the key through", selection: $keyBackend) {
+                    ForEach(KeyBackendChoice.allCases, id: \.rawValue) { Text($0.label).tag($0.rawValue) }
+                }
+                if let missing = KeyBackendChoice(rawValue: keyBackend)?.missing { Text(missing).font(.caption).foregroundStyle(.red) }
+            } header: { Text("Security keys") } footer: {
+                Text("With a profile's switch below (or this one) on, a sign-in no Agweb passkey answers and every sign-up there go to a "
+                     + "YubiKey or other USB security key: the tab shows a bar where you touch the key and type its PIN, which agents never see. "
+                     + "Agents can't turn this on. Each step is logged in \(KeyLog.file.path).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!enabled)
             if groups.isEmpty {
                 Section { Text("None yet. Profiles appear here once a workspace is opened with -p NAME.").foregroundStyle(.secondary) }
             }
             ForEach(groups, id: \.self) { group in
                 let rows = keys.filter { $0.group == group }
                 Section(group.prefix(1).uppercased() + group.dropFirst()) {
+                    if group.hasPrefix("profile ") {
+                        let owner = PasskeyOwner.profile(String(group.dropFirst("profile ".count)))
+                        Toggle("Use a security key plugged into this Mac", isOn: Binding(get: { passkeys.usesKey(owner) }, set: { passkeys.setUsesKey($0, owner) }))
+                            .disabled(keyEverywhere || !enabled)
+                    }
                     if rows.isEmpty { Text("No passkeys").foregroundStyle(.secondary) }
                     ForEach(rows) { entry in row(entry) }
                 }

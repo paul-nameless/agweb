@@ -115,6 +115,9 @@ Targets: a snapshot ref (e12), role=button[name="Save"] or role=heading[level=1]
   passkey [list]                the passkeys agweb holds for this workspace's profile (in memory for a fresh one); a
                                 site's passkey sign-up or sign-in in this workspace uses them with no prompt
   passkey delete <id>           forget one an agent made (the site still lists it until removed there)
+  passkey hardware              whether this workspace may use a USB security key (YubiKey), which only the person
+                                turns on (Settings ▸ Passkeys): sign-ups, and sign-ins no agweb passkey answers, then
+                                go to the key; the person touches it and types its PIN in the tab's bar, so ask them
   adblock [on|off|update]       ads and trackers are blocked with uBlock Origin's lists; off/on: for this workspace
                                 only (Settings switches every workspace); pages opened directly always load
   unload [on|off]               off: this workspace's tabs are never unloaded (by default one unused 30 minutes,

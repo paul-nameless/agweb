@@ -153,6 +153,25 @@ final class MainWindow: NSObject, NSWindowDelegate {
         webView.superview?.subviews.filter { $0.identifier == Self.loginBar }.forEach { $0.removeFromSuperview() }
     }
 
+    static let keyBar = NSUserInterfaceItemIdentifier("security-key")
+
+    /// A security key ceremony's bar, floating just below the toolbar: what to do with the key, its PIN, Cancel. It never
+    /// takes focus by itself. Shown again at each step, since its size changes.
+    func showKey(on webView: WKWebView, _ ceremony: KeyCeremony) {
+        guard let host = webView.superview else { return }
+        hideKey(on: webView)
+        let bar = NSHostingView(rootView: KeyBar(ceremony: ceremony))
+        bar.identifier = Self.keyBar
+        let width = min(bar.fittingSize.width, host.bounds.width - 32), height = bar.fittingSize.height
+        bar.frame = NSRect(x: (host.bounds.width - width) / 2, y: host.bounds.height - topInset - height - 12, width: width, height: height)
+        bar.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
+        host.addSubview(bar)
+    }
+
+    func hideKey(on webView: WKWebView) {
+        webView.superview?.subviews.filter { $0.identifier == Self.keyBar }.forEach { $0.removeFromSuperview() }
+    }
+
     /// Over every tab; the tabs underneath are hidden while it shows.
     func showDashboard(_ open: Bool) {
         dashboardButton.state = open ? .on : .off
@@ -499,6 +518,47 @@ private struct LoginBar: View {
 
     private func logIn() {
         if !user.isEmpty { submit(user, password) }
+    }
+}
+
+private struct KeyBar: View {
+    let ceremony: KeyCeremony
+    @State private var pin = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "key.horizontal.fill").foregroundStyle(wrong ? Color.red : Color.secondary)
+            Text(message).lineLimit(2).frame(maxWidth: 420, alignment: .leading)
+                .help("Asked in workspace \(ceremony.workspace). Log: \(KeyLog.file.path)")
+            if case .pin = ceremony.phase {
+                SecureField("PIN", text: $pin).frame(width: 110).onSubmit(send)
+                Button("Continue", action: send).disabled(pin.isEmpty)
+            }
+            Button("Cancel") { ceremony.cancel("the person cancelled") }
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .fixedSize()
+    }
+
+    private var wrong: Bool { if case .pin(_, true) = ceremony.phase { true } else { false } }
+
+    private var message: String {
+        let what = "\(ceremony.doing) \(ceremony.site)"
+        switch ceremony.phase {
+        case .insert: return "Plug in your security key to \(what)"
+        case .touch: return "Touch your security key to \(what)"
+        case .pin(let retries, let wrong):
+            let left = retries.map { " \($0) \($0 == 1 ? "attempt" : "attempts") left." } ?? ""
+            return (wrong ? "Wrong PIN.\(left) " : "") + "Enter your security key's PIN to \(what)"
+        }
+    }
+
+    private func send() {
+        guard !pin.isEmpty else { return }
+        ceremony.submitPIN(pin)
+        pin = ""
     }
 }
 

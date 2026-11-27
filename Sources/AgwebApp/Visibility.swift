@@ -106,11 +106,11 @@ extension Browser {
         guard !NSApp.isActive else { return }
         typealias Get = @convention(c) (AnyObject, Selector) -> Bool
         typealias Call = @convention(c) (AnyObject, Selector) -> Void
-        // The login bar's password field (AppKit's) may hold it the same way; only then does it lose focus, so a
+        // The login bar's password field and the security key bar's PIN field (AppKit's) may hold it the same way; only then does it lose focus, so a
         // password copied from another app can still be pasted.
         for window in NSApp.windows where IsSecureEventInputEnabled() {
             guard let field = (window.firstResponder as? NSTextView)?.delegate as? NSSecureTextField,
-                  sequence(first: field as NSView, next: \.superview).contains(where: { $0.identifier == MainWindow.loginBar }) else { continue }
+                  sequence(first: field as NSView, next: \.superview).contains(where: { [MainWindow.loginBar, MainWindow.keyBar].contains($0.identifier) }) else { continue }
             window.makeFirstResponder(nil)
         }
         for view in NSApp.windows.compactMap({ $0.firstResponder as? WKWebView }) where view.responds(to: enabled) && view.responds(to: reset) {
