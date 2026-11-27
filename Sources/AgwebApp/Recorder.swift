@@ -151,6 +151,9 @@ final class Recorder {
         // unrounded, so the slots catch up with it.
         // A stretch with no pictures at all (the window hidden, snapshots timing out) shows at most 10 s of the last one.
         let due = min(Int((time * 30).rounded()), slot + Self.longestGap), target = changed ? max(slot + 1, due) : due
+        // The clock keeps the time to the millisecond, cut only by that cap: rounded to a slot, each tick (a little over
+        // 1/30 s) lost its extra, and videos ran 4% short of real time.
+        let next = min(time, Double(slot + Self.longestGap) / 30)
         // The slots since the last tick repeat the last picture. A writer that can't keep up stops the fill here; the
         // next tick goes on from where it stopped.
         if let lastBuffer {
@@ -164,7 +167,7 @@ final class Recorder {
             }
         }
         guard changed else {
-            clock = min(time, Double(due) / 30)
+            clock = next
             lastWall = wall
             return
         }
@@ -177,7 +180,7 @@ final class Recorder {
         }
         slot = target
         changedSlot = target
-        clock = min(time, Double(due) / 30)
+        clock = next
         lastWall = wall
         lastBuffer = buffer
         lastPixels = pixels
