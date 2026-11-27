@@ -22,8 +22,6 @@ enum Settings {
     static let securityKeyProfiles = "agwebSecurityKeyProfiles"
     /// Every workspace's, fresh ones included.
     static let securityKeyAll = "agwebSecurityKeyAll"
-    /// `webkit` or `agweb` (KeyBackendChoice).
-    static let securityKeyBackend = "agwebSecurityKeyBackend"
     /// Workspaces and tabs unused this many days close by themselves (Cleanup.swift); 0 never.
     static let closeUnusedDays = "closeUnusedDays"
     /// Tabs unused this many minutes lose their page's memory and reload when used (Unload.swift); 0 never.
@@ -45,7 +43,6 @@ enum TextSize: Int, CaseIterable {
 struct PasskeySettings: View {
     @AppStorage(Settings.passkeys, store: Settings.store) private var enabled = true
     @AppStorage(Settings.securityKeyAll, store: Settings.store) private var keyEverywhere = false
-    @AppStorage(Settings.securityKeyBackend, store: Settings.store) private var keyBackend = KeyBackendChoice.webkit.rawValue
     private let passkeys = Passkeys.shared
     @State private var deleting: PasskeyEntry?
     @State private var problem: String?
@@ -66,10 +63,6 @@ struct PasskeySettings: View {
             Section {
                 Toggle("Use a security key plugged into this Mac in every workspace", isOn: $keyEverywhere)
                     .onChange(of: keyEverywhere) { passkeys.keySettingChanged() }
-                Picker("Talk to the key through", selection: $keyBackend) {
-                    ForEach(KeyBackendChoice.allCases, id: \.rawValue) { Text($0.label).tag($0.rawValue) }
-                }
-                if let missing = KeyBackendChoice(rawValue: keyBackend)?.missing { Text(missing).font(.caption).foregroundStyle(.red) }
             } header: { Text("Security keys") } footer: {
                 Text("With a profile's switch below (or this one) on, a sign-in no Agweb passkey answers and every sign-up there go to a "
                      + "YubiKey or other USB security key: the tab shows a bar where you touch the key and type its PIN, which agents never see. "

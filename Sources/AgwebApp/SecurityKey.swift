@@ -2,10 +2,8 @@ import AgwebCore
 import Foundation
 
 // A USB security key (a YubiKey) as a second authenticator beside agweb's own passkeys, for profiles the person
-// switched it on for in Settings ▸ Passkeys. Two backends talk to the key, chosen in Settings while we learn which
-// works: WebKit's own client (`_WKWebAuthenticationPanel`, SecurityKeyWebKit.swift) and agweb's own CTAP2 over HID
-// (SecurityKeyCTAP.swift). Either way agweb checks the origin and rp id first and the person's PIN and touch happen in
-// the tab's bar, never through an agent.
+// switched it on for in Settings ▸ Passkeys. Agweb speaks CTAP2 to it over USB HID itself (SecurityKeyCTAP.swift), after
+// checking the origin and rp id; the person's PIN and touch happen in the tab's bar, never through an agent.
 
 /// A passkey sign-up for the key: the page's options, checked, with the client data agweb built.
 struct KeyCreate: Sendable {
@@ -68,14 +66,7 @@ enum KeyStep: Sendable { case insert, touch }
     func pin(retries: Int?, wrong: Bool) async -> String?
 }
 
-/// One way to talk to the key. One ceremony at a time; `cancel` ends the one running, which then throws.
-@MainActor protocol SecurityKeyBackend: AnyObject {
-    func create(_ request: KeyCreate, _ ui: KeyUI) async throws -> KeyMade
-    func get(_ request: KeyGet, _ ui: KeyUI) async throws -> KeySigned
-    func cancel()
-}
-
-/// The debug log both backends write, `<root>/logs/security-key.log` (0600): each step, the key's status codes and
+/// The debug log, `<root>/logs/security-key.log` (0600): each step, the key's status codes and
 /// what it reported about itself. Never a PIN, a PIN token or a shared secret.
 enum KeyLog {
     private static let queue = DispatchQueue(label: "agweb.security-key-log")
@@ -103,38 +94,6 @@ enum KeyLog {
     }
 }
 
-/// Which backend talks to the key: Settings ▸ Passkeys, or AGWEB_SECURITY_KEY_BACKEND (`webkit` or `agweb`).
-enum KeyBackendChoice: String, CaseIterable {
-    case webkit, agweb
-
-    static var current: KeyBackendChoice {
-        ProcessInfo.processInfo.environment["AGWEB_SECURITY_KEY_BACKEND"].flatMap(KeyBackendChoice.init)
-            ?? Settings.store.string(forKey: Settings.securityKeyBackend).flatMap(KeyBackendChoice.init) ?? .webkit
-    }
-
-    var label: String {
-        switch self {
-        case .webkit: "WebKit's security key client"
-        case .agweb: "Agweb's own (CTAP2 over USB)"
-        }
-    }
-
-    /// Why this backend can't run here, or nil.
-    @MainActor var missing: String? {
-        switch self {
-        case .webkit: WebKitSecurityKey.missing
-        case .agweb: nil
-        }
-    }
-
-    @MainActor func make() -> SecurityKeyBackend {
-        switch self {
-        case .webkit: WebKitSecurityKey()
-        case .agweb: CTAPSecurityKey()
-        }
-    }
-}
-
 /// One security key ceremony in one tab: the bar's state and the person's answers. Cancelled by the bar, the page's
 /// abort, its next page, the tab or workspace closing, or the time running out.
 @MainActor @Observable
@@ -147,18 +106,16 @@ final class KeyCeremony: KeyUI {
     @ObservationIgnored let origin: String
     @ObservationIgnored weak var tab: Tab?
     @ObservationIgnored let commits: Int
-    @ObservationIgnored let backend: SecurityKeyBackend
-    @ObservationIgnored let choice: KeyBackendChoice
+    @ObservationIgnored let key = CTAPSecurityKey()
     /// Shows the bar again for the new phase.
     @ObservationIgnored var onPhase: (() -> Void)?
     @ObservationIgnored private var pinReply: CheckedContinuation<String?, Never>?
     @ObservationIgnored private(set) var cancelled: (reason: String, quiet: Bool)?
 
-    init(tab: Tab, origin: String, site: String, doing: String, choice: KeyBackendChoice) {
+    init(tab: Tab, origin: String, site: String, doing: String) {
         self.tab = tab
         self.origin = origin
-        (self.site, self.doing, self.workspace, self.commits, self.choice) = (site, doing, tab.workspace.name, tab.commits, choice)
-        backend = choice.make()
+        (self.site, self.doing, self.workspace, self.commits) = (site, doing, tab.workspace.name, tab.commits)
     }
 
     /// Whether the agent's Events have the current step.
@@ -200,6 +157,6 @@ final class KeyCeremony: KeyUI {
         KeyLog.write("ceremony: cancelled: \(reason)")
         pinReply?.resume(returning: nil)
         pinReply = nil
-        backend.cancel()
+        key.cancel()
     }
 }

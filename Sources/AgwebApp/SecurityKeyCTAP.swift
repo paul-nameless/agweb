@@ -2,10 +2,10 @@ import AgwebCore
 import Foundation
 import IOKit.hid
 
-/// Agweb's own security key client: CTAP2 over USB HID (CTAP.swift has the bytes). Each ceremony runs on a thread of
-/// its own, since every call to the key blocks until it answers or the person touches it.
+/// Agweb's security key client: CTAP2 over USB HID (CTAP.swift has the bytes). One ceremony at a time, each on a thread
+/// of its own, since every call to the key blocks until it answers or the person touches it; `cancel` ends it.
 @MainActor
-final class CTAPSecurityKey: SecurityKeyBackend {
+final class CTAPSecurityKey {
     private var session: CTAPSession?
 
     func create(_ request: KeyCreate, _ ui: KeyUI) async throws -> KeyMade {

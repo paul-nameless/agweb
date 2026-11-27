@@ -163,11 +163,10 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
     func keyStatus(_ workspace: Workspace) -> String {
         let owner = PasskeyOwner(workspace)
         let whose = workspace.profile.map { "profile \($0)" } ?? "fresh workspace \(workspace.name)"
-        let choice = KeyBackendChoice.current
         guard usesKey(owner) else {
             return "security keys off for \(whose): only the person turns them on, in Settings ▸ Passkeys (for one profile or every workspace)"
         }
-        return "security keys on for \(whose), through \(choice.label)\(choice.missing.map { " (unavailable: \($0))" } ?? ""): a site's passkey sign-up, "
+        return "security keys on for \(whose), : a site's passkey sign-up, "
             + "and a sign-in no agweb passkey answers, go to the key plugged into this Mac. The person touches it and types its PIN in the tab's bar, "
             + "so ask them first. Log: \(KeyLog.file.path)" + (enabled ? "" : "\nPasskeys are off in Agweb's Settings, so sites get no answer.")
     }
@@ -180,11 +179,9 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
 
     /// Runs one ceremony on the key, with the tab's bar showing each step.
     private func withKey<T>(_ tab: Tab, origin: String, site: String, doing: String, timeout: TimeInterval,
-                            _ body: (SecurityKeyBackend, KeyUI) async throws -> T) async throws -> T {
+                            _ body: (CTAPSecurityKey, KeyUI) async throws -> T) async throws -> T {
         guard ceremony == nil else { throw Refusal("NotAllowedError", "the security key is busy with another request") }
-        let choice = KeyBackendChoice.current
-        if let missing = choice.missing { throw Refusal("NotAllowedError", "security keys through \(choice.label) can't run here: \(missing)") }
-        let ceremony = KeyCeremony(tab: tab, origin: origin, site: site, doing: doing, choice: choice)
+        let ceremony = KeyCeremony(tab: tab, origin: origin, site: site, doing: doing)
         self.ceremony = ceremony
         ceremony.onPhase = { [weak self, weak tab, weak ceremony] in
             guard let self, let tab, let ceremony, self.ceremony === ceremony else { return }
@@ -192,7 +189,7 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
         }
         ceremony.onPhase?()
         let started = Date()
-        KeyLog.write("ceremony: \(doing) \(site) for \(origin) in workspace \(tab.workspace.name) through \(choice.rawValue), timeout \(Int(timeout))s")
+        KeyLog.write("ceremony: \(doing) \(site) for \(origin) in workspace \(tab.workspace.name), timeout \(Int(timeout))s")
         let timer = Task { [weak ceremony] in
             try? await Task.sleep(for: .seconds(timeout))
             if !Task.isCancelled { ceremony?.cancel("nobody used the security key in time") }
@@ -203,7 +200,7 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
             browser?.mainWindow.hideKey(on: tab.webView)
         }
         do {
-            let result = try await body(ceremony.backend, ceremony)
+            let result = try await body(ceremony.key, ceremony)
             if let cancelled = ceremony.cancelled { throw Refusal("NotAllowedError", cancelled.reason, quiet: cancelled.quiet) }
             KeyLog.write("ceremony: done in \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
             return result
@@ -239,8 +236,8 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
             exclude: (options["excludeCredentials"] as? [[String: Any]] ?? []).compactMap { ($0["id"] as? String).flatMap(WebAuthn.fromBase64url) },
             timeout: Self.keyTimeout(options))
         return Prepared(title: "", detail: "", button: "", key: true) { [self] _ in
-            let made = try await withKey(tab, origin: origin, site: rpID, doing: "create a passkey for", timeout: request.timeout) { backend, ui in
-                try await backend.create(request, ui)
+            let made = try await withKey(tab, origin: origin, site: rpID, doing: "create a passkey for", timeout: request.timeout) { key, ui in
+                try await key.create(request, ui)
             }
             guard let parsed = WebAuthn.parseAttestationObject(made.attestationObject),
                   let authData = WebAuthn.parseAuthenticatorData(parsed.authData), let cose = authData.coseKey,
@@ -276,8 +273,8 @@ final class Passkeys: NSObject, WKScriptMessageHandlerWithReply {
         let request = KeyGet(clientDataHash: [UInt8](SHA256.hash(data: Data(clientData))), rpID: rpID, allow: allow,
                              userVerification: options["userVerification"] as? String ?? "preferred", appID: appID, timeout: Self.keyTimeout(options))
         return Prepared(title: "", detail: "", button: "", key: true) { [self] _ in
-            let signed = try await withKey(tab, origin: origin, site: rpID, doing: "sign in to", timeout: request.timeout) { backend, ui in
-                try await backend.get(request, ui)
+            let signed = try await withKey(tab, origin: origin, site: rpID, doing: "sign in to", timeout: request.timeout) { key, ui in
+                try await key.get(request, ui)
             }
             tab.events.append("signed in to \(rpID) with the security key")
             var reply: [String: Any] = ["id": WebAuthn.base64url(signed.id), "clientDataJSON": WebAuthn.base64url(clientData),
