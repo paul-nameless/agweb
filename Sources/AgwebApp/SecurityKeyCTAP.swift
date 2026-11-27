@@ -300,18 +300,24 @@ private final class CTAPSession: @unchecked Sendable {
             exclude = Array(exclude.prefix(most))
         }
         KeyLog.write("ctap: makeCredential alg \(algorithm), rk \(residentKey), excluding \(exclude.count), attestation wanted \(request.attestation)")
+        var touchRetries = 0, tokenRenewed = false
         var auth = usePIN ? try pinAuth(key, info, permissions: CTAP2.permissionMakeCredential, rpID: request.rpID, clientDataHash: request.clientDataHash) : nil
         while true {
             let command = CTAP2.makeCredential(clientDataHash: request.clientDataHash, rpID: request.rpID, rpName: request.rpName, userID: request.userID,
                                                userName: request.userName, displayName: request.displayName, algorithm: algorithm, exclude: exclude,
                                                residentKey: residentKey, uv: builtIn, auth: auth)
             let (status, body) = try cbor(key, "makeCredential", command, touch: true)
-            // As WebKit does: the key gave up waiting for the touch before the site did, so ask it again.
-            if CTAP2.touchTimeouts.contains(status), !stop() {
+            // As WebKit does: the key gave up waiting for the touch before the site did, so ask it again (paced, a few times).
+            if CTAP2.touchTimeouts.contains(status), !stop(), touchRetries < 10 {
+                touchRetries += 1
                 KeyLog.write("ctap: the key stopped waiting for a touch; asking again")
+                Thread.sleep(forTimeInterval: 0.5)
                 continue
             }
-            if status == CTAP2.pinRequired, auth == nil, info.options["clientPin"] == true {
+            // No PIN token yet, or (after such a retry) the key dropped it: get one, once more at most after a retry.
+            if [CTAP2.pinRequired, CTAP2.pinAuthInvalid].contains(status), info.options["clientPin"] == true,
+               auth == nil ? status == CTAP2.pinRequired : touchRetries > 0 && !tokenRenewed {
+                if auth != nil { tokenRenewed = true }
                 auth = try pinAuth(key, info, permissions: CTAP2.permissionMakeCredential, rpID: request.rpID, clientDataHash: request.clientDataHash)
                 continue
             }
@@ -359,16 +365,22 @@ private final class CTAPSession: @unchecked Sendable {
             }
         }
         KeyLog.write("ctap: getAssertion for \(rpID == request.rpID ? "the rp id" : "the AppID") with \(chunk.count) ids")
+        var touchRetries = 0, tokenRenewed = false
         var auth = usePIN ? try pinAuth(key, info, permissions: CTAP2.permissionGetAssertion, rpID: rpID, clientDataHash: request.clientDataHash) : nil
         while true {
             let command = CTAP2.getAssertion(rpID: rpID, clientDataHash: request.clientDataHash, allow: chunk, uv: builtIn, auth: auth)
             let (status, body) = try cbor(key, "getAssertion", command, touch: true)
-            // As WebKit does: the key gave up waiting for the touch before the site did, so ask it again.
-            if CTAP2.touchTimeouts.contains(status), !stop() {
+            // As WebKit does: the key gave up waiting for the touch before the site did, so ask it again (paced, a few times).
+            if CTAP2.touchTimeouts.contains(status), !stop(), touchRetries < 10 {
+                touchRetries += 1
                 KeyLog.write("ctap: the key stopped waiting for a touch; asking again")
+                Thread.sleep(forTimeInterval: 0.5)
                 continue
             }
-            if status == CTAP2.pinRequired, auth == nil, info.options["clientPin"] == true {
+            // No PIN token yet, or (after such a retry) the key dropped it: get one, once more at most after a retry.
+            if [CTAP2.pinRequired, CTAP2.pinAuthInvalid].contains(status), info.options["clientPin"] == true,
+               auth == nil ? status == CTAP2.pinRequired : touchRetries > 0 && !tokenRenewed {
+                if auth != nil { tokenRenewed = true }
                 auth = try pinAuth(key, info, permissions: CTAP2.permissionGetAssertion, rpID: rpID, clientDataHash: request.clientDataHash)
                 continue
             }
@@ -416,7 +428,8 @@ private final class HIDKey: @unchecked Sendable {
     init(_ device: IOHIDDevice) throws {
         self.device = device
         let input: Int = Self.property(device, kIOHIDMaxInputReportSizeKey) ?? 64, output: Int = Self.property(device, kIOHIDMaxOutputReportSizeKey) ?? 64
-        (inputSize, outputSize) = (input > 0 ? input : 64, output > 0 ? output : 64)
+        // CTAPHID's reports are 64 bytes; a device saying less isn't a FIDO key agweb can frame for.
+        (inputSize, outputSize) = (max(input, 64), max(output, 64))
         buffer = .allocate(capacity: inputSize)
         runLoop = CFRunLoopGetCurrent()
         let opened = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
