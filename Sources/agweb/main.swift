@@ -70,7 +70,7 @@ Targets: a snapshot ref (e12), role=button[name="Save"] or role=heading[level=1]
                                 sleep, or wait until an element shows (or leaves), text or a URL appears, or the
                                 page has loaded with no fetch/XHR in flight
   video-start [path]            record the workspace's tab to MP4 (default .agweb/video-<time>.mp4), with the
-              [--max-idle=S]    pointer drawn in; frames only when something changes; time between commands
+              [--max-idle=S]    pointer drawn in (hand, I-beam or arrow), 30 fps; time between commands
               [--size=WxH]      is cut to S seconds (default 1.5, 0 keeps real time); wait <ms> shows in full;
                                 resize 1280 720 with --size=1280x720 makes about half the file of 1920x1080
   video-stop                    finish the recording and print its path

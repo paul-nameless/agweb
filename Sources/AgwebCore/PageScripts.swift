@@ -732,6 +732,44 @@ public enum PageScripts {
     return 'ok';
     """
 
+    /// For a recording's pointer: the cursor a person would see at `x`, `y` (CSS px in the top viewport), through open
+    /// shadow roots and same-origin frames: "hand", "text" or "arrow". CSS `auto` resolves as WebKit does: a link's hand,
+    /// an editable field's or selectable text's I-beam, else the arrow.
+    public static let cursorAt = """
+    let doc = document, px = x, py = y, el = doc.elementFromPoint(px, py);
+    for (let i = 0; el && i < 50; i++) {
+      const inner = el.shadowRoot?.elementFromPoint(px, py);
+      if (inner && inner !== el && el.shadowRoot.contains(inner)) { el = inner; continue; }
+      let d = null;
+      if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') { try { d = el.contentDocument; } catch {} }
+      if (!d) break;
+      const b = el.getBoundingClientRect();
+      px -= b.left + el.clientLeft; py -= b.top + el.clientTop;
+      doc = d; el = d.elementFromPoint(px, py);
+    }
+    if (!el) return 'arrow';
+    const style = doc.defaultView.getComputedStyle(el);
+    if (style.cursor === 'pointer') return 'hand';
+    if (style.cursor === 'text' || style.cursor === 'vertical-text') return 'text';
+    if (style.cursor !== 'auto') return 'arrow';
+    let up = el;
+    for (; up; up = up.parentElement ?? up.getRootNode().host) {
+      if (['a', 'area'].includes(up.tagName.toLowerCase()) && (up.hasAttribute('href') || up.hasAttribute('xlink:href'))) return 'hand';
+    }
+    const typed = el.tagName === 'INPUT' && ['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(el.type);
+    if (el.isContentEditable || el.tagName === 'TEXTAREA' || typed) return el.matches(':disabled') ? 'arrow' : 'text';
+    if ((style.userSelect || style.webkitUserSelect) === 'none') return 'arrow';
+    // Text right under the point, not merely in the element: a paragraph's margin or a card's padding shows the arrow.
+    const caret = doc.caretRangeFromPoint?.(px, py), node = caret?.startContainer;
+    if (!node || node.nodeType !== 3 || !node.textContent.trim()) return 'arrow';
+    // The characters either side of the caret, not the whole node: a long article's text node has thousands of line boxes.
+    const range = doc.createRange();
+    range.setStart(node, Math.max(0, caret.startOffset - 1));
+    range.setEnd(node, Math.min(node.length, caret.startOffset + 1));
+    for (const r of range.getClientRects()) if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) return 'text';
+    return 'arrow';
+    """
+
     /// For wait: whether the target is on the page and visible (with `attached`, there at all), or with `gone`
     /// whether not; with `enabled`, see below. Several matches fail the wait, as they would fail the action after it, and so does a ref that
     /// is gone for good; with `gone` they count as present and gone.

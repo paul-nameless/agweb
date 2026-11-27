@@ -3,8 +3,9 @@ import AppKit
 import AVFoundation
 import WebKit
 
-/// Records a workspace's current tab to MP4. Frames are written only when the page, the pointer or a click
-/// ring changed, each at its own time, so a still page writes nothing. While the agent is between commands,
+/// Records a workspace's current tab to MP4 at a steady 30 fps: a still page repeats its last picture, which H.264
+/// stores in about 100 bytes, so tools that cut by time (ffmpeg's trim and -ss) find a frame at every instant; with
+/// frames only at changes, a cut started at the next change and lost the time before it. While the agent is between commands,
 /// only the first `maxIdle` seconds are kept: a blinking caret or a spinner changes pixels forever, so
 /// pixel changes alone can't tell a page at rest. The pointer is drawn into the frames, never into the page.
 @MainActor
@@ -17,11 +18,20 @@ final class Recorder {
     private let input: AVAssetWriterInput
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
     private var loop: Task<Void, Never>?
+    /// Video time at `lastWall`, unrounded: rounding each step to the grid lost up to half a frame per tick.
     private var clock = 0.0
+    /// The last 1/30 s slot written, and the one of the last new picture.
+    private var slot = -1
+    private var changedSlot = 0
     private var lastWall: Double?
     private var lastPixels: Data?
     private var lastPointer: CGPoint?
     private var lastHadRing = false
+    /// The cursor the page shows under the pointer, and where and when it was asked last.
+    private var cursor = Cursor.arrow
+    private var lastCursor = Cursor.arrow
+    private var cursorAsked: (point: CGPoint, time: Double, tab: Int)?
+    private var askingCursor = false
     private var lastBuffer: CVPixelBuffer?
     /// Spans of `wait <ms>`: shown whole, never cut like idle time.
     private var holds: [ClosedRange<Double>] = []
@@ -55,9 +65,8 @@ final class Recorder {
         writer.shouldOptimizeForNetworkUse = true
         input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: size.width, AVVideoHeightKey: size.height,
-            // Quality 0.5 keeps text as sharp as the default at about a quarter of the size; a bitrate cap can't:
-            // frames come only when the page changes, so a still page never gets the bits to sharpen. Keyframes
-            // every 10 s, not every 30 frames: at 1080p each costs about 100 KB.
+            // Quality 0.5 keeps text as sharp as the default at about a quarter of the size, and a repeated frame
+            // nearly free. Keyframes every 10 s, not every 30 frames: at 1080p each costs about 100 KB.
             AVVideoCompressionPropertiesKey: [AVVideoQualityKey: 0.5, AVVideoMaxKeyFrameIntervalDurationKey: 10, AVVideoMaxKeyFrameIntervalKey: 300],
         ])
         // Frames are pushed when they exist, not paced by a capture device.
@@ -99,16 +108,21 @@ final class Recorder {
             throw Failure("no frames were recorded; is the window closed, minimized or hidden?")
         }
         guard writer.status == .writing else { throw writer.error ?? Failure("recording to \(url.path) failed") }
-        // The last frame stays until the stop, cut like any idle time, and for at least a second. MP4 ends at its
-        // last frame whatever endSession says, so the frame is written again at the end.
+        // The last picture stays until the stop, cut like any idle time, and for at least a second.
         let now = ProcessInfo.processInfo.systemUptime
-        let end = Self.onGrid(max(time(at: now, idleShown: max(0, (lastWall ?? now) - lastBusy)), clock + 1), after: clock)
-        if let lastBuffer, input.isReadyForMoreMediaData, adaptor.append(lastBuffer, withPresentationTime: CMTime(seconds: end, preferredTimescale: 600)) {
-            clock = end
+        let end = max(time(at: now, idleShown: max(0, (lastWall ?? now) - lastBusy)), Double(changedSlot) / 30 + 1)
+        let endSlot = max(slot, min(Int((end * 30).rounded()), slot + Self.longestGap))
+        if let lastBuffer {
+            while slot < endSlot {
+                for _ in 0..<500 where !input.isReadyForMoreMediaData { try? await Task.sleep(for: .milliseconds(10)) }
+                guard input.isReadyForMoreMediaData, adaptor.append(lastBuffer, withPresentationTime: Self.at(slot + 1)) else { break }
+                slot += 1
+                frames += 1
+            }
         }
         input.markAsFinished()
-        let length = clock + 1.0 / 30
-        writer.endSession(atSourceTime: CMTime(seconds: length, preferredTimescale: 600))
+        let length = Double(slot + 1) / 30
+        writer.endSession(atSourceTime: Self.at(slot + 1))
         await writer.finishWriting()
         if writer.status != .completed { throw writer.error ?? Failure("could not finish \(url.path)") }
         return "### Video\n\(url.path)\n- \(frames) frames, \(String(format: "%.1f", length)) s, \(Int(size.width))x\(Int(size.height))"
@@ -126,24 +140,49 @@ final class Recorder {
         if let click = tab.lastClick, ProcessInfo.processInfo.systemUptime - click.time < Self.ringSeconds {
             ring = ProcessInfo.processInfo.systemUptime - click.time
         }
-        // A moving pointer or a ring means a new frame anyway; skip the bitmap copy then, it slows glides.
-        let moved = tab.pointer != lastPointer || ring != nil || lastHadRing
+        askCursor(tab)
+        // A moving pointer, a new cursor or a ring means a new frame anyway; skip the bitmap copy then, it slows glides.
+        let moved = tab.pointer != lastPointer || cursor != lastCursor || ring != nil || lastHadRing
         let pixels = moved ? nil : image.dataProvider?.data as Data?
-        if !moved, let pixels, pixels == lastPixels { return }
+        let changed = moved || pixels == nil || pixels != lastPixels
         let wall = ProcessInfo.processInfo.systemUptime
-        let time = lastWall == nil ? 0 : Self.onGrid(self.time(at: wall, idleShown: idleShown), after: clock)
+        let time = lastWall == nil ? 0 : self.time(at: wall, idleShown: idleShown)
+        // A new picture takes the next free slot even when it comes early (a click's own capture); the clock stays
+        // unrounded, so the slots catch up with it.
+        // A stretch with no pictures at all (the window hidden, snapshots timing out) shows at most 10 s of the last one.
+        let due = min(Int((time * 30).rounded()), slot + Self.longestGap), target = changed ? max(slot + 1, due) : due
+        // The slots since the last tick repeat the last picture. A writer that can't keep up stops the fill here; the
+        // next tick goes on from where it stopped.
+        if let lastBuffer {
+            while slot + 1 < target || (!changed && slot < target) {
+                guard input.isReadyForMoreMediaData, adaptor.append(lastBuffer, withPresentationTime: Self.at(slot + 1)) else {
+                    if writer.status == .failed { loop?.cancel() }
+                    return
+                }
+                slot += 1
+                frames += 1
+            }
+        }
+        guard changed else {
+            clock = min(time, Double(due) / 30)
+            lastWall = wall
+            return
+        }
         guard input.isReadyForMoreMediaData, let buffer = draw(image, from: rect, pointer: tab.pointer,
                                                                scale: tab.webView.pageZoom * tab.webView.magnification,
                                                                click: tab.lastClick?.point, ring: ring) else { return }
-        guard adaptor.append(buffer, withPresentationTime: CMTime(seconds: time, preferredTimescale: 600)) else {
+        guard adaptor.append(buffer, withPresentationTime: Self.at(target)) else {
             if writer.status == .failed { loop?.cancel() }
             return
         }
-        clock = time
+        slot = target
+        changedSlot = target
+        clock = min(time, Double(due) / 30)
         lastWall = wall
         lastBuffer = buffer
         lastPixels = pixels
         lastPointer = tab.pointer
+        lastCursor = cursor
         lastHadRing = ring != nil
         frames += 1
     }
@@ -164,10 +203,10 @@ final class Recorder {
         return clock + held + (maxIdle > 0 ? min(rest, max(0, maxIdle - idleShown)) : rest)
     }
 
-    /// Frame times on a 1/30 s grid, each after the last: players then see a 30 fps video, not a 600 fps one.
-    private static func onGrid(_ time: Double, after previous: Double) -> Double {
-        max((time * 30).rounded() / 30, previous + 1.0 / 30)
-    }
+    private static let longestGap = 300
+
+    /// A slot's time: frames on a 1/30 s grid.
+    private static func at(_ slot: Int) -> CMTime { CMTime(value: CMTimeValue(slot) * 20, timescale: 600) }
 
     /// The page's viewport: the web view minus the toolbar band a full-size content view puts over it.
     /// Snapshot rects start at the top of the page, below that band, so only the height changes.
@@ -224,8 +263,44 @@ final class Recorder {
             context.setLineWidth(2)
             context.strokeEllipse(in: circle)
         }
-        if let pointer { Self.drawArrow(context, at: flip(pointer)) }
+        if let pointer {
+            switch cursor {
+            case .arrow: Self.drawArrow(context, at: flip(pointer))
+            case .hand: Self.draw(NSCursor.pointingHand, context, at: flip(pointer))
+            case .text: Self.draw(NSCursor.iBeam, context, at: flip(pointer))
+            }
+        }
         return buffer
+    }
+
+    enum Cursor: String { case arrow, hand, text }
+
+    /// Asked when the pointer moves, and twice a second while it rests (the page can change under it: a click that
+    /// opens a menu, a link that loads). Never awaited: a page that is loading or busy would stall the frames, so the
+    /// answer shows from the next tick on.
+    private func askCursor(_ tab: Tab) {
+        guard let pointer = tab.pointer else { cursor = .arrow; return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if let asked = cursorAsked, asked.point == pointer, asked.tab == tab.id, now - asked.time < 0.5 { return }
+        guard !askingCursor else { return }
+        askingCursor = true
+        Task { [weak self] in
+            let answer = try? await tab.call(PageScripts.cursorAt, ["x": pointer.x, "y": pointer.y], timeout: 1)
+            guard let self else { return }
+            self.askingCursor = false
+            // A page that can't answer (loading, an alert open) is asked again in half a second, not every tick.
+            self.cursorAsked = (pointer, ProcessInfo.processInfo.systemUptime, tab.id)
+            if let answer { self.cursor = Cursor(rawValue: answer) ?? .arrow }
+        }
+    }
+
+    /// macOS's own cursor, its hotspot on the pointer, at its size on screen.
+    private static func draw(_ cursor: NSCursor, _ context: CGContext, at point: CGPoint) {
+        let size = cursor.image.size, hot = cursor.hotSpot
+        context.interpolationQuality = .high
+        var rect = CGRect(origin: .zero, size: size)
+        guard let image = cursor.image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return }
+        context.draw(image, in: CGRect(x: point.x - hot.x, y: point.y - (size.height - hot.y), width: size.width, height: size.height))
     }
 
     /// The qa-video skill's arrow: tip at the hotspot, black with a white rim and a soft shadow.
