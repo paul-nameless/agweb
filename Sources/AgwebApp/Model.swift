@@ -699,6 +699,18 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     var downloading: Bool { !downloads.isEmpty }
     @ObservationIgnored var downloadPath: URL?
     @ObservationIgnored var downloadsStarted = 0
+    /// Main-frame loads WebKit was told to download (an attachment, a type it can't show; it then stops the load); the
+    /// downloads they became, numbered as WebKit hands them over (sometimes just after it reports the load stopped),
+    /// the number of each one under way, and how each ended: its saved path, or why it failed. Numbers, as a finished
+    /// download's object identifier can come back for the next one.
+    @ObservationIgnored var pageDownloads = 0
+    @ObservationIgnored var pageDownloadsStarted = 0
+    @ObservationIgnored private var pageDownloadNumbers: [ObjectIdentifier: Int] = [:]
+    @ObservationIgnored var pageDownloadResults: [Int: Result<String, Failure>] = [:]
+    /// `commits` when the agent's snapshot of the whole page (`snapshots[""]`) was taken, the baseline of an action's Changes.
+    @ObservationIgnored var baselineCommits = 0
+    /// `commits` as the agent's last goto, reload, go-back or go-forward in this tab ended.
+    @ObservationIgnored var navigatedCommits = -1
     /// Saved paths, or why a download failed, in the order they ended.
     @ObservationIgnored var downloadsEnded: [Result<String, Failure>] = []
     /// Where each download is written, and the file it replaces once it finishes (`download --filename`).
@@ -836,6 +848,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
     /// `headers`: sent with this page load and its redirects, not its subresources; a load by address later (an
     /// unloaded tab coming back, a relaunch) goes without them.
     func goto(_ url: URL, headers: [String: String] = [:]) async throws {
+        let (pending, wasUnloaded, downloads) = (pendingURL, unloaded, pageDownloads)
         pendingURL = nil
         initialLoad = nil
         unloaded = false
@@ -847,7 +860,13 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
             return
         }
         guard try await load(url, headers: headers) else { return }
-        try await waitForLoad()
+        do {
+            try await waitForLoad()
+        } catch {
+            // A URL that answers with a file leaves the page as it was: one not loaded yet, or unloaded, loads on next use.
+            if pageDownloads != downloads { pendingURL = pending; unloaded = wasUnloaded }
+            throw error
+        }
         // A page that sends itself on by script (an SPA's SSO check) starts that navigation just after loading;
         // wait for it, so the reply shows where the agent really is.
         // A chain (app, then the IdP, then its callback page's own redirect) repeats that until a load stays put.
@@ -1210,6 +1229,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
                 if authWallSeen != nil { workspace.basicAuth[origin]?.refused = true }
             }
         }
+        if download, navigationResponse.isForMainFrame { pageDownloads += 1 }
         if let http {
             requests.append(["kind": navigationResponse.isForMainFrame ? "document" : "frame", "method": "GET", "url": http.url?.absoluteString ?? "",
                              "status": http.statusCode, "statusText": HTTPURLResponse.localizedString(forStatusCode: http.statusCode),
@@ -1235,6 +1255,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         download.delegate = self
+        if navigationResponse.isForMainFrame {
+            pageDownloadsStarted += 1
+            pageDownloadNumbers[ObjectIdentifier(download)] = pageDownloadsStarted
+        }
     }
 
     // MARK: Downloads: saved without a panel, to `download --filename`, else the workspace's download folder.
@@ -1266,12 +1290,16 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKD
         if let target = entry.replaces, (try? FileManager.default.replaceItemAt(target, withItemAt: url)) != nil { url = target }
         events.append("downloaded \(url.path)")
         downloadsEnded.append(.success(url.path))
+        if let number = pageDownloadNumbers.removeValue(forKey: ObjectIdentifier(download)) { pageDownloadResults[number] = .success(url.path) }
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         let url = downloads.removeValue(forKey: ObjectIdentifier(download))?.url
         events.append("download of \(url?.lastPathComponent ?? "a file") failed: \(error.localizedDescription)")
         downloadsEnded.append(.failure(Failure("download failed: \(error.localizedDescription)")))
+        if let number = pageDownloadNumbers.removeValue(forKey: ObjectIdentifier(download)) {
+            pageDownloadResults[number] = .failure(Failure("download failed: \(error.localizedDescription)"))
+        }
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

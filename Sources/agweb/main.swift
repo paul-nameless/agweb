@@ -14,6 +14,8 @@ Targets: a snapshot ref (e12), role=button[name="Save"] or role=heading[level=1]
 
   open [url]                    start the workspace (-p to reuse a named profile's logins)
   goto <url> | reload | go-back | go-forward
+                                a URL that answers with a file (open and tab-new too): waits for the download
+                                and prints its path (--filename: where to save it)
                                 --basic-auth USER --secret-cmd CMD (or USER:PASSWORD), on open too: the login a 401
                                 asks for, for that URL's site, in memory until the workspace closes (with -p, an
                                 accepted one serves the profile's workspaces until agweb quits)
@@ -412,6 +414,9 @@ case "snapshot" where writeAnswerTo != nil, "find" where writeAnswerTo != nil:
 case "open", "goto", "tab-new":
     // A local file wins over a same-named host, the way a shell user would expect.
     if let target = args.first, FileManager.default.fileExists(atPath: absolute(target)) { args[0] = absolute(target) }
+    // Where a URL that answers with a file is saved.
+    if let path = writeAnswerTo { options["filename"] = path }
+    writeAnswerTo = nil
 default:
     break
 }
@@ -472,12 +477,13 @@ if !isServing(socket) {
     if !waitForSocket(15) { fail("agweb did not start listening on \(socket)") }
 }
 
-// Commands time out inside the app (pages 30 s, scripts 30 s, downloads 120 s); this only catches a wedged app.
+// Commands time out inside the app (pages 30 s, scripts 30 s, downloads 120 s, after the page's 30 s for a URL that
+// answers with a file); this only catches a wedged app.
 // Typing at a person's pace averages about 0.25 s a key, so long text gets longer.
 // A wait gets its own timeout, or its fixed pause, plus room for the reply.
 // wait, and actions waiting for their target, may take up to --timeout before they answer.
 let waitSeconds = max(Int(options["timeout"] ?? "") ?? (command == "wait" ? 30_000 : command == "ask" ? 600_000 : 0), command == "wait" ? Int(args.first ?? "") ?? 0 : 0) / 1000 + 30
-let timeout = max(command == "download" ? 200 : 120, waitSeconds) + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
+let timeout = max(["download", "goto", "open", "tab-new"].contains(command) ? 200 : 120, waitSeconds) + (command == "type" && options["instant"] == nil ? args.joined().count : 0)
 guard let response = sendRequest(Request(workspace: workspace, command: command, args: args, options: options, timeout: timeout), path: socket, timeout: timeout) else {
     fail("no response from agweb on \(socket)")
 }

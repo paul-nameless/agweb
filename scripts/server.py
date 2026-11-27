@@ -2,7 +2,7 @@
 # and ?challenge=1 for a page shaped like Cloudflare's challenge (its header, its widget's hidden input), ?basic=USER:PASS
 # for a page behind a Basic login (each wrong try a line in auth.log), ?bearer=1 for a 401 asking for a token. A
 # POST to /order gets a "Posted" page and a line in posts.log, so a test can see a form sent twice; any other POST
-# gets 501, as from python's static server.
+# gets 501, as from python's static server. ?attach=NAME sends the file as an attachment named NAME.
 import base64, sys, time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -29,6 +29,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
+        self.attach = query.get("attach", [None])[0]
         if "challenge" in query:
             body = (b'<title>Just a moment...</title><h1>Performing security verification</h1>'
                     b'<div style="margin: 40px; width: 300px; height: 65px"><input type="hidden" id="cf-chl-widget-test_response"></div>')
@@ -40,6 +41,11 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(body)
             return
         super().do_GET()
+
+    def end_headers(self):
+        if getattr(self, "attach", None):
+            self.send_header("Content-Disposition", 'attachment; filename="%s"' % self.attach)
+        super().end_headers()
 
     def do_POST(self):
         self.rfile.read(int(self.headers.get("Content-Length", 0)))

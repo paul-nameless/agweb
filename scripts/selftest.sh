@@ -588,6 +588,18 @@ check "$dir/dl/saved.html" -w net download '#dl' --filename="$dir/dl/saved.html"
 check "Page" -w net click '#dl' --download-dir="$dir/dd"
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$dir/dd/saved.html" ] && break; sleep 0.3; done
 [ -s "$dir/dd/saved.html" ] || fail "a download the click started did not go to --download-dir"
+# A URL that answers with a file: WebKit downloads it and stops the load; goto, open and tab-new wait for the
+# download and print where it went, and the page stays as it was.
+check "^$dir/downloads/report.html$" -w net goto "$u?attach=report.html"
+[ -s "$dir/downloads/report.html" ] || fail "goto to an attachment did not save it"
+check "URL: $u\$" -w net goto "$u?attach=named.html" --filename="$dir/dl/named.html"
+[ -s "$dir/dl/named.html" ] && grep -q "agweb test" "$dir/dl/named.html" || fail "goto --filename did not save the file there"
+check "^$dir/downloads/first.html$" -w attach open "$u?attach=first.html"
+check "closed" -w attach close
+# Changes start from the page as it is: a goto between the agent's snapshot and an action is not the action navigating.
+check "Snapshot" -w net snapshot
+check "Page" -w net goto "$u"
+lacks "navigated" -w net fill '#q' changed
 check 'prompt() gets "Paul"' -w net dialog-accept Paul
 check 'answered with "Paul"' -w net click '#pr'
 check "will be dismissed" -w net dialog-dismiss

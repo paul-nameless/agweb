@@ -620,7 +620,9 @@ final class Browser {
             if let text = args.first {
                 let url = try Address.url(text)
                 try storeBasicAuth(options, for: url, in: workspace)
-                try await tab.goto(url, headers: try headers(options))
+                if let saved = try await goto(tab, url, headers: try headers(options), to: options["filename"]) {
+                    return "### Download\n\(saved)\n" + describe(tab)
+                }
             } else {
                 try await tab.loadIfPending()
             }
@@ -684,7 +686,9 @@ final class Browser {
                 // Loading it is the agent's work, though nothing wakes it: the green dot shows meanwhile.
                 let address = try Address.url(url)
                 workspace.working(on: tab)
-                try await tab.goto(address)
+                if let saved = try await goto(tab, address, to: options["filename"]) {
+                    return "### Download\n\(saved)\n" + describe(tab)
+                }
                 // The list shows where it landed; left pending, the note would sit by the next command's URL.
                 tab.events.removeAll { $0.hasPrefix("redirected") }
             }
@@ -804,12 +808,27 @@ final class Browser {
         if tab.movedSinceSeen {
             tab.events.append("the tab moved since your last command, to \(tab.currentURL) (a click in the window or the page itself); agweb history lists the way")
         }
-        defer { tab.markSeen() }
+        defer {
+            tab.markSeen()
+            if ["goto", "reload", "go-back", "go-forward"].contains(request.command) { tab.navigatedCommits = tab.commits }
+        }
         let instant = options["instant"] != nil
         if options["js"] == nil {
             let targets = request.command == "drag" ? Array(args.prefix(2)) : request.command == "mousewheel" ? Array(args.dropFirst(2).prefix(1)) : Self.actsOnTarget.contains(request.command) ? Array(args.prefix(1)) : []
             for target in targets { try await awaitTarget(tab, target, request.command, options) }
             // Calls the page made while the action waited are not the action's.
+            tab.commandStart = Date().timeIntervalSince1970 * 1000
+        }
+        // The page changed since the agent's snapshot (a goto, a reload, a redirect of its own): this action's Changes
+        // start from the page as it is now, not from the old one, which would read as this action navigating.
+        // Only for the agent's own goto, reload or history step: a page that moved on by itself after the last action
+        // (a form sent by script) did navigate, and the reply says so. Not for wait, which may see such a load.
+        if Self.reportsChanges.contains(request.command), tab.snapshots[""] != nil, tab.baselineCommits != tab.commits,
+           tab.commits == tab.navigatedCommits {
+            let commits = tab.commits
+            tab.snapshots[""] = try? await snapshotTree(tab, "")
+            tab.baselineCommits = commits
+            // Calls the page made meanwhile are not the action's.
             tab.commandStart = Date().timeIntervalSince1970 * 1000
         }
         let urlBefore = tab.currentURL
@@ -818,7 +837,9 @@ final class Browser {
         case "goto":
             let url = try Address.url(try arg(0, "url"))
             try storeBasicAuth(options, for: url, in: workspace)
-            try await tab.goto(url, headers: try headers(options))
+            if let saved = try await goto(tab, url, headers: try headers(options), to: options["filename"]) {
+                return "### Download\n\(saved)\n" + describe(tab)
+            }
         case "reload":
             // Before the call: WebKit may ask about the navigation before reload() returns.
             tab.resubmitAllowed = true
@@ -839,10 +860,14 @@ final class Browser {
             let target = args.first ?? ""
             // --filename (the CLI writes the file) takes every line; past the cap it isn't kept for diffs, which compare capped trees.
             let whole = options["whole"] != nil && options["diff"] == nil
+            let commits = tab.commits
             let snapshot = try await snapshotTree(tab, target, whole: whole)
             let last = tab.snapshots[target]
             if tab.snapshots.count > 8 { tab.snapshots = tab.snapshots.filter { $0.key.isEmpty } }
-            if !whole || snapshot.tree.utf8.lazy.filter({ $0 == 10 }).count < PageScripts.maxSnapshotLines { tab.snapshots[target] = snapshot }
+            if !whole || snapshot.tree.utf8.lazy.filter({ $0 == 10 }).count < PageScripts.maxSnapshotLines {
+                tab.snapshots[target] = snapshot
+                if target.isEmpty { tab.baselineCommits = commits }
+            }
             let tree = snapshot.tree
             // Refs last as long as their element, so a line that didn't change is the same element.
             if options["diff"] != nil, let last, last.doc == snapshot.doc {
@@ -1277,6 +1302,32 @@ final class Browser {
         for _ in 0..<1200 where tab.downloadsEnded.count == ended { try await Task.sleep(for: .milliseconds(100)) }
         guard let result = tab.downloadsEnded.dropFirst(ended).first else { throw Failure("the download did not finish within 2 minutes") }
         return try result.get()
+    }
+
+    /// Loads `url` in the tab (goto, open, tab-new). A URL that answers with a file (an attachment, a type WebKit can't
+    /// show) is downloaded, to `path` if given, and WebKit stops the load ("Frame load interrupted"): then the saved
+    /// path, once that download ends.
+    private func goto(_ tab: Tab, _ url: URL, headers: [String: String] = [:], to path: String?) async throws -> String? {
+        tab.downloadPath = path.map { URL(fileURLWithPath: $0) }
+        defer { tab.downloadPath = nil }
+        let (decided, started, address) = (tab.pageDownloads, tab.pageDownloadsStarted, tab.url)
+        do {
+            try await tab.goto(url, headers: headers)
+            return nil
+        } catch {
+            guard tab.pageDownloads > decided else { throw error }
+            // The page stays as it was: the file's address, which WebKit showed while asking, is not the tab's.
+            tab.url = address
+            for _ in 0..<50 where tab.pageDownloadsStarted == started { try await Task.sleep(for: .milliseconds(100)) }
+            guard tab.pageDownloadsStarted > started else { throw error }
+            let download = started + 1
+            tab.pageDownloadResults = tab.pageDownloadResults.filter { $0.key >= download }
+            for _ in 0..<1200 where tab.pageDownloadResults[download] == nil { try await Task.sleep(for: .milliseconds(100)) }
+            guard let result = tab.pageDownloadResults.removeValue(forKey: download) else {
+                throw Failure("\(url.lastPathComponent) did not finish downloading within 2 minutes; it goes on, and Events lists it once saved")
+            }
+            return try result.get()
+        }
     }
 
     /// PNG, or JPEG at 0.85, straight from the CGImage: through a TIFF and an NSBitmapImageRep took most of the time.
@@ -2200,12 +2251,14 @@ final class Browser {
             out.append("- call: \(call["method"] as? String ?? "GET") \(url.prefix(120)) => \(status)")
         }
         if calls.count > 10 { out.append("- (\(calls.count - 10) more calls; requests to see them)") }
+        let commits = tab.commits
         if let last = tab.snapshots[""], let snapshot = try? await snapshotTree(tab, "") {
             if snapshot.doc != last.doc {
                 tab.snapshots[""] = nil
                 out.append("- navigated: snapshot for the new page")
             } else {
                 tab.snapshots[""] = snapshot
+                tab.baselineCommits = commits
                 let lines = Snapshot.diff(from: last.tree, to: snapshot.tree)?.split(separator: "\n").map(String.init) ?? []
                 let limit = 20
                 out += lines.prefix(limit)
